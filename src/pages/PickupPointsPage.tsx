@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
+import { MultiImageUpload } from '../components/MultiImageUpload';
 
 interface BusinessHours {
   monday?: string;
@@ -23,6 +24,7 @@ interface PickupPoint {
   contact_phone: string | null;
   contact_person: string | null;
   working_hours: BusinessHours | string | null;
+  photos: string[];
   status: string;
   is_active?: boolean;
   created_at: string;
@@ -38,6 +40,7 @@ interface FormData {
   contact_phone: string;
   contact_person: string;
   working_hours: BusinessHours;
+  photos: string[];
   status: string;
 }
 
@@ -61,6 +64,7 @@ const emptyPickupPoint: FormData = {
   contact_phone: '',
   contact_person: '',
   working_hours: emptyBusinessHours,
+  photos: [],
   status: 'ACTIVE',
 };
 
@@ -164,6 +168,7 @@ export default function PickupPointsPage() {
         contact_phone: point.contact_phone || '',
         contact_person: point.contact_person || '',
         working_hours: parseBusinessHours(point.working_hours),
+        photos: Array.isArray(point.photos) ? point.photos : [],
         status: point.status || 'ACTIVE',
       });
     } else {
@@ -199,6 +204,7 @@ export default function PickupPointsPage() {
         contact_phone: formData.contact_phone || null,
         contact_person: formData.contact_person || null,
         working_hours: formData.working_hours,
+        photos: formData.photos,
         status: formData.status,
       };
 
@@ -587,6 +593,18 @@ export default function PickupPointsPage() {
                     );
                   })}
                 </div>
+              </div>
+
+              {/* 自提点照片 */}
+              <div>
+                <MultiImageUpload
+                  label="自提点照片（最多3张）"
+                  bucket="avatars"
+                  folder="pickup-points"
+                  maxImages={3}
+                  imageUrls={formData.photos}
+                  onImageUrlsChange={(urls) => setFormData({ ...formData, photos: urls })}
+                />
               </div>
 
               {/* 启用状态 */}
