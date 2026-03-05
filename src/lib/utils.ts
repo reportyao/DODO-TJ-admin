@@ -94,8 +94,11 @@ export function formatTimeRemaining(endTime: string): string {
 
 // 获取钱包类型文本
 export function getWalletTypeText(type: string): string {
+  // 【资金安全修复 v4】标准钱包类型: TJS=余额, LUCKY_COIN=积分
+  // 保留 BALANCE 映射以兼容历史数据
   const typeMap: Record<string, string> = {
-    'BALANCE': '余额',
+    'TJS': '余额',
+    'BALANCE': '余额',  // 兼容旧数据
     'LUCKY_COIN': '积分'
   };
   return typeMap[type] || type;
