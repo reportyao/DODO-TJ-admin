@@ -7,11 +7,13 @@
  * 2. 统计概览 - 今日/本周/本月充值汇总
  * 3. 地推人员维度统计 - 按地推人员分组的充值统计
  * 4. 导出功能 - 导出充值记录为CSV
+ * 5. 数据一致性校验 - 交叉验证资金数据
  * 
  * 设计原则：
+ * - 所有金额计算在数据库 RPC 函数中完成，确保 NUMERIC 精度
+ * - 时区统一使用 Asia/Dushanbe，前端只传日期不传时间
+ * - 单次 RPC 调用返回所有需要的数据，避免多次往返
  * - 与现有管理后台页面保持一致的代码风格
- * - 使用相同的UI组件库（shadcn/ui）
- * - 遵循现有的数据获取和错误处理模式
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSupabase } from '../contexts/SupabaseContext';
@@ -37,6 +39,9 @@ import {
   Filter,
   ChevronLeft,
   ChevronRight,
+  ShieldCheck,
+  AlertTriangle,
+  CheckCircle,
 } from 'lucide-react';
 
 // ============================================================
@@ -51,9 +56,9 @@ interface PromoterDeposit {
   currency: string;
   status: string;
   note: string | null;
-  bonus_amount: number | null;
+  bonus_amount: number;
   created_at: string;
-  // Joined fields
+  // Joined fields from RPC
   promoter_name: string;
   promoter_telegram_id: string;
   target_user_name: string;
@@ -70,6 +75,7 @@ interface PromoterStats {
   total_amount: number;
   total_bonus: number;
   daily_deposit_limit: number;
+  today_used: number;
 }
 
 interface SummaryStats {
@@ -80,7 +86,39 @@ interface SummaryStats {
   unique_users: number;
 }
 
+interface CrossCheckResult {
+  check_time: string;
+  all_consistent: boolean;
+  deposits: { total_amount: number; total_bonus: number; count: number };
+  wallet_transactions: { deposit_total: number; deposit_count: number; bonus_total: number; bonus_count: number };
+  settlements: { total_amount: number; total_count: number };
+  orphan_deposits: number;
+  amount_match: boolean;
+  bonus_match: boolean;
+  settlement_match: boolean;
+  issues: string[];
+}
+
 type DateRange = 'today' | 'week' | 'month' | 'custom';
+
+// ============================================================
+// Helpers - 安全的数字转换
+// ============================================================
+
+/**
+ * 安全地将 Supabase 返回的值转换为数字
+ * Supabase REST API 会将 NUMERIC 类型返回为字符串
+ * 此函数确保无论输入是 string 还是 number，都能正确转换
+ */
+function safeNumber(val: any): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string') {
+    const parsed = parseFloat(val);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+}
 
 // ============================================================
 // Main Component
@@ -107,7 +145,7 @@ export default function PromoterDepositManagementPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedPromoterId, setSelectedPromoterId] = useState<string>('all');
 
-  // Pagination
+  // Pagination (managed by RPC)
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const pageSize = 20;
@@ -118,24 +156,34 @@ export default function PromoterDepositManagementPage() {
   // Active tab
   const [activeTab, setActiveTab] = useState<'records' | 'promoter_stats'>('records');
 
+  // Cross-check
+  const [crossCheckResult, setCrossCheckResult] = useState<CrossCheckResult | null>(null);
+  const [crossCheckLoading, setCrossCheckLoading] = useState(false);
+  const [showCrossCheck, setShowCrossCheck] = useState(false);
+
   // ============================================================
   // Date range helpers
+  // 使用本地日期格式 YYYY-MM-DD，时区转换由 RPC 函数处理
   // ============================================================
 
   const getDateRange = useCallback((): { start: string; end: string } => {
+    // 使用 Asia/Dushanbe 时区获取当前日期
     const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    const dushanbeOffset = 5 * 60; // UTC+5
+    const localOffset = now.getTimezoneOffset();
+    const dushanbeTime = new Date(now.getTime() + (dushanbeOffset + localOffset) * 60000);
+    const todayStr = dushanbeTime.toISOString().split('T')[0];
 
     switch (dateRange) {
       case 'today':
         return { start: todayStr, end: todayStr };
       case 'week': {
-        const weekAgo = new Date(now);
+        const weekAgo = new Date(dushanbeTime);
         weekAgo.setDate(weekAgo.getDate() - 6);
         return { start: weekAgo.toISOString().split('T')[0], end: todayStr };
       }
       case 'month': {
-        const monthAgo = new Date(now);
+        const monthAgo = new Date(dushanbeTime);
         monthAgo.setDate(monthAgo.getDate() - 29);
         return { start: monthAgo.toISOString().split('T')[0], end: todayStr };
       }
@@ -150,97 +198,37 @@ export default function PromoterDepositManagementPage() {
   }, [dateRange, customStartDate, customEndDate]);
 
   // ============================================================
-  // Data fetching
+  // Data fetching - 使用 RPC 聚合函数
   // ============================================================
 
   const fetchDeposits = useCallback(async () => {
     setLoading(true);
     try {
       const { start, end } = getDateRange();
-      const startDate = `${start}T00:00:00.000Z`;
-      const endDate = `${end}T23:59:59.999Z`;
 
-      // Build query
-      let query = supabase
-        .from('promoter_deposits')
-        .select('*', { count: 'exact' })
-        .gte('created_at', startDate)
-        .lte('created_at', endDate)
-        .order('created_at', { ascending: false });
-
-      if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter);
-      }
-
-      if (selectedPromoterId !== 'all') {
-        query = query.eq('promoter_id', selectedPromoterId);
-      }
-
-      // Pagination
-      const from = (page - 1) * pageSize;
-      const to = from + pageSize - 1;
-      query = query.range(from, to);
-
-      const { data, error, count } = await query;
+      const { data, error } = await supabase.rpc('get_admin_deposit_list', {
+        p_start_date: start,
+        p_end_date: end,
+        p_status: statusFilter === 'all' ? null : statusFilter,
+        p_promoter_id: selectedPromoterId === 'all' ? null : selectedPromoterId,
+        p_search: searchTerm.trim() || null,
+        p_page: page,
+        p_page_size: pageSize,
+      });
 
       if (error) throw error;
 
-      setTotalCount(count || 0);
+      const result = data as any;
+      setTotalCount(safeNumber(result.total_count));
 
-      if (!data || data.length === 0) {
-        setDeposits([]);
-        setLoading(false);
-        return;
-      }
+      // 安全转换金额字段
+      const records: PromoterDeposit[] = (result.records || []).map((d: any) => ({
+        ...d,
+        amount: safeNumber(d.amount),
+        bonus_amount: safeNumber(d.bonus_amount),
+      }));
 
-      // Fetch related user info
-      const promoterIds = [...new Set(data.map((d: any) => d.promoter_id))];
-      const targetUserIds = [...new Set(data.map((d: any) => d.target_user_id))];
-      const allUserIds = [...new Set([...promoterIds, ...targetUserIds])];
-
-      const { data: usersData } = await supabase
-        .from('users')
-        .select('id, first_name, last_name, telegram_id, telegram_username')
-        .in('id', allUserIds);
-
-      const userMap = new Map<string, any>();
-      usersData?.forEach((u: any) => {
-        userMap.set(u.id, u);
-      });
-
-      const enrichedDeposits: PromoterDeposit[] = data.map((d: any) => {
-        const promoter = userMap.get(d.promoter_id);
-        const target = userMap.get(d.target_user_id);
-        return {
-          ...d,
-          promoter_name: promoter
-            ? [promoter.first_name, promoter.last_name].filter(Boolean).join(' ') || promoter.telegram_username || '未知'
-            : '未知',
-          promoter_telegram_id: promoter?.telegram_id || '',
-          target_user_name: target
-            ? [target.first_name, target.last_name].filter(Boolean).join(' ') || target.telegram_username || '未知'
-            : '未知',
-          target_telegram_id: target?.telegram_id || '',
-          target_telegram_username: target?.telegram_username || '',
-        };
-      });
-
-      // Apply search filter client-side
-      let filtered = enrichedDeposits;
-      if (searchTerm.trim()) {
-        const term = searchTerm.toLowerCase().trim();
-        filtered = enrichedDeposits.filter(
-          (d) =>
-            d.promoter_name.toLowerCase().includes(term) ||
-            d.target_user_name.toLowerCase().includes(term) ||
-            d.promoter_telegram_id.includes(term) ||
-            d.target_telegram_id.includes(term) ||
-            d.target_telegram_username.toLowerCase().includes(term) ||
-            d.id.toLowerCase().includes(term)
-        );
-      }
-
-      setDeposits(filtered);
+      setDeposits(records);
     } catch (err: any) {
       console.error('Error fetching deposits:', err);
       toast.error('加载充值记录失败: ' + err.message);
@@ -252,38 +240,21 @@ export default function PromoterDepositManagementPage() {
   const fetchSummary = useCallback(async () => {
     try {
       const { start, end } = getDateRange();
-      const startDate = `${start}T00:00:00.000Z`;
-      const endDate = `${end}T23:59:59.999Z`;
 
-      const { data, error } = await supabase
-        .from('promoter_deposits')
-        .select('id, promoter_id, target_user_id, amount, bonus_amount, status')
-        .gte('created_at', startDate)
-        .lte('created_at', endDate)
-        .eq('status', 'COMPLETED');
+      const { data, error } = await supabase.rpc('get_admin_deposit_summary', {
+        p_start_date: start,
+        p_end_date: end,
+      });
 
       if (error) throw error;
 
-      if (!data || data.length === 0) {
-        setSummary({
-          total_count: 0,
-          total_amount: 0,
-          total_bonus: 0,
-          unique_promoters: 0,
-          unique_users: 0,
-        });
-        return;
-      }
-
-      const promoterSet = new Set(data.map((d: any) => d.promoter_id));
-      const userSet = new Set(data.map((d: any) => d.target_user_id));
-
+      const result = data as any;
       setSummary({
-        total_count: data.length,
-        total_amount: data.reduce((sum: number, d: any) => sum + (d.amount || 0), 0),
-        total_bonus: data.reduce((sum: number, d: any) => sum + (d.bonus_amount || 0), 0),
-        unique_promoters: promoterSet.size,
-        unique_users: userSet.size,
+        total_count: safeNumber(result.total_count),
+        total_amount: safeNumber(result.total_amount),
+        total_bonus: safeNumber(result.total_bonus),
+        unique_promoters: safeNumber(result.unique_promoters),
+        unique_users: safeNumber(result.unique_users),
       });
     } catch (err: any) {
       console.error('Error fetching summary:', err);
@@ -293,90 +264,72 @@ export default function PromoterDepositManagementPage() {
   const fetchPromoterStats = useCallback(async () => {
     try {
       const { start, end } = getDateRange();
-      const startDate = `${start}T00:00:00.000Z`;
-      const endDate = `${end}T23:59:59.999Z`;
 
-      // Fetch all completed deposits in range
-      const { data: depositsData, error: dError } = await supabase
-        .from('promoter_deposits')
-        .select('promoter_id, amount, bonus_amount')
-        .gte('created_at', startDate)
-        .lte('created_at', endDate)
-        .eq('status', 'COMPLETED');
-
-      if (dError) throw dError;
-
-      if (!depositsData || depositsData.length === 0) {
-        setPromoterStats([]);
-        return;
-      }
-
-      // Group by promoter
-      const statsMap = new Map<string, { count: number; amount: number; bonus: number }>();
-      depositsData.forEach((d: any) => {
-        const existing = statsMap.get(d.promoter_id) || { count: 0, amount: 0, bonus: 0 };
-        existing.count += 1;
-        existing.amount += d.amount || 0;
-        existing.bonus += d.bonus_amount || 0;
-        statsMap.set(d.promoter_id, existing);
+      const { data, error } = await supabase.rpc('get_admin_promoter_stats', {
+        p_start_date: start,
+        p_end_date: end,
       });
 
-      const promoterIds = [...statsMap.keys()];
+      if (error) throw error;
 
-      // Fetch promoter profiles
-      const { data: profilesData } = await supabase
-        .from('promoter_profiles')
-        .select('user_id, daily_deposit_limit, team_id')
-        .in('user_id', promoterIds);
+      // 安全转换所有金额字段
+      const stats: PromoterStats[] = ((data as any[]) || []).map((s: any) => ({
+        promoter_id: s.promoter_id,
+        promoter_name: s.promoter_name || '未知',
+        telegram_id: s.telegram_id || '',
+        team_name: s.team_name || '--',
+        deposit_count: safeNumber(s.deposit_count),
+        total_amount: safeNumber(s.total_amount),
+        total_bonus: safeNumber(s.total_bonus),
+        daily_deposit_limit: safeNumber(s.daily_deposit_limit),
+        today_used: safeNumber(s.today_used),
+      }));
 
-      // Fetch user names
-      const { data: usersData } = await supabase
-        .from('users')
-        .select('id, first_name, last_name, telegram_id')
-        .in('id', promoterIds);
-
-      // Fetch team names
-      const teamIds = [...new Set((profilesData || []).map((p: any) => p.team_id).filter(Boolean))];
-      let teamMap = new Map<string, string>();
-      if (teamIds.length > 0) {
-        const { data: teamsData } = await supabase
-          .from('promoter_teams')
-          .select('id, name')
-          .in('id', teamIds);
-        teamsData?.forEach((t: any) => teamMap.set(t.id, t.name));
-      }
-
-      const userMap = new Map<string, any>();
-      usersData?.forEach((u: any) => userMap.set(u.id, u));
-
-      const profileMap = new Map<string, any>();
-      profilesData?.forEach((p: any) => profileMap.set(p.user_id, p));
-
-      const stats: PromoterStats[] = promoterIds.map((pid) => {
-        const s = statsMap.get(pid)!;
-        const user = userMap.get(pid);
-        const profile = profileMap.get(pid);
-        return {
-          promoter_id: pid,
-          promoter_name: user
-            ? [user.first_name, user.last_name].filter(Boolean).join(' ') || '未知'
-            : '未知',
-          telegram_id: user?.telegram_id || '',
-          team_name: profile?.team_id ? (teamMap.get(profile.team_id) || '--') : '--',
-          deposit_count: s.count,
-          total_amount: s.amount,
-          total_bonus: s.bonus,
-          daily_deposit_limit: profile?.daily_deposit_limit ?? 5000,
-        };
-      });
-
-      // Sort by total amount descending
-      stats.sort((a, b) => b.total_amount - a.total_amount);
       setPromoterStats(stats);
     } catch (err: any) {
       console.error('Error fetching promoter stats:', err);
     }
   }, [supabase, getDateRange]);
+
+  // ============================================================
+  // Cross-check - 数据一致性校验
+  // ============================================================
+
+  const runCrossCheck = async () => {
+    setCrossCheckLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('get_admin_deposit_cross_check');
+      if (error) throw error;
+
+      const result = data as any;
+      setCrossCheckResult({
+        ...result,
+        deposits: {
+          total_amount: safeNumber(result.deposits?.total_amount),
+          total_bonus: safeNumber(result.deposits?.total_bonus),
+          count: safeNumber(result.deposits?.count),
+        },
+        wallet_transactions: {
+          deposit_total: safeNumber(result.wallet_transactions?.deposit_total),
+          deposit_count: safeNumber(result.wallet_transactions?.deposit_count),
+          bonus_total: safeNumber(result.wallet_transactions?.bonus_total),
+          bonus_count: safeNumber(result.wallet_transactions?.bonus_count),
+        },
+        settlements: {
+          total_amount: safeNumber(result.settlements?.total_amount),
+          total_count: safeNumber(result.settlements?.total_count),
+        },
+        orphan_deposits: safeNumber(result.orphan_deposits),
+        issues: result.issues || [],
+      });
+      setShowCrossCheck(true);
+    } catch (err: any) {
+      console.error('Error running cross-check:', err);
+      toast.error('数据校验失败: ' + err.message);
+    } finally {
+      setCrossCheckLoading(false);
+    }
+  };
 
   // ============================================================
   // Effects
@@ -413,9 +366,9 @@ export default function PromoterDepositManagementPage() {
       d.promoter_telegram_id,
       d.target_user_name,
       d.target_telegram_id,
-      d.amount,
-      d.bonus_amount || 0,
-      d.status === 'COMPLETED' ? '已完成' : d.status,
+      d.amount.toFixed(2),
+      d.bonus_amount.toFixed(2),
+      d.status === 'COMPLETED' ? '已完成' : d.status === 'FAILED' ? '失败' : d.status,
       d.note || '',
       new Date(d.created_at).toLocaleString('zh-CN'),
     ]);
@@ -467,6 +420,16 @@ export default function PromoterDepositManagementPage() {
           <p className="text-sm text-gray-500 mt-1">查看和管理地推人员的代客充值记录</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={runCrossCheck}
+            disabled={crossCheckLoading}
+            title="数据一致性校验"
+          >
+            <ShieldCheck className={`w-4 h-4 mr-1 ${crossCheckLoading ? 'animate-spin' : ''}`} />
+            对账校验
+          </Button>
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loading}>
             <RefreshCw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
             刷新
@@ -675,7 +638,7 @@ export default function PromoterDepositManagementPage() {
                           +{formatAmount(d.amount)} TJS
                         </TableCell>
                         <TableCell className="text-right text-sm">
-                          {d.bonus_amount && d.bonus_amount > 0 ? (
+                          {d.bonus_amount > 0 ? (
                             <span className="text-orange-500">+{formatAmount(d.bonus_amount)}</span>
                           ) : (
                             <span className="text-gray-300">--</span>
@@ -684,7 +647,7 @@ export default function PromoterDepositManagementPage() {
                         <TableCell>
                           <span
                             className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                             d.status === 'COMPLETED'
+                              d.status === 'COMPLETED'
                                 ? 'bg-green-100 text-green-700'
                                 : d.status === 'FAILED'
                                 ? 'bg-red-100 text-red-700'
@@ -762,7 +725,7 @@ export default function PromoterDepositManagementPage() {
                     <TableHead className="text-right">充值笔数</TableHead>
                     <TableHead className="text-right">充值总额</TableHead>
                     <TableHead className="text-right">首充奖励</TableHead>
-                    <TableHead className="text-right">日额度</TableHead>
+                    <TableHead className="text-right">今日已用/日额度</TableHead>
                     <TableHead>操作</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -779,8 +742,11 @@ export default function PromoterDepositManagementPage() {
                       <TableCell className="text-right text-sm text-orange-500">
                         {s.total_bonus > 0 ? `${formatAmount(s.total_bonus)} TJS` : '--'}
                       </TableCell>
-                      <TableCell className="text-right text-sm text-gray-600">
-                        {formatAmount(s.daily_deposit_limit)} TJS
+                      <TableCell className="text-right text-sm">
+                        <span className={s.today_used >= s.daily_deposit_limit ? 'text-red-600 font-medium' : 'text-gray-600'}>
+                          {formatAmount(s.today_used)}
+                        </span>
+                        <span className="text-gray-400"> / {formatAmount(s.daily_deposit_limit)}</span>
                       </TableCell>
                       <TableCell>
                         <button
@@ -849,7 +815,7 @@ export default function PromoterDepositManagementPage() {
                 <div>
                   <p className="text-gray-500">首充奖励</p>
                   <p className="text-lg font-bold text-orange-500">
-                    {selectedDeposit.bonus_amount && selectedDeposit.bonus_amount > 0
+                    {selectedDeposit.bonus_amount > 0
                       ? `+${formatAmount(selectedDeposit.bonus_amount)} TJS`
                       : '--'}
                   </p>
@@ -867,6 +833,118 @@ export default function PromoterDepositManagementPage() {
               </div>
               <div className="flex justify-end pt-2">
                 <Button variant="outline" onClick={() => setSelectedDeposit(null)}>
+                  关闭
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ==================== Cross-Check Dialog ==================== */}
+      <Dialog open={showCrossCheck} onOpenChange={setShowCrossCheck}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5" />
+              数据一致性校验报告
+            </DialogTitle>
+          </DialogHeader>
+          {crossCheckResult && (
+            <div className="space-y-4">
+              {/* Overall status */}
+              <div className={`p-3 rounded-lg flex items-center gap-2 ${
+                crossCheckResult.all_consistent
+                  ? 'bg-green-50 text-green-700'
+                  : 'bg-red-50 text-red-700'
+              }`}>
+                {crossCheckResult.all_consistent ? (
+                  <CheckCircle className="w-5 h-5" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5" />
+                )}
+                <span className="font-medium">
+                  {crossCheckResult.all_consistent
+                    ? '所有数据一致，资金安全'
+                    : '发现数据不一致，请立即检查！'}
+                </span>
+              </div>
+
+              {/* Detail table */}
+              <div className="text-sm space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-gray-50 p-2 rounded">
+                    <p className="text-gray-500 text-xs">充值记录总额</p>
+                    <p className="font-bold">{formatAmount(crossCheckResult.deposits.total_amount)} TJS</p>
+                    <p className="text-xs text-gray-400">{crossCheckResult.deposits.count} 笔</p>
+                  </div>
+                  <div className="bg-gray-50 p-2 rounded">
+                    <p className="text-gray-500 text-xs">钱包交易总额</p>
+                    <p className="font-bold">{formatAmount(crossCheckResult.wallet_transactions.deposit_total)} TJS</p>
+                    <p className="text-xs text-gray-400">{crossCheckResult.wallet_transactions.deposit_count} 笔</p>
+                  </div>
+                  <div className="bg-gray-50 p-2 rounded">
+                    <p className="text-gray-500 text-xs">奖励总额(充值记录)</p>
+                    <p className="font-bold text-orange-600">{formatAmount(crossCheckResult.deposits.total_bonus)} TJS</p>
+                  </div>
+                  <div className="bg-gray-50 p-2 rounded">
+                    <p className="text-gray-500 text-xs">奖励总额(钱包交易)</p>
+                    <p className="font-bold text-orange-600">{formatAmount(crossCheckResult.wallet_transactions.bonus_total)} TJS</p>
+                  </div>
+                  <div className="bg-gray-50 p-2 rounded">
+                    <p className="text-gray-500 text-xs">结算总额</p>
+                    <p className="font-bold">{formatAmount(crossCheckResult.settlements.total_amount)} TJS</p>
+                    <p className="text-xs text-gray-400">{crossCheckResult.settlements.total_count} 笔</p>
+                  </div>
+                  <div className="bg-gray-50 p-2 rounded">
+                    <p className="text-gray-500 text-xs">孤立记录</p>
+                    <p className={`font-bold ${crossCheckResult.orphan_deposits > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {crossCheckResult.orphan_deposits} 笔
+                    </p>
+                  </div>
+                </div>
+
+                {/* Check items */}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    {crossCheckResult.amount_match ? (
+                      <CheckCircle className="w-4 h-4 text-green-500" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-red-500" />
+                    )}
+                    <span>充值总额一致性</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {crossCheckResult.bonus_match ? (
+                      <CheckCircle className="w-4 h-4 text-green-500" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-red-500" />
+                    )}
+                    <span>奖励总额一致性</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {crossCheckResult.settlement_match ? (
+                      <CheckCircle className="w-4 h-4 text-green-500" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-red-500" />
+                    )}
+                    <span>结算总额一致性</span>
+                  </div>
+                </div>
+
+                {/* Issues */}
+                {crossCheckResult.issues.length > 0 && (
+                  <div className="bg-red-50 p-2 rounded">
+                    <p className="text-red-700 font-medium text-xs mb-1">发现的问题：</p>
+                    {crossCheckResult.issues.map((issue, i) => (
+                      <p key={i} className="text-red-600 text-xs">• {issue}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <Button variant="outline" onClick={() => setShowCrossCheck(false)}>
                   关闭
                 </Button>
               </div>
