@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { useSupabase } from '../contexts/SupabaseContext';
 import toast from 'react-hot-toast';
 import { MultiImageUpload } from '../components/MultiImageUpload';
 
@@ -123,6 +123,7 @@ const parseBusinessHours = (hours: BusinessHours | string | null): BusinessHours
 };
 
 export default function PickupPointsPage() {
+  const { supabase } = useSupabase();
   const [pickupPoints, setPickupPoints] = useState<PickupPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);

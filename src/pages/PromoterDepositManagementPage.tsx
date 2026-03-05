@@ -260,7 +260,7 @@ export default function PromoterDepositManagementPage() {
         .select('id, promoter_id, target_user_id, amount, bonus_amount, status')
         .gte('created_at', startDate)
         .lte('created_at', endDate)
-        .eq('status', 'completed');
+        .eq('status', 'COMPLETED');
 
       if (error) throw error;
 
@@ -302,7 +302,7 @@ export default function PromoterDepositManagementPage() {
         .select('promoter_id, amount, bonus_amount')
         .gte('created_at', startDate)
         .lte('created_at', endDate)
-        .eq('status', 'completed');
+        .eq('status', 'COMPLETED');
 
       if (dError) throw dError;
 
@@ -415,7 +415,7 @@ export default function PromoterDepositManagementPage() {
       d.target_telegram_id,
       d.amount,
       d.bonus_amount || 0,
-      d.status === 'completed' ? '已完成' : d.status,
+      d.status === 'COMPLETED' ? '已完成' : d.status,
       d.note || '',
       new Date(d.created_at).toLocaleString('zh-CN'),
     ]);
@@ -591,8 +591,8 @@ export default function PromoterDepositManagementPage() {
               className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
             >
               <option value="all">全部状态</option>
-              <option value="completed">已完成</option>
-              <option value="failed">失败</option>
+              <option value="COMPLETED">已完成</option>
+              <option value="FAILED">失败</option>
             </select>
           </div>
         </CardContent>
@@ -684,14 +684,14 @@ export default function PromoterDepositManagementPage() {
                         <TableCell>
                           <span
                             className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                              d.status === 'completed'
+                             d.status === 'COMPLETED'
                                 ? 'bg-green-100 text-green-700'
-                                : d.status === 'failed'
+                                : d.status === 'FAILED'
                                 ? 'bg-red-100 text-red-700'
                                 : 'bg-yellow-100 text-yellow-700'
                             }`}
                           >
-                            {d.status === 'completed' ? '已完成' : d.status === 'failed' ? '失败' : d.status}
+                            {d.status === 'COMPLETED' ? '已完成' : d.status === 'FAILED' ? '失败' : d.status}
                           </span>
                         </TableCell>
                         <TableCell className="text-sm text-gray-500 max-w-[120px] truncate">
@@ -820,12 +820,12 @@ export default function PromoterDepositManagementPage() {
                   <p className="text-gray-500">状态</p>
                   <span
                     className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                      selectedDeposit.status === 'completed'
+                      selectedDeposit.status === 'COMPLETED'
                         ? 'bg-green-100 text-green-700'
                         : 'bg-red-100 text-red-700'
                     }`}
                   >
-                    {selectedDeposit.status === 'completed' ? '已完成' : selectedDeposit.status}
+                    {selectedDeposit.status === 'COMPLETED' ? '已完成' : selectedDeposit.status}
                   </span>
                 </div>
                 <div>
