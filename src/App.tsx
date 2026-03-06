@@ -42,6 +42,7 @@ import OrderShipmentPage from './pages/OrderShipmentPage';
 import BatchArrivalConfirmPage from './pages/BatchArrivalConfirmPage';
 import BatchStatisticsPage from './pages/BatchStatisticsPage';
 import ErrorLogsPage from './pages/ErrorLogsPage';
+import AuditLogsPage from './pages/AuditLogsPage';
 
 // ==================== 地推管理模块 ====================
 import PromoterDashboardPage from './pages/PromoterDashboardPage';
@@ -205,7 +206,7 @@ function App(): JSX.Element {
               <Route path="/banner-management" element={<ProtectedRoute element={<BannerManagementPage />} requiredRole="admin" />} />
               <Route path="/ai-management" element={<ProtectedRoute element={<AIManagementPage />} requiredRole="admin" />} />
               <Route path="/error-logs" element={<ProtectedRoute element={<ErrorLogsPage />} requiredRole="admin" />} />
-              <Route path="/audit-logs" element={<ProtectedRoute element={<PagePlaceholder title="Audit Logs" />} requiredRole="admin" />} />
+              <Route path="/audit-logs" element={<ProtectedRoute element={<AuditLogsPage />} requiredRole="admin" />} />
 
               {/* ==================== 地推管理模块路由 ==================== */}
               <Route path="/promoter-dashboard" element={<ProtectedRoute element={<PromoterDashboardPage />} requiredRole="admin" />} />
