@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { FirstDepositBonusConfig } from './FirstDepositBonusConfig';
+import { createAuditTimer } from '../../lib/auditLogger';
 
 interface DepositRequest {
   id: string;
@@ -97,6 +98,21 @@ export const DepositReviewPage: React.FC = () => {
       return;
     }
 
+    // 创建审计日志计时器
+    const audit = createAuditTimer(supabase, {
+      adminId: admin.id,
+      action: action === 'APPROVED' ? 'APPROVE_DEPOSIT' : 'REJECT_DEPOSIT',
+      targetType: 'deposit_request',
+      targetId: depositRequest.id,
+      details: {
+        order_number: depositRequest.order_number,
+        user_id: depositRequest.user_id,
+        amount: depositRequest.amount,
+        currency: depositRequest.currency,
+        payment_method: depositRequest.payment_method,
+      },
+    });
+
     try {
       // 调用 Edge Function 处理充值审核
       const response = await fetch(
@@ -122,9 +138,17 @@ export const DepositReviewPage: React.FC = () => {
         throw new Error(result.error || '审核失败');
       }
 
+      // 记录成功日志
+      await audit.success({
+        oldData: { status: depositRequest.status },
+        newData: { status: action },
+      });
+
       toast.success(`充值已${action === 'APPROVED' ? '批准' : '拒绝'}!`);
       fetchDeposits(); // 刷新列表
     } catch (error: any) {
+      // 记录失败日志
+      await audit.fail(error.message);
       toast.error(`审核失败: ${error.message}`);
       console.error('Error reviewing deposit:', error);
     }

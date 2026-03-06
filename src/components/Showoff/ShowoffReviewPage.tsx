@@ -18,6 +18,7 @@ import {
 } from '../ui/dialog';
 import { formatDateTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { createAuditTimer } from '@/lib/auditLogger';
 
 type Showoff = Tables<'showoffs'>;
 type ShowoffStatus = Enums<'ShowoffStatus'>;
@@ -76,13 +77,25 @@ export const ShowoffReviewPage: React.FC = () => {
 
   const handleReview = async (status: 'APPROVED' | 'REJECTED') => {
     if (!selectedShowoff) {return;}
+    if (!admin) {
+      toast.error('未登录');
+      return;
+    }
+
+    const audit = createAuditTimer(supabase, {
+      adminId: admin.id,
+      action: status === 'APPROVED' ? 'APPROVE_SHOWOFF' : 'REJECT_SHOWOFF',
+      targetType: 'showoff',
+      targetId: selectedShowoff.id,
+      details: {
+        user_id: selectedShowoff.user_id,
+        reward_coins: status === 'APPROVED' ? rewardCoins : 0,
+        admin_note: adminNote || null,
+      },
+    });
 
     try {
       // 调用 Edge Function 处理晒单审核
-      if (!admin) {
-        throw new Error('未登录');
-      }
-
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/approve-showoff`,
         {
@@ -108,10 +121,15 @@ export const ShowoffReviewPage: React.FC = () => {
         throw new Error(result.error || '审核失败');
       }
 
+      await audit.success({
+        oldData: { status: selectedShowoff.status },
+        newData: { status, reward_coins: status === 'APPROVED' ? rewardCoins : 0 },
+      });
       toast.success(`晒单已${status === 'APPROVED' ? '批准' : '拒绝'}!`);
       setIsDetailDialogOpen(false);
       fetchShowoffs(); // 刷新列表
     } catch (error: any) {
+      await audit.fail(error.message);
       toast.error(`审核失败: ${error.message}`);
       console.error('Error reviewing showoff:', error);
     }

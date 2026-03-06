@@ -8,6 +8,7 @@ import { Button } from '../ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { formatDateTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { createAuditTimer } from '@/lib/auditLogger';
 
 type Withdrawal = Tables<'withdrawal_requests'> & {
   users?: {
@@ -30,6 +31,15 @@ const getStatusColor = (status: WithdrawalStatus) => {
       return 'bg-blue-100 text-blue-800';
     default:
       return 'bg-gray-100 text-gray-800';
+  }
+};
+
+const getActionLabel = (status: string) => {
+  switch (status) {
+    case 'APPROVED': return 'APPROVE_WITHDRAWAL';
+    case 'REJECTED': return 'REJECT_WITHDRAWAL';
+    case 'COMPLETED': return 'COMPLETE_WITHDRAWAL';
+    default: return `UPDATE_WITHDRAWAL_${status}`;
   }
 };
 
@@ -66,12 +76,31 @@ export const WithdrawalReviewPage: React.FC = () => {
   const handleReview = async (id: string, status: 'APPROVED' | 'REJECTED' | 'COMPLETED') => {
     if (!window.confirm(`确定要将这笔提现标记为 ${status} 吗？`)) {return;}
 
+    if (!admin) {
+      toast.error('未登录');
+      return;
+    }
+
+    // 获取当前提现记录用于审计日志
+    const currentWithdrawal = withdrawals.find(w => w.id === id);
+
+    // 创建审计日志计时器
+    const audit = createAuditTimer(supabase, {
+      adminId: admin.id,
+      action: getActionLabel(status),
+      targetType: 'withdrawal_request',
+      targetId: id,
+      details: {
+        user_id: currentWithdrawal?.user_id,
+        user_name: currentWithdrawal?.users?.display_name || currentWithdrawal?.users?.telegram_username,
+        amount: currentWithdrawal?.amount,
+        currency: currentWithdrawal?.currency,
+        withdrawal_method: currentWithdrawal?.withdrawal_method,
+      },
+    });
+
     try {
       // 调用 Edge Function 处理提现审核
-      if (!admin) {
-        throw new Error('未登录');
-      }
-
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/approve-withdrawal`,
         {
@@ -95,9 +124,17 @@ export const WithdrawalReviewPage: React.FC = () => {
         throw new Error(result.error || '审核失败');
       }
 
+      // 记录成功日志
+      await audit.success({
+        oldData: { status: currentWithdrawal?.status },
+        newData: { status },
+      });
+
       toast.success(`提现状态已更新为 ${status}!`);
       fetchWithdrawals(); // 刷新列表
     } catch (error: any) {
+      // 记录失败日志
+      await audit.fail(error.message);
       toast.error(`审核失败: ${error.message}`);
       console.error('Error reviewing withdrawal:', error);
     }
