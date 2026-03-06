@@ -8,6 +8,7 @@ import { Button } from '../ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { formatDateTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { Loader2 } from 'lucide-react';
 import { createAuditTimer } from '@/lib/auditLogger';
 
 type Withdrawal = Tables<'withdrawal_requests'> & {
@@ -49,6 +50,8 @@ export const WithdrawalReviewPage: React.FC = () => {
   // const navigate = useNavigate();
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // 【P0 防重复提交】记录正在处理的请求 ID，防止重复点击
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
 
   const fetchWithdrawals = useCallback(async () => {
     setIsLoading(true);
@@ -80,6 +83,15 @@ export const WithdrawalReviewPage: React.FC = () => {
       toast.error('未登录');
       return;
     }
+
+    // 【P0 防重复提交】如果已有请求正在处理，直接返回
+    if (submittingId) {
+      toast.error('请等待当前操作完成');
+      return;
+    }
+
+    // 设置正在提交的请求 ID
+    setSubmittingId(id);
 
     // 获取当前提现记录用于审计日志
     const currentWithdrawal = withdrawals.find(w => w.id === id);
@@ -137,8 +149,15 @@ export const WithdrawalReviewPage: React.FC = () => {
       await audit.fail(error.message);
       toast.error(`审核失败: ${error.message}`);
       console.error('Error reviewing withdrawal:', error);
+    } finally {
+      // 【P0 防重复提交】无论成功或失败，都重置提交状态
+      setSubmittingId(null);
     }
   };
+
+  // 判断某个按钮是否应该被禁用
+  const isButtonDisabled = (withdrawalId: string) => submittingId === withdrawalId;
+  const isAnySubmitting = submittingId !== null;
 
   return (
     <Card>
@@ -199,17 +218,42 @@ export const WithdrawalReviewPage: React.FC = () => {
                     <TableCell className="flex space-x-2">
                       {withdrawal.status === 'PENDING' && (
                         <>
-                          <Button size="sm" onClick={() => handleReview(withdrawal.id, 'APPROVED')}>
-                            批准
+                          <Button
+                            size="sm"
+                            onClick={() => handleReview(withdrawal.id, 'APPROVED')}
+                            disabled={isAnySubmitting}
+                          >
+                            {isButtonDisabled(withdrawal.id) ? (
+                              <><Loader2 className="mr-1 h-3 w-3 animate-spin" />处理中</>
+                            ) : (
+                              '批准'
+                            )}
                           </Button>
-                          <Button variant="destructive" size="sm" onClick={() => handleReview(withdrawal.id, 'REJECTED')}>
-                            拒绝
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleReview(withdrawal.id, 'REJECTED')}
+                            disabled={isAnySubmitting}
+                          >
+                            {isButtonDisabled(withdrawal.id) ? (
+                              <><Loader2 className="mr-1 h-3 w-3 animate-spin" />处理中</>
+                            ) : (
+                              '拒绝'
+                            )}
                           </Button>
                         </>
                       )}
                       {withdrawal.status === 'APPROVED' && (
-                        <Button size="sm" onClick={() => handleReview(withdrawal.id, 'COMPLETED')}>
-                          标记为已完成
+                        <Button
+                          size="sm"
+                          onClick={() => handleReview(withdrawal.id, 'COMPLETED')}
+                          disabled={isAnySubmitting}
+                        >
+                          {isButtonDisabled(withdrawal.id) ? (
+                            <><Loader2 className="mr-1 h-3 w-3 animate-spin" />处理中</>
+                          ) : (
+                            '标记为已完成'
+                          )}
                         </Button>
                       )}
                     </TableCell>

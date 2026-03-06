@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { toast } from 'react-hot-toast';
-import { Gift } from 'lucide-react';
+import { Gift, Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -39,6 +39,8 @@ export const DepositReviewPage: React.FC = () => {
   const [selectedDeposit, setSelectedDeposit] = useState<DepositRequest | null>(null);
   const [isImageDialogOpen, setIsImageDialogOpen] = useState(false);
   const [isConfigDialogOpen, setIsConfigDialogOpen] = useState(false);
+  // 【P0 防重复提交】记录正在处理的请求 ID，防止重复点击
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDeposits();
@@ -98,6 +100,15 @@ export const DepositReviewPage: React.FC = () => {
       return;
     }
 
+    // 【P0 防重复提交】如果已有请求正在处理，直接返回
+    if (submittingId) {
+      toast.error('请等待当前操作完成');
+      return;
+    }
+
+    // 设置正在提交的请求 ID
+    setSubmittingId(depositRequest.id);
+
     // 创建审计日志计时器
     const audit = createAuditTimer(supabase, {
       adminId: admin.id,
@@ -114,28 +125,22 @@ export const DepositReviewPage: React.FC = () => {
     });
 
     try {
-      // 调用 Edge Function 处理充值审核
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/approve-deposit`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY}`,
-            'apikey': import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY,
-            'x-admin-id': admin!.id,
-          },
-          body: JSON.stringify({
-            requestId: depositRequest.id,
-            action: action,
-          }),
-        }
-      );
+      // 【P0 修复】调用原子化 RPC 函数替代 Edge Function
+      // approve_deposit_atomic 在数据库事务中完成所有操作，
+      // 使用 FOR UPDATE 行级锁防止 TOCTOU 竞态条件
+      const { data: result, error: rpcError } = await supabase.rpc('approve_deposit_atomic', {
+        p_request_id: depositRequest.id,
+        p_action: action,
+        p_admin_id: admin!.id,
+        p_admin_note: null,
+      });
 
-      const result = await response.json();
+      if (rpcError) {
+        throw new Error(rpcError.message || '审核失败');
+      }
 
-      if (!result.success) {
-        throw new Error(result.error || '审核失败');
+      if (!result || !result.success) {
+        throw new Error(result?.error || '审核失败');
       }
 
       // 记录成功日志
@@ -151,8 +156,15 @@ export const DepositReviewPage: React.FC = () => {
       await audit.fail(error.message);
       toast.error(`审核失败: ${error.message}`);
       console.error('Error reviewing deposit:', error);
+    } finally {
+      // 【P0 防重复提交】无论成功或失败，都重置提交状态
+      setSubmittingId(null);
     }
   };
+
+  // 判断某个按钮是否应该被禁用（正在提交中）
+  const isButtonDisabled = (depositId: string) => submittingId === depositId;
+  const isAnySubmitting = submittingId !== null;
 
   return (
     <>
@@ -224,11 +236,28 @@ export const DepositReviewPage: React.FC = () => {
                       <TableCell className="flex space-x-2">
                         {deposit.status === 'PENDING' && (
                           <>
-                            <Button size="sm" onClick={() => handleReview(deposit, 'APPROVED')}>
-                              批准
+                            <Button
+                              size="sm"
+                              onClick={() => handleReview(deposit, 'APPROVED')}
+                              disabled={isAnySubmitting}
+                            >
+                              {isButtonDisabled(deposit.id) ? (
+                                <><Loader2 className="mr-1 h-3 w-3 animate-spin" />处理中</>
+                              ) : (
+                                '批准'
+                              )}
                             </Button>
-                            <Button variant="destructive" size="sm" onClick={() => handleReview(deposit, 'REJECTED')}>
-                              拒绝
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => handleReview(deposit, 'REJECTED')}
+                              disabled={isAnySubmitting}
+                            >
+                              {isButtonDisabled(deposit.id) ? (
+                                <><Loader2 className="mr-1 h-3 w-3 animate-spin" />处理中</>
+                              ) : (
+                                '拒绝'
+                              )}
                             </Button>
                           </>
                         )}
@@ -305,11 +334,13 @@ export const DepositReviewPage: React.FC = () => {
                 <Button
                   variant="outline"
                   onClick={() => setIsImageDialogOpen(false)}
+                  disabled={isAnySubmitting}
                 >
                   关闭
                 </Button>
                 <Button
                   variant="destructive"
+                  disabled={isAnySubmitting}
                   onClick={() => {
                     if (selectedDeposit) {
                       handleReview(selectedDeposit, 'REJECTED');
@@ -317,9 +348,14 @@ export const DepositReviewPage: React.FC = () => {
                     }
                   }}
                 >
-                  拒绝
+                  {submittingId === selectedDeposit?.id ? (
+                    <><Loader2 className="mr-1 h-3 w-3 animate-spin" />处理中</>
+                  ) : (
+                    '拒绝'
+                  )}
                 </Button>
                 <Button
+                  disabled={isAnySubmitting}
                   onClick={() => {
                     if (selectedDeposit) {
                       handleReview(selectedDeposit, 'APPROVED');
@@ -327,7 +363,11 @@ export const DepositReviewPage: React.FC = () => {
                     }
                   }}
                 >
-                  批准
+                  {submittingId === selectedDeposit?.id ? (
+                    <><Loader2 className="mr-1 h-3 w-3 animate-spin" />处理中</>
+                  ) : (
+                    '批准'
+                  )}
                 </Button>
               </div>
             )}
