@@ -78,40 +78,67 @@ const getTxTypeOptions = (walletTab: WalletTab) => {
   if (walletTab === 'TJS') {
     return [
       { value: '', label: '全部' },
-      { value: 'DEPOSIT', label: '充值' },
+      { value: 'DEPOSIT', label: '充値' },
+      { value: 'PROMOTER_DEPOSIT', label: '地推代充' },
+      { value: 'FIRST_DEPOSIT_BONUS', label: '首充奖励' },
       { value: 'WITHDRAWAL', label: '提现' },
+      { value: 'WITHDRAWAL_FREEZE', label: '提现冻结' },
+      { value: 'WITHDRAWAL_UNFREEZE', label: '提现解冻' },
       { value: 'GROUP_BUY_PURCHASE', label: '拼团消费' },
       { value: 'GROUP_BUY_REFUND', label: '拼团退款' },
       { value: 'GROUP_BUY_REFUND_TO_BALANCE', label: '拼团退款转余额' },
       { value: 'BONUS', label: '奖励' },
       { value: 'COIN_EXCHANGE', label: '币种兑换' },
-      { value: 'COMMISSION', label: '佣金收入' },
-      { value: 'FIRST_DEPOSIT_BONUS', label: '首充奖励' },
-      { value: 'PROMOTER_DEPOSIT', label: '地推代充' },
     ];
   }
   if (walletTab === 'LUCKY_COIN') {
     return [
       { value: '', label: '全部' },
-      { value: 'LOTTERY_PURCHASE', label: '积分商城消费' },
+      { value: 'LOTTERY_PURCHASE', label: '一元购消费' },
+      { value: 'FULL_PURCHASE', label: '全款购买' },
+      { value: 'MARKET_PURCHASE', label: '市场购买' },
+      { value: 'RESALE_PURCHASE', label: '转售购买' },
       { value: 'SPIN_REWARD', label: '转盘奖励' },
       { value: 'NEW_USER_GIFT', label: '新用户礼物' },
       { value: 'SHOWOFF_REWARD', label: '晒单奖励' },
-      { value: 'FULL_PURCHASE', label: '全款购买' },
-      { value: 'GROUP_BUY_REFUND', label: '拼团退款' },
+      { value: 'COMMISSION', label: '佣金收入' },
+      { value: 'COMMISSION_PAYOUT', label: '批量佣金发放' },
+      { value: 'REFERRAL_REWARD', label: '邀请奖励' },
+      { value: 'FIRST_GROUP_BUY_REWARD', label: '首次拼团奖励' },
+      { value: 'GROUP_BUY_REFUND', label: '拼团退款转积分' },
+      { value: 'MARKET_SALE', label: '市场出售' },
+      { value: 'RESALE_INCOME', label: '转售收入' },
       { value: 'COIN_EXCHANGE', label: '币种兑换' },
     ];
   }
   return [
     { value: '', label: '全部' },
-    { value: 'DEPOSIT', label: '充值' },
+    // TJS 余额相关
+    { value: 'DEPOSIT', label: '充値' },
+    { value: 'PROMOTER_DEPOSIT', label: '地推代充' },
+    { value: 'FIRST_DEPOSIT_BONUS', label: '首充奖励' },
     { value: 'WITHDRAWAL', label: '提现' },
-    { value: 'LOTTERY_PURCHASE', label: '积分商城消费' },
+    { value: 'WITHDRAWAL_FREEZE', label: '提现冻结' },
+    { value: 'WITHDRAWAL_UNFREEZE', label: '提现解冻' },
     { value: 'GROUP_BUY_PURCHASE', label: '拼团消费' },
     { value: 'GROUP_BUY_REFUND', label: '拼团退款' },
+    { value: 'GROUP_BUY_REFUND_TO_BALANCE', label: '拼团退款转余额' },
+    { value: 'BONUS', label: '奖励' },
+    { value: 'COIN_EXCHANGE', label: '币种兑换' },
+    // LUCKY_COIN 积分相关
+    { value: 'LOTTERY_PURCHASE', label: '一元购消费' },
+    { value: 'FULL_PURCHASE', label: '全款购买' },
+    { value: 'MARKET_PURCHASE', label: '市场购买' },
+    { value: 'RESALE_PURCHASE', label: '转售购买' },
     { value: 'SPIN_REWARD', label: '转盘奖励' },
-    { value: 'REFERRAL_BONUS', label: '邀请奖励' },
+    { value: 'NEW_USER_GIFT', label: '新用户礼物' },
+    { value: 'SHOWOFF_REWARD', label: '晒单奖励' },
     { value: 'COMMISSION', label: '佣金收入' },
+    { value: 'COMMISSION_PAYOUT', label: '批量佣金发放' },
+    { value: 'REFERRAL_REWARD', label: '邀请奖励' },
+    { value: 'FIRST_GROUP_BUY_REWARD', label: '首次拼团奖励' },
+    { value: 'MARKET_SALE', label: '市场出售' },
+    { value: 'RESALE_INCOME', label: '转售收入' },
   ];
 };
 
