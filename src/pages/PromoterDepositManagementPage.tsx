@@ -8,6 +8,7 @@
  * 3. 地推人员维度统计 - 按地推人员分组的充值统计
  * 4. 导出功能 - 导出充值记录为CSV
  * 5. 数据一致性校验 - 交叉验证资金数据
+ * 6. 快捷金额配置 - 管理地推充值页面的快捷金额按钮
  * 
  * 设计原则：
  * - 所有金额计算在数据库 RPC 函数中完成，确保 NUMERIC 精度
@@ -17,6 +18,8 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSupabase } from '../contexts/SupabaseContext';
+import { useAdminAuth } from '../contexts/AdminAuthContext';
+import { auditLog } from '../lib/auditLogger';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
@@ -42,6 +45,10 @@ import {
   ShieldCheck,
   AlertTriangle,
   CheckCircle,
+  Settings,
+  Plus,
+  Trash2,
+  Save,
 } from 'lucide-react';
 
 // ============================================================
@@ -126,6 +133,7 @@ function safeNumber(val: any): number {
 
 export default function PromoterDepositManagementPage() {
   const { supabase } = useSupabase();
+  const { admin } = useAdminAuth();
   const [loading, setLoading] = useState(true);
   const [deposits, setDeposits] = useState<PromoterDeposit[]>([]);
   const [promoterStats, setPromoterStats] = useState<PromoterStats[]>([]);
@@ -154,7 +162,13 @@ export default function PromoterDepositManagementPage() {
   const [selectedDeposit, setSelectedDeposit] = useState<PromoterDeposit | null>(null);
 
   // Active tab
-  const [activeTab, setActiveTab] = useState<'records' | 'promoter_stats'>('records');
+  const [activeTab, setActiveTab] = useState<'records' | 'promoter_stats' | 'quick_amounts'>('records');
+
+  // Quick amounts config
+  const [quickAmounts, setQuickAmounts] = useState<number[]>([]);
+  const [quickAmountsLoading, setQuickAmountsLoading] = useState(false);
+  const [quickAmountsSaving, setQuickAmountsSaving] = useState(false);
+  const [newQuickAmount, setNewQuickAmount] = useState('');
 
   // Cross-check
   const [crossCheckResult, setCrossCheckResult] = useState<CrossCheckResult | null>(null);
@@ -290,6 +304,106 @@ export default function PromoterDepositManagementPage() {
       console.error('Error fetching promoter stats:', err);
     }
   }, [supabase, getDateRange]);
+
+  // ============================================================
+  // Quick Amounts Config - 快捷金额配置
+  // ============================================================
+
+  const fetchQuickAmounts = useCallback(async () => {
+    setQuickAmountsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('system_config')
+        .select('value')
+        .eq('key', 'promoter_deposit_quick_amounts')
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+
+      if (data?.value) {
+        const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+        if (parsed?.amounts && Array.isArray(parsed.amounts)) {
+          setQuickAmounts(parsed.amounts.sort((a: number, b: number) => a - b));
+        }
+      } else {
+        // 默认值
+        setQuickAmounts([10, 20, 50, 100, 200, 500]);
+      }
+    } catch (err: any) {
+      console.error('Error fetching quick amounts:', err);
+      toast.error('加载快捷金额配置失败');
+    } finally {
+      setQuickAmountsLoading(false);
+    }
+  }, [supabase]);
+
+  const handleAddQuickAmount = () => {
+    const amount = parseFloat(newQuickAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('请输入有效的正数金额');
+      return;
+    }
+    if (amount > 10000) {
+      toast.error('单笔快捷金额不能超过 10,000 TJS');
+      return;
+    }
+    if (quickAmounts.includes(amount)) {
+      toast.error('该金额已存在');
+      return;
+    }
+    if (quickAmounts.length >= 10) {
+      toast.error('最多配置 10 个快捷金额');
+      return;
+    }
+    setQuickAmounts(prev => [...prev, amount].sort((a, b) => a - b));
+    setNewQuickAmount('');
+  };
+
+  const handleRemoveQuickAmount = (amount: number) => {
+    setQuickAmounts(prev => prev.filter(a => a !== amount));
+  };
+
+  const handleSaveQuickAmounts = async () => {
+    if (quickAmounts.length === 0) {
+      toast.error('至少需要配置一个快捷金额');
+      return;
+    }
+
+    setQuickAmountsSaving(true);
+    try {
+      const { error } = await supabase
+        .from('system_config')
+        .upsert({
+          key: 'promoter_deposit_quick_amounts',
+          value: { amounts: quickAmounts },
+          description: '地推人员代客充值的快捷金额选项，由管理后台配置',
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'key',
+        });
+
+      if (error) throw error;
+
+      // 记录审计日志
+      if (admin) {
+        await auditLog(supabase, {
+          adminId: admin.id,
+          action: 'UPDATE_QUICK_AMOUNTS',
+          targetType: 'system_config',
+          targetId: 'promoter_deposit_quick_amounts',
+          newData: { amounts: quickAmounts },
+          details: { updated_by: admin.username },
+        });
+      }
+
+      toast.success('快捷金额配置已保存');
+    } catch (err: any) {
+      console.error('Error saving quick amounts:', err);
+      toast.error('保存失败: ' + err.message);
+    } finally {
+      setQuickAmountsSaving(false);
+    }
+  };
 
   // ============================================================
   // Cross-check - 数据一致性校验
@@ -583,6 +697,22 @@ export default function PromoterDepositManagementPage() {
         >
           地推人员统计
         </button>
+        <button
+          onClick={() => {
+            setActiveTab('quick_amounts');
+            if (quickAmounts.length === 0) fetchQuickAmounts();
+          }}
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'quick_amounts'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <span className="flex items-center gap-1">
+            <Settings className="w-3.5 h-3.5" />
+            快捷金额配置
+          </span>
+        </button>
       </div>
 
       {/* ==================== Records Table ==================== */}
@@ -765,6 +895,96 @@ export default function PromoterDepositManagementPage() {
                 </TableBody>
               </Table>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ==================== Quick Amounts Config ==================== */}
+      {activeTab === 'quick_amounts' && (
+        <Card>
+          <CardContent className="p-6">
+            <div className="max-w-xl">
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">快捷金额配置</h3>
+              <p className="text-sm text-gray-500 mb-6">
+                配置地推人员代客充值页面上显示的快捷金额按钮。修改后将实时生效。
+              </p>
+
+              {quickAmountsLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <RefreshCw className="w-5 h-5 animate-spin text-gray-400" />
+                  <span className="ml-2 text-gray-500">加载中...</span>
+                </div>
+              ) : (
+                <>
+                  {/* 当前配置的金额列表 */}
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-3">当前快捷金额</label>
+                    {quickAmounts.length === 0 ? (
+                      <p className="text-sm text-gray-400 py-4">暂未配置快捷金额</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {quickAmounts.map((amount) => (
+                          <div
+                            key={amount}
+                            className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5"
+                          >
+                            <span className="text-sm font-medium text-blue-700">{amount} TJS</span>
+                            <button
+                              onClick={() => handleRemoveQuickAmount(amount)}
+                              className="text-blue-400 hover:text-red-500 transition-colors"
+                              title="删除"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 添加新金额 */}
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">添加新金额</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        step="1"
+                        value={newQuickAmount}
+                        onChange={(e) => setNewQuickAmount(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddQuickAmount()}
+                        className="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                        placeholder="输入金额"
+                      />
+                      <span className="text-sm text-gray-500">TJS</span>
+                      <Button variant="outline" size="sm" onClick={handleAddQuickAmount}>
+                        <Plus className="w-4 h-4 mr-1" />
+                        添加
+                      </Button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">金额范围: 1-10,000 TJS，最多 10 个</p>
+                  </div>
+
+                  {/* 保存按钮 */}
+                  <div className="flex items-center gap-3 pt-4 border-t">
+                    <Button onClick={handleSaveQuickAmounts} disabled={quickAmountsSaving}>
+                      <Save className="w-4 h-4 mr-1" />
+                      {quickAmountsSaving ? '保存中...' : '保存配置'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setQuickAmounts([10, 20, 50, 100, 200, 500]);
+                        toast.success('已恢复默认值，请点击保存生效');
+                      }}
+                    >
+                      恢复默认
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}
