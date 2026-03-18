@@ -111,9 +111,10 @@ function App(): JSX.Element {
             <NavLink to="/user-management" label="用户管理" icon="👤" />
             <NavLink to="/referral-management" label="推荐管理" icon="🌳" />
             <NavLink to="/inventory-products" label="库存商品" icon="📦" />
-            <NavLink to="/lotteries" label="积分商城活动" icon="🎰" />
-            <NavLink to="/group-buy-products" label="拼团商品" icon="🛒" />
-            <NavLink to="/group-buy-sessions" label="拼团会话" icon="👥" />
+            <NavLink to="/lotteries" label="商城活动" icon="🎰" />
+            {/* 拼团功能已隐藏 - 保留路由以兼容历史数据 */}
+            {/* <NavLink to="/group-buy-products" label="拼团商品" icon="🛒" /> */}
+            {/* <NavLink to="/group-buy-sessions" label="拼团会话" icon="👥" /> */}
             <NavLink to="/orders" label="订单管理" icon="📦" />
             <NavLink to="/deposit-review" label="充值审核" icon="💰" />
             <NavLink to="/withdrawal-review" label="提现审核" icon="💸" />
