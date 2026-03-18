@@ -80,7 +80,7 @@ const getTxTypeOptions = (walletTab: WalletTab) => {
       { value: '', label: '全部' },
       { value: 'DEPOSIT', label: '充値' },
       { value: 'PROMOTER_DEPOSIT', label: '地推代充' },
-      { value: 'FIRST_DEPOSIT_BONUS', label: '首充奖励' },
+      { value: 'FIRST_DEPOSIT_BONUS', label: '充值赠送' },
       { value: 'WITHDRAWAL', label: '提现' },
       { value: 'WITHDRAWAL_FREEZE', label: '提现冻结' },
       { value: 'WITHDRAWAL_UNFREEZE', label: '提现解冻' },
@@ -116,7 +116,7 @@ const getTxTypeOptions = (walletTab: WalletTab) => {
     // TJS 余额相关
     { value: 'DEPOSIT', label: '充値' },
     { value: 'PROMOTER_DEPOSIT', label: '地推代充' },
-    { value: 'FIRST_DEPOSIT_BONUS', label: '首充奖励' },
+    { value: 'FIRST_DEPOSIT_BONUS', label: '充值赠送' },
     { value: 'WITHDRAWAL', label: '提现' },
     { value: 'WITHDRAWAL_FREEZE', label: '提现冻结' },
     { value: 'WITHDRAWAL_UNFREEZE', label: '提现解冻' },

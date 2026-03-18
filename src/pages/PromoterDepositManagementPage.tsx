@@ -473,7 +473,7 @@ export default function PromoterDepositManagementPage() {
       return str;
     };
 
-    const headers = ['充值ID', '地推人员', '地推Telegram', '目标用户', '用户Telegram', '金额(TJS)', '首充奖励(TJS)', '状态', '备注', '时间'];
+    const headers = ['充值ID', '地推人员', '地推Telegram', '目标用户', '用户Telegram', '金额(TJS)', '充值赠送(TJS)', '状态', '备注', '时间'];
     const rows = deposits.map((d) => [
       d.id.substring(0, 8),
       d.promoter_name,
@@ -581,7 +581,7 @@ export default function PromoterDepositManagementPage() {
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
               <DollarSign className="w-4 h-4" />
-              首充奖励
+              充值赠送
             </div>
             <p className="text-2xl font-bold text-orange-600">{formatAmount(summary.total_bonus)}</p>
             <p className="text-xs text-gray-400 mt-1">TJS</p>
@@ -738,7 +738,7 @@ export default function PromoterDepositManagementPage() {
                       <TableHead>地推人员</TableHead>
                       <TableHead>目标用户</TableHead>
                       <TableHead className="text-right">金额</TableHead>
-                      <TableHead className="text-right">首充奖励</TableHead>
+                      <TableHead className="text-right">充值赠送</TableHead>
                       <TableHead>状态</TableHead>
                       <TableHead>备注</TableHead>
                       <TableHead>操作</TableHead>
@@ -854,7 +854,7 @@ export default function PromoterDepositManagementPage() {
                     <TableHead>团队</TableHead>
                     <TableHead className="text-right">充值笔数</TableHead>
                     <TableHead className="text-right">充值总额</TableHead>
-                    <TableHead className="text-right">首充奖励</TableHead>
+                    <TableHead className="text-right">充值赠送</TableHead>
                     <TableHead className="text-right">今日已用/日额度</TableHead>
                     <TableHead>操作</TableHead>
                   </TableRow>
@@ -1033,7 +1033,7 @@ export default function PromoterDepositManagementPage() {
                   <p className="text-lg font-bold text-green-600">+{formatAmount(selectedDeposit.amount)} TJS</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">首充奖励</p>
+                  <p className="text-gray-500">充值赠送</p>
                   <p className="text-lg font-bold text-orange-500">
                     {selectedDeposit.bonus_amount > 0
                       ? `+${formatAmount(selectedDeposit.bonus_amount)} TJS`

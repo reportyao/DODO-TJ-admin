@@ -21,7 +21,7 @@ export const FirstDepositBonusConfig: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [config, setConfig] = useState<FirstDepositBonusConfig>({
     enabled: true,
-    bonus_percent: 10,
+    bonus_percent: 50,
     max_bonus_amount: 100,
     min_deposit_amount: 10,
   });
@@ -77,7 +77,7 @@ export const FirstDepositBonusConfig: React.FC = () => {
         .upsert({
           key: 'first_deposit_bonus',
           value: config,
-          description: '首充奖励配置：bonus_percent为奖励百分比，max_bonus_amount为最大奖励金额，min_deposit_amount为最低充值金额',
+          description: '充值赠送配置：bonus_percent为赠送百分比，max_bonus_amount为最大赠送金额，min_deposit_amount为最低充值金额',
           updated_at: new Date().toISOString(),
         }, {
           onConflict: 'key'
@@ -116,19 +116,19 @@ export const FirstDepositBonusConfig: React.FC = () => {
       <CardHeader>
         <div className="flex items-center space-x-2">
           <Gift className="h-6 w-6 text-primary" />
-          <CardTitle>首充奖励配置</CardTitle>
+          <CardTitle>充值赠送配置</CardTitle>
         </div>
         <CardDescription>
-          配置用户首次充值时获得的额外奖励比例
+          配置用户充值时获得的额外赠送比例（赠送以积分形式发放到LUCKY_COIN钱包）
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* 启用开关 */}
         <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
           <div className="space-y-0.5">
-            <Label className="text-base font-medium">启用首充奖励</Label>
+            <Label className="text-base font-medium">启用充值赠送</Label>
             <p className="text-sm text-gray-500">
-              开启后，用户首次充值将获得额外奖励
+              开启后，用户充值将获得额外积分赠送
             </p>
           </div>
           <Switch
@@ -143,7 +143,7 @@ export const FirstDepositBonusConfig: React.FC = () => {
           <div className="space-y-2">
             <Label htmlFor="bonus_percent" className="flex items-center space-x-2">
               <Percent className="h-4 w-4" />
-              <span>奖励比例 (%)</span>
+              <span>赠送比例 (%)</span>
             </Label>
             <div className="flex items-center space-x-2">
               <Input
@@ -159,7 +159,7 @@ export const FirstDepositBonusConfig: React.FC = () => {
               <span className="text-gray-500">%</span>
             </div>
             <p className="text-sm text-gray-500">
-              用户首充金额的奖励百分比，例如：10% 表示充值 100 TJS 可获得 10 TJS 奖励
+              用户充值金额的赠送百分比，例如：50% 表示充值 100 TJS 可获得 50 积分赠送
             </p>
           </div>
 
@@ -167,7 +167,7 @@ export const FirstDepositBonusConfig: React.FC = () => {
           <div className="space-y-2">
             <Label htmlFor="max_bonus_amount" className="flex items-center space-x-2">
               <DollarSign className="h-4 w-4" />
-              <span>最大奖励金额 (TJS)</span>
+              <span>最大赠送金额 (积分)</span>
             </Label>
             <div className="flex items-center space-x-2">
               <Input
@@ -182,7 +182,7 @@ export const FirstDepositBonusConfig: React.FC = () => {
               <span className="text-gray-500">TJS</span>
             </div>
             <p className="text-sm text-gray-500">
-              单次首充奖励的上限金额，防止大额充值获得过多奖励
+              单次充值赠送的上限积分，防止大额充值获得过多赠送
             </p>
           </div>
 
@@ -205,7 +205,7 @@ export const FirstDepositBonusConfig: React.FC = () => {
               <span className="text-gray-500">TJS</span>
             </div>
             <p className="text-sm text-gray-500">
-              只有首充金额达到此门槛才能获得奖励
+              只有充值金额达到此门槛才能获得赠送
             </p>
           </div>
         </div>
@@ -218,12 +218,12 @@ export const FirstDepositBonusConfig: React.FC = () => {
               <div>
                 <p className="font-medium text-blue-700">示例计算</p>
                 <p className="text-sm text-blue-600 mt-1">
-                  用户首次充值 {exampleDeposit} TJS：
+                  用户充值 {exampleDeposit} TJS：
                 </p>
                 <ul className="text-sm text-blue-600 mt-1 list-disc list-inside">
-                  <li>计算奖励: {exampleDeposit} × {config.bonus_percent}% = {exampleDeposit * config.bonus_percent / 100} TJS</li>
-                  <li>实际奖励: {exampleBonus} TJS {exampleBonus < exampleDeposit * config.bonus_percent / 100 ? '(受最大奖励限制)' : ''}</li>
-                  <li>用户实际到账: {exampleDeposit + exampleBonus} TJS</li>
+                  <li>计算赠送: {exampleDeposit} × {config.bonus_percent}% = {exampleDeposit * config.bonus_percent / 100} 积分</li>
+                  <li>实际赠送: {exampleBonus} 积分 {exampleBonus < exampleDeposit * config.bonus_percent / 100 ? '(受最大赠送限制)' : ''}</li>
+                  <li>TJS余额到账: {exampleDeposit} TJS，积分到账: {exampleBonus} 积分</li>
                 </ul>
               </div>
             </div>

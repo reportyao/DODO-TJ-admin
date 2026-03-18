@@ -70,7 +70,7 @@ type FilterTab = 'all' | 'urgent' | 'promoter';
 
 const DEFAULT_CONFIG: AlertConfig = {
   pending_threshold_minutes: 30,
-  large_amount_threshold: 500,
+  large_amount_threshold: 200,
   rapid_succession_minutes: 10,
   rapid_succession_count: 3,
 };
@@ -589,7 +589,7 @@ export default function DepositAlertsPage() {
                 type="number"
                 min="0"
                 value={config.large_amount_threshold}
-                onChange={(e) => setConfig(prev => ({ ...prev, large_amount_threshold: parseFloat(e.target.value) || 500 }))}
+                onChange={(e) => setConfig(prev => ({ ...prev, large_amount_threshold: parseFloat(e.target.value) || 200 }))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
               />
               <p className="text-xs text-gray-500 mt-1">充值金额超过此值将标记为大额告警</p>

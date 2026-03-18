@@ -178,7 +178,7 @@ export const DepositReviewPage: React.FC = () => {
             className="flex items-center space-x-2"
           >
             <Gift className="h-4 w-4" />
-            <span>首充奖励配置</span>
+            <span>充值赠送配置</span>
           </Button>
         </CardHeader>
         <CardContent>
@@ -375,7 +375,7 @@ export const DepositReviewPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* 首充奖励配置对话框 */}
+      {/* 充值赠送配置对话框 */}
       <Dialog open={isConfigDialogOpen} onOpenChange={setIsConfigDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <FirstDepositBonusConfig />

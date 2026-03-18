@@ -393,7 +393,7 @@ export default function PromoterReportsPage() {
     let csvContent = '';
 
     if (reportView === 'daily') {
-      const headers = ['日期', '姓名', '团队', '点位', '接触', '注册', '首充', '金额(TJS)', '注册率%', '充值率%'];
+      const headers = ['日期', '姓名', '团队', '点位', '接触', '注册', '充值赠送', '金额(TJS)', '注册率%', '充值率%'];
       const rows = dailyReports.map(r => [
         r.date, r.promoter_name, r.team_name, r.point_name,
         r.contacts, r.registrations, r.first_charges,
@@ -401,7 +401,7 @@ export default function PromoterReportsPage() {
       ]);
       csvContent = [headers.map(csvEscape).join(','), ...rows.map(r => r.map(csvEscape).join(','))].join('\n');
     } else if (reportView === 'summary') {
-      const headers = ['姓名', '团队', '点位', '工作天数', '总接触', '总注册', '总首充', '总金额(TJS)', '日均注册', '注册率%', '充值率%', '日薪', '总薪资', '注册成本', '充值成本'];
+      const headers = ['姓名', '团队', '点位', '工作天数', '总接触', '总注册', '总充值赠送', '总金额(TJS)', '日均注册', '注册率%', '充值率%', '日薪', '总薪资', '注册成本', '充值成本'];
       const rows = aggregatedReports.map(r => [
         r.promoter_name, r.team_name, r.point_name, r.working_days,
         r.total_contacts, r.total_registrations, r.total_first_charges,
@@ -547,12 +547,12 @@ export default function PromoterReportsPage() {
               icon={<Users className="w-5 h-5 text-blue-500" />}
             />
             <MiniStatCard
-              label="总首充"
+              label="总充值赠送"
               value={aggregatedReports.reduce((s, r) => s + r.total_first_charges, 0)}
               icon={<DollarSign className="w-5 h-5 text-green-500" />}
             />
             <MiniStatCard
-              label="总首充金额"
+              label="总充值赠送金额"
               value={`TJS ${aggregatedReports.reduce((s, r) => s + r.total_first_charge_amount, 0).toLocaleString()}`}
               icon={<TrendingUp className="w-5 h-5 text-purple-500" />}
             />
@@ -574,7 +574,7 @@ export default function PromoterReportsPage() {
                     <TableHead className="text-right">工作天</TableHead>
                     <TableHead className="text-right">总接触</TableHead>
                     <TableHead className="text-right">总注册</TableHead>
-                    <TableHead className="text-right">总首充</TableHead>
+                    <TableHead className="text-right">总充值赠送</TableHead>
                     <TableHead className="text-right">金额(TJS)</TableHead>
                     <TableHead className="text-right">日均注册</TableHead>
                     <TableHead className="text-right">注册率</TableHead>
@@ -644,7 +644,7 @@ export default function PromoterReportsPage() {
                     <TableHead>点位</TableHead>
                     <TableHead className="text-right">接触</TableHead>
                     <TableHead className="text-right">注册</TableHead>
-                    <TableHead className="text-right">首充</TableHead>
+                    <TableHead className="text-right">充值赠送</TableHead>
                     <TableHead className="text-right">金额(TJS)</TableHead>
                     <TableHead className="text-right">注册率</TableHead>
                     <TableHead className="text-right">充值率</TableHead>

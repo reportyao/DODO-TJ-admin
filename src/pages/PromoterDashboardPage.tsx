@@ -367,7 +367,7 @@ export default function PromoterDashboardPage() {
           format="number"
         />
         <SummaryCard
-          title="首充用户"
+          title="充值赠送用户"
           value={summary.total_first_charges}
           prevValue={summary.prev_first_charges}
           icon={<DollarSign className="w-8 h-8" />}
@@ -375,7 +375,7 @@ export default function PromoterDashboardPage() {
           format="number"
         />
         <SummaryCard
-          title="首充金额"
+          title="充值赠送金额"
           value={summary.total_first_charge_amount}
           prevValue={summary.prev_first_charge_amount}
           icon={<TrendingUp className="w-8 h-8" />}
@@ -418,7 +418,7 @@ export default function PromoterDashboardPage() {
                   注册{getSortIcon('registrations')}
                 </th>
                 <th className="px-4 py-3 text-right font-medium text-gray-500 cursor-pointer hover:text-gray-900" onClick={() => handleSort('first_charges')}>
-                  首充{getSortIcon('first_charges')}
+                  充值赠送{getSortIcon('first_charges')}
                 </th>
                 <th className="px-4 py-3 text-right font-medium text-gray-500 cursor-pointer hover:text-gray-900" onClick={() => handleSort('first_charge_amount')}>
                   金额(TJS){getSortIcon('first_charge_amount')}
