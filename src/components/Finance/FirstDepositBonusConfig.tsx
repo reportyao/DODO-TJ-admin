@@ -58,11 +58,11 @@ export const FirstDepositBonusConfig: React.FC = () => {
   const handleSave = async () => {
     // 验证输入
     if (config.bonus_percent < 0 || config.bonus_percent > 100) {
-      toast.error('奖励比例必须在 0-100% 之间');
+      toast.error('赠送比例必须在 0-100% 之间');
       return;
     }
     if (config.max_bonus_amount < 0) {
-      toast.error('最大奖励金额不能为负数');
+      toast.error('最大赠送金额不能为负数');
       return;
     }
     if (config.min_deposit_amount < 0) {
@@ -139,7 +139,7 @@ export const FirstDepositBonusConfig: React.FC = () => {
 
         {/* 配置项 */}
         <div className={`space-y-4 ${!config.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
-          {/* 奖励比例 */}
+          {/* 赠送比例 */}
           <div className="space-y-2">
             <Label htmlFor="bonus_percent" className="flex items-center space-x-2">
               <Percent className="h-4 w-4" />
@@ -163,7 +163,7 @@ export const FirstDepositBonusConfig: React.FC = () => {
             </p>
           </div>
 
-          {/* 最大奖励金额 */}
+          {/* 最大赠送金额 */}
           <div className="space-y-2">
             <Label htmlFor="max_bonus_amount" className="flex items-center space-x-2">
               <DollarSign className="h-4 w-4" />

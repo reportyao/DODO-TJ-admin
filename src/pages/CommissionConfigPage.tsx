@@ -100,7 +100,7 @@ export default function CommissionConfigPage() {
 
   const getTriggerConditionText = (condition: string) => {
     const map: { [key: string]: string } = {
-      'first_deposit': '首次充值',
+      'first_deposit': '充值',
       'first_purchase': '首次购买',
       'any_purchase': '任意购买'
     };
@@ -229,7 +229,7 @@ export default function CommissionConfigPage() {
                   >
                     <option value="any_purchase">任意购买</option>
                     <option value="first_purchase">首次购买</option>
-                    <option value="first_deposit">首次充值</option>
+                    <option value="first_deposit">充值</option>
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
                     当前: {getTriggerConditionText(setting.trigger_condition)}
