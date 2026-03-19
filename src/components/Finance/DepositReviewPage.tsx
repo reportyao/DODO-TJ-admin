@@ -149,7 +149,12 @@ export const DepositReviewPage: React.FC = () => {
         newData: { status: action },
       });
 
-      toast.success(`充值已${action === 'APPROVED' ? '批准' : '拒绝'}!`);
+      // 【优化】显示赠送信息
+      if (action === 'APPROVED' && result.bonus_amount > 0) {
+        toast.success(`充值已批准！赠送 ${result.bonus_amount} 积分到 LUCKY_COIN 钱包`);
+      } else {
+        toast.success(`充值已${action === 'APPROVED' ? '批准' : '拒绝'}!`);
+      }
       fetchDeposits(); // 刷新列表
     } catch (error: any) {
       // 记录失败日志
