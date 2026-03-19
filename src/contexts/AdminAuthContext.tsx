@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useSupabase } from './SupabaseContext';
+import { sha256 } from '../utils/sha256';
 
 interface AdminUser {
   id: string;
@@ -110,27 +111,25 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   // 登录
   const login = async (username: string, password: string) => {
     try {
-      // 暂时简化：只验证用户名，不验证密码
-      // TODO: 后续配置HTTPS后启用完整的密码验证
-      console.log('登录请求:', username);
-      console.log('Supabase URL:', supabase.supabaseUrl);
-
-      // 查询管理员账户（不验证密码）
+      // 查询管理员账户（含密码哈希用于校验）
       const { data: adminUser, error } = await supabase
         .from('admin_users')
-        .select('id, username, display_name, role, status')
+        .select('id, username, display_name, role, status, password_hash')
         .eq('username', username)
         .single();
 
-      console.log('查询结果:', { adminUser, error });
-
       if (error || !adminUser) {
-        console.error('用户不存在:', error);
-        throw new Error('用户名不存在: ' + (error?.message || '未知错误'));
+        throw new Error('用户名或密码错误');
       }
 
       if (adminUser.status !== 'active') {
         throw new Error('账户已被禁用');
+      }
+
+      // 校验密码：对输入密码做 SHA-256 哈希后与数据库中的哈希比对
+      const inputHash = sha256(password);
+      if (adminUser.password_hash && inputHash !== adminUser.password_hash) {
+        throw new Error('用户名或密码错误');
       }
 
       // 更新最后登录时间
@@ -147,11 +146,12 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
           action: 'login'
         });
 
-      // 保存到localStorage
-      localStorage.setItem('admin_user', JSON.stringify(adminUser));
+      // 保存到localStorage（不保存密码哈希）
+      const { password_hash: _, ...adminUserSafe } = adminUser;
+      localStorage.setItem('admin_user', JSON.stringify(adminUserSafe));
 
       // 加载权限
-      await loadAdminPermissions(adminUser);
+      await loadAdminPermissions(adminUserSafe);
     } catch (error: any) {
       throw new Error(error.message || '登录失败');
     }

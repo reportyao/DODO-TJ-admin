@@ -23,7 +23,7 @@ export const FirstDepositBonusConfig: React.FC = () => {
     enabled: true,
     bonus_percent: 50,
     max_bonus_amount: 100,
-    min_deposit_amount: 10,
+    min_deposit_amount: 100,
   });
 
   useEffect(() => {
