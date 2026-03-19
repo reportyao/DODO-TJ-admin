@@ -43,7 +43,7 @@ interface DepositAlert {
   created_at: string;
   // Enriched fields
   user_name: string;
-  telegram_id: string;
+  phone_number: string;
   referral_code: string;
   referred_by_name: string;
   is_promoter_referred: boolean;
@@ -119,7 +119,7 @@ export default function DepositAlertsPage() {
       const userIds = [...new Set(deposits.map(d => d.user_id))];
       const { data: usersData } = await supabase
         .from('users')
-        .select('id, first_name, last_name, telegram_id, telegram_username, referral_code, referred_by_id')
+        .select('id, first_name, last_name, phone_number, referral_code, referred_by_id')
         .in('id', userIds);
 
       const usersMap: Record<string, any> = {};
@@ -138,12 +138,12 @@ export default function DepositAlertsPage() {
       if (promoterUserIds.size > 0) {
         const { data: promoterUsers } = await supabase
           .from('users')
-          .select('id, first_name, last_name, telegram_username')
+          .select('id, first_name, last_name, phone_number')
           .in('id', Array.from(promoterUserIds));
         if (promoterUsers) {
           promoterNamesMap = Object.fromEntries(promoterUsers.map(u => [
             u.id,
-            u.telegram_username || [u.first_name, u.last_name].filter(Boolean).join(' ') || 'N/A'
+            u.phone_number || [u.first_name, u.last_name].filter(Boolean).join(' ') || 'N/A'
           ]));
         }
       }
@@ -152,14 +152,14 @@ export default function DepositAlertsPage() {
       const now = new Date();
       const enrichedAlerts: DepositAlert[] = deposits.map(dep => {
         const user = usersMap[dep.user_id];
-        const userName = user?.telegram_username || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'N/A';
+        const userName = user?.phone_number || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'N/A';
         const referredById = user?.referred_by_id;
         const isPromoterReferred = referredById ? promoterUserIds.has(referredById) : false;
         const promoterName = referredById && isPromoterReferred ? promoterNamesMap[referredById] || '' : '';
 
         const referredByUser = referredById ? usersMap[referredById] : null;
         const referredByName = referredByUser
-          ? (referredByUser.telegram_username || [referredByUser.first_name, referredByUser.last_name].filter(Boolean).join(' ') || '')
+          ? (referredByUser.phone_number || [referredByUser.first_name, referredByUser.last_name].filter(Boolean).join(' ') || '')
           : '';
 
         const createdAt = new Date(dep.created_at);
@@ -183,7 +183,7 @@ export default function DepositAlertsPage() {
         return {
           ...dep,
           user_name: userName,
-          telegram_id: user?.telegram_id || '',
+          phone_number: user?.phone_number || '',
           referral_code: user?.referral_code || '',
           referred_by_name: referredByName,
           is_promoter_referred: isPromoterReferred,
@@ -424,7 +424,7 @@ export default function DepositAlertsPage() {
                       <TableCell>{getAlertBadge(alert.alert_type)}</TableCell>
                       <TableCell>
                         <div className="font-medium text-sm">{alert.user_name}</div>
-                        <div className="text-xs text-gray-500">{alert.telegram_id}</div>
+                        <div className="text-xs text-gray-500">{alert.phone_number}</div>
                       </TableCell>
                       <TableCell className="font-medium">
                         {alert.amount} {alert.currency}

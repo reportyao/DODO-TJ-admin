@@ -78,7 +78,7 @@ interface PromoterSettlement {
   updated_at: string;
   // 关联字段
   promoter_name: string;
-  promoter_telegram_id: string | null;
+  promoter_phone_number: string | null;
 }
 
 interface SettlementStats {
@@ -510,8 +510,8 @@ export default function PromoterSettlementPage() {
                     <TableCell>
                       <div>
                         <p className="font-medium text-sm">{s.promoter_name}</p>
-                        {s.promoter_telegram_id && (
-                          <p className="text-xs text-gray-400">TG: {s.promoter_telegram_id}</p>
+                        {s.promoter_phone_number && (
+                          <p className="text-xs text-gray-400">手机: {s.promoter_phone_number}</p>
                         )}
                       </div>
                     </TableCell>

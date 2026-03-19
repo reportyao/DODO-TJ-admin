@@ -15,7 +15,7 @@ interface OrderWithDetails extends Order {
   user?: {
     id: string;
     display_name: string;
-    telegram_username: string;
+    phone_number: string;
   };
   lottery?: {
     title_i18n: any;
@@ -53,7 +53,7 @@ export const OrderListPage: React.FC = () => {
         .from('full_purchase_orders')
         .select(`
           *,
-          user:users(id, display_name, telegram_username),
+          user:users(id, display_name, phone_number),
           lottery:lotteries(title_i18n)
         `)
         .order('created_at', { ascending: false });
@@ -114,7 +114,7 @@ export const OrderListPage: React.FC = () => {
                         {order.user_id}
                       </div>
                     </TableCell>
-                    <TableCell>{order.user?.display_name || order.user?.telegram_username || '-'}</TableCell>
+                    <TableCell>{order.user?.display_name || order.user?.phone_number || '-'}</TableCell>
                     <TableCell>{order.total_amount} {order.currency}</TableCell>
                     <TableCell>
                       <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(order.status)}`}>

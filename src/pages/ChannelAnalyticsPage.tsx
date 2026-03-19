@@ -545,12 +545,12 @@ export default function ChannelAnalyticsPage() {
 
       const { data: usersData } = await supabase
         .from('users')
-        .select('id, first_name, last_name, telegram_username')
+        .select('id, first_name, last_name, phone_number')
         .in('id', promoterIds);
 
       const userMap: Record<string, string> = {};
       usersData?.forEach(u => {
-        userMap[u.id] = u.telegram_username || `${u.first_name || ''} ${u.last_name || ''}`.trim() || 'N/A';
+        userMap[u.id] = u.phone_number || `${u.first_name || ''} ${u.last_name || ''}`.trim() || 'N/A';
       });
 
       let pointMap: Record<string, string> = {};
@@ -690,8 +690,8 @@ export default function ChannelAnalyticsPage() {
       const term = codeForm.promoter_search.trim();
       const { data, error } = await supabase
         .from('users')
-        .select('id, first_name, last_name, telegram_username, telegram_id, referral_code')
-        .or(`telegram_id.eq.${term},telegram_username.ilike.%${term}%,referral_code.ilike.%${term}%`)
+        .select('id, first_name, last_name, phone_number, referral_code')
+        .or(`phone_number.eq.${term},phone_number.ilike.%${term}%,referral_code.ilike.%${term}%`)
         .limit(10);
 
       if (error) throw error;
@@ -1391,7 +1391,7 @@ export default function ChannelAnalyticsPage() {
                   value={codeForm.promoter_search}
                   onChange={(e) => setCodeForm(prev => ({ ...prev, promoter_search: e.target.value }))}
                   onKeyPress={(e) => e.key === 'Enter' && searchUsers()}
-                  placeholder="输入Telegram ID、用户名或邀请码"
+                  placeholder="输入手机号、用户名或邀请码"
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 <Button size="sm" onClick={searchUsers} disabled={searchingUser}>
@@ -1415,7 +1415,7 @@ export default function ChannelAnalyticsPage() {
                         codeForm.promoter_id === u.id ? 'bg-blue-50' : ''
                       }`}
                       onClick={() => {
-                        const name = u.telegram_username || `${u.first_name || ''} ${u.last_name || ''}`.trim() || 'N/A';
+                        const name = u.phone_number || `${u.first_name || ''} ${u.last_name || ''}`.trim() || 'N/A';
                         setCodeForm(prev => ({
                           ...prev,
                           promoter_id: u.id,
@@ -1426,7 +1426,7 @@ export default function ChannelAnalyticsPage() {
                     >
                       <div className="flex-1">
                         <div className="text-sm font-medium">
-                          {u.telegram_username || `${u.first_name || ''} ${u.last_name || ''}`.trim() || 'N/A'}
+                          {u.phone_number || `${u.first_name || ''} ${u.last_name || ''}`.trim() || 'N/A'}
                         </div>
                         <div className="text-xs text-gray-500 flex items-center gap-2">
                           <span className="flex items-center gap-1">
@@ -1434,7 +1434,7 @@ export default function ChannelAnalyticsPage() {
                             邀请码: <span className="font-mono font-semibold text-blue-600">{u.referral_code || '--'}</span>
                           </span>
                           <span>|</span>
-                          <span>TG ID: {u.telegram_id || '--'}</span>
+                          <span>手机号: {u.phone_number || '--'}</span>
                         </div>
                       </div>
                       {codeForm.promoter_id === u.id && (

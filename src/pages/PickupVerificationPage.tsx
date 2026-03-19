@@ -25,7 +25,7 @@ interface PrizeInfo {
   source_type: 'lottery' | 'group_buy' | 'full_purchase';
   user: {
     id: string;
-    telegram_username: string;
+    phone_number: string;
     first_name: string;
     last_name: string;
     avatar_url: string;
@@ -98,7 +98,7 @@ const PickupVerificationPage: React.FC = () => {
         if (prize.user_id) {
           const { data: userData } = await supabase
             .from('users')
-            .select('id, telegram_username, first_name, last_name, avatar_url')
+            .select('id, phone_number, first_name, last_name, avatar_url')
             .eq('id', prize.user_id)
             .maybeSingle();
           userInfo = userData;
@@ -180,7 +180,7 @@ const PickupVerificationPage: React.FC = () => {
         if (groupBuyPrize.winner_id) {
           const { data: userData } = await supabase
             .from('users')
-            .select('id, telegram_username, first_name, last_name, avatar_url')
+            .select('id, phone_number, first_name, last_name, avatar_url')
             .eq('id', groupBuyPrize.winner_id)
             .maybeSingle();
           userInfo = userData;
@@ -241,7 +241,7 @@ const PickupVerificationPage: React.FC = () => {
         if (fullPurchaseOrder.user_id) {
           const { data: userData } = await supabase
             .from('users')
-            .select('id, telegram_username, first_name, last_name, avatar_url')
+            .select('id, phone_number, first_name, last_name, avatar_url')
             .eq('id', fullPurchaseOrder.user_id)
             .maybeSingle();
           userInfo = userData;
@@ -473,7 +473,7 @@ const PickupVerificationPage: React.FC = () => {
                       <UserIcon className="w-4 h-4" />
                       <span className="text-sm">
                         用户: {prizeInfo.user?.first_name || ''} {prizeInfo.user?.last_name || ''} 
-                        {prizeInfo.user?.telegram_username ? ` (@${prizeInfo.user.telegram_username})` : ''}
+                        {prizeInfo.user?.phone_number ? ` (${prizeInfo.user.phone_number})` : ''}
                       </span>
                     </div>
                     <div className="flex items-center space-x-2 text-gray-600">

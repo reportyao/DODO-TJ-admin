@@ -24,8 +24,8 @@ interface LotteryResult {
     title_i18n: any;
   };
   winner?: {
-    telegram_username: string;
-    telegram_id: string;
+    phone_number: string;
+
   };
 }
 
@@ -73,7 +73,7 @@ export default function DrawLogsPage() {
       if (userIds.length > 0) {
         const { data: usersData } = await supabase
           .from('users')
-          .select('id, telegram_username, telegram_id')
+          .select('id, phone_number')
           .in('id', userIds);
         users = usersData || [];
       }
@@ -197,8 +197,8 @@ export default function DrawLogsPage() {
                   <td className="px-4 py-3">
                     {result.winner ? (
                       <div>
-                        <div className="text-sm font-medium text-gray-900">{result.winner.telegram_username || '-'}</div>
-                        <div className="text-xs text-gray-500">{result.winner.telegram_id}</div>
+                        <div className="text-sm font-medium text-gray-900">{result.winner.phone_number || '-'}</div>
+                        <div className="text-xs text-gray-500">ID: {result.winner.id?.substring(0, 8) || '-'}</div>
                       </div>
                     ) : (
                       <span className="text-sm text-gray-400">-</span>
@@ -279,7 +279,7 @@ export default function DrawLogsPage() {
                   <p><span className="font-medium">算法:</span> {selectedResult.algorithm_data?.algorithm || 'timestamp_sum'}</p>
                   <p><span className="font-medium">中奖号码:</span> <span className="text-lg font-bold text-blue-600">#{String(selectedResult.winner_ticket_number).padStart(7, '0')}</span></p>
                   {selectedResult.winner && (
-                    <p><span className="font-medium">中奖用户:</span> {selectedResult.winner.telegram_username || selectedResult.winner.telegram_id}</p>
+                    <p><span className="font-medium">中奖用户:</span> {selectedResult.winner.phone_number}</p>
                   )}
                 </div>
               </div>

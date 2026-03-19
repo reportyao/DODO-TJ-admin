@@ -45,8 +45,7 @@ interface PromoterProfile {
   created_at: string;
   // Joined fields
   user_name?: string;
-  telegram_id?: string;
-  telegram_username?: string;
+  phone_number?: string;
   referral_code?: string;
   team_name?: string;
   point_name?: string;
@@ -168,7 +167,7 @@ export default function PromoterManagementPage() {
       const userIds = ppData.map(p => p.user_id);
       const { data: usersData } = await supabase
         .from('users')
-        .select('id, first_name, last_name, telegram_id, telegram_username, referral_code')
+        .select('id, first_name, last_name, phone_number, referral_code')
         .in('id', userIds);
 
       // Fetch teams
@@ -197,9 +196,8 @@ export default function PromoterManagementPage() {
         const user = usersData?.find(u => u.id === pp.user_id);
         return {
           ...pp,
-          user_name: user?.telegram_username || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'N/A',
-          telegram_id: user?.telegram_id || '',
-          telegram_username: user?.telegram_username || '',
+          user_name: [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.phone_number || 'N/A',
+          phone_number: user?.phone_number || '',
           referral_code: user?.referral_code || '',
           team_name: pp.team_id ? teamsMap[pp.team_id] || '' : '',
           point_name: pp.point_id ? pointsMap[pp.point_id] || '' : '',
@@ -232,12 +230,12 @@ export default function PromoterManagementPage() {
         if (leaderIds.length > 0) {
           const { data: usersData } = await supabase
             .from('users')
-            .select('id, first_name, last_name, telegram_username')
+            .select('id, first_name, last_name, phone_number')
             .in('id', leaderIds as string[]);
           if (usersData) {
             leadersMap = Object.fromEntries(usersData.map(u => [
               u.id,
-              u.telegram_username || [u.first_name, u.last_name].filter(Boolean).join(' ') || 'N/A'
+              u.phone_number || [u.first_name, u.last_name].filter(Boolean).join(' ') || 'N/A'
             ]));
           }
         }
@@ -355,8 +353,8 @@ export default function PromoterManagementPage() {
       }
       const { data, error } = await supabase
         .from('users')
-        .select('id, first_name, last_name, telegram_id, telegram_username, referral_code')
-        .or(`telegram_id.eq.${sanitized},telegram_username.ilike.%${sanitized}%,referral_code.eq.${sanitized}`)
+        .select('id, first_name, last_name, phone_number, referral_code')
+        .or(`phone_number.eq.${sanitized},phone_number.ilike.%${sanitized}%,referral_code.eq.${sanitized}`)
         .limit(10);
 
       if (error) throw error;
@@ -734,10 +732,10 @@ export default function PromoterManagementPage() {
   };
 
   const exportPromoters = () => {
-    const headers = ['姓名', 'Telegram ID', '邀请码', '团队', '点位', '状态', '日薪(TJS)', '充值额度(TJS)', '入职日期'];
+    const headers = ['姓名', '手机号', '邀请码', '团队', '点位', '状态', '日薪(TJS)', '充值额度(TJS)', '入职日期'];
     const rows = promoters.map(p => [
       p.user_name,
-      p.telegram_id,
+      p.phone_number,
       p.referral_code,
       p.team_name || '--',
       p.point_name || '--',
@@ -763,7 +761,7 @@ export default function PromoterManagementPage() {
     const term = searchTerm.toLowerCase();
     return (
       (p.user_name?.toLowerCase().includes(term)) ||
-      (p.telegram_username?.toLowerCase().includes(term)) ||
+      (p.phone_number?.toLowerCase().includes(term)) ||
       (p.referral_code?.toLowerCase().includes(term)) ||
       (p.team_name?.toLowerCase().includes(term)) ||
       (p.point_name?.toLowerCase().includes(term))
@@ -907,7 +905,7 @@ export default function PromoterManagementPage() {
                         <TableRow key={p.user_id}>
                           <TableCell className="font-medium">{p.user_name}</TableCell>
                           <TableCell className="text-sm text-gray-600">
-                            {p.telegram_username ? `@${p.telegram_username}` : p.telegram_id || '--'}
+                            {p.phone_number || '--'}
                           </TableCell>
                           <TableCell>
                             <code className="px-1.5 py-0.5 bg-gray-100 rounded text-xs">{p.referral_code || '--'}</code>
@@ -1157,7 +1155,7 @@ export default function PromoterManagementPage() {
                   value={newPromoterSearch}
                   onChange={(e) => setNewPromoterSearch(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && searchUsers()}
-                  placeholder="输入Telegram ID、用户名或邀请码"
+                  placeholder="输入手机号、用户名或邀请码"
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 <Button size="sm" onClick={searchUsers} disabled={searchingUser}>
@@ -1179,10 +1177,10 @@ export default function PromoterManagementPage() {
                   >
                     <div>
                       <div className="text-sm font-medium">
-                        {u.telegram_username || [u.first_name, u.last_name].filter(Boolean).join(' ') || 'N/A'}
+                        {u.phone_number || [u.first_name, u.last_name].filter(Boolean).join(' ') || 'N/A'}
                       </div>
                       <div className="text-xs text-gray-500">
-                        ID: {u.telegram_id} | 邀请码: {u.referral_code || '--'}
+                        ID: {u.phone_number} | 邀请码: {u.referral_code || '--'}
                       </div>
                     </div>
                     {promoterForm.user_id === u.id && (

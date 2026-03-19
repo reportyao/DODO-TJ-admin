@@ -16,11 +16,11 @@ interface Resale {
   updated_at: string;
   sold_at: string | null;
   seller?: {
-    telegram_username: string;
+    phone_number: string;
     first_name: string;
   };
   buyer?: {
-    telegram_username: string;
+    phone_number: string;
     first_name: string;
   };
   lotteries?: {
@@ -86,13 +86,13 @@ export default function ResaleManagementPage() {
         // 获取卖家信息
         const { data: sellers } = await supabase
           .from('users')
-          .select('id, telegram_username, first_name')
+          .select('id, phone_number, first_name')
           .in('id', sellerIds);
 
         // 获取买家信息
         const { data: buyers } = await supabase
           .from('users')
-          .select('id, telegram_username, first_name')
+          .select('id, phone_number, first_name')
           .in('id', buyerIds);
 
         // 获取积分商城信息
@@ -146,8 +146,8 @@ export default function ResaleManagementPage() {
     const searchLower = searchTerm.toLowerCase();
     const lotteryTitle = resale.lotteries?.title_i18n?.zh || resale.lotteries?.title || '';
     return (
-      resale.seller?.telegram_username?.toLowerCase().includes(searchLower) ||
-      resale.buyer?.telegram_username?.toLowerCase().includes(searchLower) ||
+      resale.seller?.phone_number?.toLowerCase().includes(searchLower) ||
+      resale.buyer?.phone_number?.toLowerCase().includes(searchLower) ||
       lotteryTitle.toLowerCase().includes(searchLower)
     );
   });
@@ -366,7 +366,7 @@ export default function ResaleManagementPage() {
                       {resale.seller?.first_name || '未知'}
                     </div>
                     <div className="text-xs text-gray-500">
-                      @{resale.seller?.telegram_username || 'unknown'}
+                      {resale.seller?.first_name || resale.seller?.phone_number || 'unknown'}
                     </div>
                   </td>
                   <td className="px-6 py-4">
@@ -376,7 +376,7 @@ export default function ResaleManagementPage() {
                           {resale.buyer.first_name || '买家'}
                         </div>
                         <div className="text-xs text-gray-500">
-                          @{resale.buyer.telegram_username || 'unknown'}
+                          {resale.buyer.first_name || resale.buyer.phone_number || 'unknown'}
                         </div>
                       </>
                     ) : (

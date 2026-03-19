@@ -26,8 +26,7 @@ interface ErrorLog {
   error_message: string;
   error_stack?: string;
   user_id?: string;
-  telegram_id?: number;
-  telegram_username?: string;
+  phone_number?: string;
   page_url?: string;
   page_route?: string;
   component_name?: string;
@@ -45,8 +44,8 @@ interface ErrorLog {
   screen_height?: number;
   network_type?: string;
   app_version?: string;
-  is_telegram_mini_app?: boolean;
-  telegram_platform?: string;
+  is_pwa?: boolean;
+  platform_type?: string;
   ip_address?: string;
   country?: string;
   city?: string;
@@ -365,7 +364,7 @@ const ErrorLogsPage: React.FC = () => {
                   </td>
                   <td className="px-4 py-3">
                     <div className="text-sm text-gray-600">
-                      {log.telegram_username ? `@${log.telegram_username}` : (log.user_id?.substring(0, 8) || '-')}
+                      {log.phone_number ? log.phone_number : (log.user_id?.substring(0, 8) || '-')}
                     </div>
                   </td>
                   <td className="px-4 py-3">
@@ -516,12 +515,12 @@ const ErrorLogsPage: React.FC = () => {
                     <div className="text-sm text-gray-900 font-mono">{selectedLog.user_id || '-'}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-gray-500">Telegram ID</div>
-                    <div className="text-sm text-gray-900">{selectedLog.telegram_id || '-'}</div>
+                    <div className="text-xs text-gray-500">手机号</div>
+                    <div className="text-sm text-gray-900">{selectedLog.phone_number || '-'}</div>
                   </div>
                   <div>
                     <div className="text-xs text-gray-500">Telegram用户名</div>
-                    <div className="text-sm text-gray-900">{selectedLog.telegram_username ? `@${selectedLog.telegram_username}` : '-'}</div>
+                    <div className="text-sm text-gray-900">{selectedLog.phone_number ? selectedLog.phone_number : '-'}</div>
                   </div>
                 </div>
               </div>
@@ -559,11 +558,11 @@ const ErrorLogsPage: React.FC = () => {
                   </div>
                   <div>
                     <div className="text-xs text-gray-500">Telegram平台</div>
-                    <div className="text-sm text-gray-900">{selectedLog.telegram_platform || '-'}</div>
+                    <div className="text-sm text-gray-900">{selectedLog.platform_type || '-'}</div>
                   </div>
                   <div>
                     <div className="text-xs text-gray-500">Mini App</div>
-                    <div className="text-sm text-gray-900">{selectedLog.is_telegram_mini_app ? '是' : '否'}</div>
+                    <div className="text-sm text-gray-900">{selectedLog.is_pwa ? '是' : '否'}</div>
                   </div>
                 </div>
               </div>

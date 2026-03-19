@@ -121,7 +121,7 @@ export const OrderDetailPage: React.FC = () => {
           </div>
           <div className="space-y-2">
             <Label>用户名</Label>
-            <Input value={order.user?.telegram_username || order.user?.username || order.user?.first_name || 'N/A'} readOnly />
+            <Input value={order.user?.phone_number || order.user?.username || order.user?.first_name || 'N/A'} readOnly />
           </div>
         </div>
 

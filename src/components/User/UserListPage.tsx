@@ -11,8 +11,8 @@ const LIMIT = 50;
 
 interface User {
   id: string;
-  telegram_id: string;
-  telegram_username?: string | null;
+  phone_number: string;
+  display_name?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   username?: string | null;
@@ -77,8 +77,8 @@ export const UserListPage = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Telegram ID</TableHead>
-                  <TableHead>用户名</TableHead>
+                  <TableHead>手机号</TableHead>
+                  <TableHead>显示名</TableHead>
                   <TableHead>姓名</TableHead>
                   <TableHead>等级</TableHead>
                   <TableHead>返利率(%)</TableHead>
@@ -90,8 +90,8 @@ export const UserListPage = () => {
               <TableBody>
                 {users.map((user) => (
                   <TableRow key={user.id}>
-                    <TableCell className="font-medium">{user.telegram_id}</TableCell>
-                    <TableCell>{user.telegram_username || 'N/A'}</TableCell>
+                    <TableCell className="font-medium">{user.phone_number}</TableCell>
+                    <TableCell>{user.display_name || user.first_name || 'N/A'}</TableCell>
                     <TableCell>
                       {user.first_name || user.last_name 
                         ? `${user.first_name || ''} ${user.last_name || ''}`.trim() 

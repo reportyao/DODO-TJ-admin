@@ -5,10 +5,9 @@ import toast from 'react-hot-toast';
 
 interface User {
   id: string;
-  telegram_username: string;
+  phone_number: string;
   first_name: string;
   last_name: string;
-  telegram_id: string;
   invite_code: string | null;  // 兼容旧字段
   referral_code: string | null;  // 新字段
   referred_by_id: string | null;
@@ -44,7 +43,7 @@ export default function ReferralManagementPage() {
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .or(`id.eq.${searchTerm},telegram_id.eq.${searchTerm},telegram_username.ilike.%${searchTerm}%,invite_code.eq.${searchTerm},referral_code.eq.${searchTerm}`)
+        .or(`id.eq.${searchTerm},phone_number.eq.${searchTerm},phone_number.ilike.%${searchTerm}%,first_name.ilike.%${searchTerm}%,invite_code.eq.${searchTerm},referral_code.eq.${searchTerm}`)
         .limit(1);
 
       if (error) {throw error;}
@@ -101,8 +100,8 @@ export default function ReferralManagementPage() {
     const flattenTree = (node: ReferralNode, level: number = 0): any[] => {
       const result = [{
         '用户ID': node.id,
-        '用户名': node.telegram_username || `${node.first_name} ${node.last_name}`.trim(),
-        'Telegram ID': node.telegram_id,
+        '显示名': `${node.first_name || ''} ${node.last_name || ''}`.trim() || node.phone_number || 'N/A',
+        '手机号': node.phone_number,
         '邀请码': node.referral_code || node.invite_code || 'N/A',
         '层级': level,
         '一级邀请数': node.stats.level1_count,
@@ -129,7 +128,7 @@ export default function ReferralManagementPage() {
     const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `referral_tree_${selectedUser?.telegram_username || selectedUser?.id}_${Date.now()}.csv`;
+    link.download = `referral_tree_${selectedUser?.phone_number || selectedUser?.id}_${Date.now()}.csv`;
     link.click();
   };
 
@@ -153,8 +152,8 @@ export default function ReferralManagementPage() {
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <Users className="w-4 h-4 text-gray-400" />
-              <span className="font-medium">{node.telegram_username || `${node.first_name || ''} ${node.last_name || ''}`.trim() || 'N/A'}</span>
-              <span className="text-xs text-gray-500">({node.telegram_id})</span>
+              <span className="font-medium">{`${node.first_name || ''} ${node.last_name || ''}`.trim() || node.phone_number || 'N/A'}</span>
+              <span className="text-xs text-gray-500">({node.phone_number || 'N/A'})</span>
               <span className="text-xs bg-gray-100 px-2 py-1 rounded">L{level}</span>
             </div>
             <div className="text-sm text-gray-600 mt-1">
@@ -219,12 +218,12 @@ export default function ReferralManagementPage() {
           <h2 className="text-lg font-semibold mb-4">用户信息</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <p className="text-sm text-gray-600">用户名</p>
-              <p className="font-medium">{selectedUser.telegram_username || `${selectedUser.first_name || ''} ${selectedUser.last_name || ''}`.trim() || 'N/A'}</p>
+              <p className="text-sm text-gray-600">显示名</p>
+              <p className="font-medium">{`${selectedUser.first_name || ''} ${selectedUser.last_name || ''}`.trim() || selectedUser.phone_number || 'N/A'}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-600">Telegram ID</p>
-              <p className="font-medium">{selectedUser.telegram_id}</p>
+              <p className="text-sm text-gray-600">手机号</p>
+              <p className="font-medium">{selectedUser.phone_number}</p>
             </div>
             <div>
               <p className="text-sm text-gray-600">邀请码</p>

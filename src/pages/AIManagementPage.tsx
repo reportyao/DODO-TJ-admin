@@ -124,10 +124,10 @@ export default function AIManagementPage() {
       const userIds = [...new Set(data.map(log => log.user_id))];
       const { data: userData } = await supabase
         .from('users')
-        .select('id, display_name, first_name, telegram_username')
+        .select('id, display_name, first_name, phone_number')
         .in('id', userIds);
 
-      const userMap = new Map(userData?.map(u => [u.id, u.display_name || u.telegram_username || u.first_name || u.id]) || []);
+      const userMap = new Map(userData?.map(u => [u.id, u.display_name || u.phone_number || u.first_name || u.id]) || []);
 
       // 映射字段名
       const logsWithUsername = data.map(log => ({

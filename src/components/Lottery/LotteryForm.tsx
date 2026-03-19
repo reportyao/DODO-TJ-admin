@@ -174,8 +174,7 @@ export const LotteryForm: React.FC = () => {
                 *,
                 winner:users!lottery_results_winner_id_fkey (
                   id,
-                  telegram_id,
-                  telegram_username,
+                  phone_number,
                   first_name,
                   last_name,
                   avatar_url
@@ -394,7 +393,7 @@ export const LotteryForm: React.FC = () => {
         { label: '中奖号码 (Winning Number)', value: lotteryRound.winning_number },
         { label: '时间戳总和 (S)', value: lotteryRound.timestamp_sum },
         { label: '总份数 (N)', value: lotteryRound.total_shares },
-        { label: '中奖用户', value: lotteryRound.winner?.telegram_username || lotteryRound.winner?.first_name || 'N/A' },
+        { label: '中奖用户', value: lotteryRound.winner?.phone_number || lotteryRound.winner?.first_name || 'N/A' },
         { label: '中奖门票 ID', value: lotteryRound.winning_ticket_id },
       ]
     : [];

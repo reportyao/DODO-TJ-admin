@@ -135,8 +135,14 @@ export async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
-// 分享到Telegram
+// 【迁移修复】分享到WhatsApp
+export function shareToWhatsApp(text: string, url?: string): void {
+  const fullText = url ? `${text} ${url}` : text;
+  const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(fullText)}`;
+  window.open(whatsappUrl, '_blank');
+}
+
+// 向后兼容：保留旧函数名但调用WhatsApp
 export function shareToTelegram(text: string, url?: string): void {
-  const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(url || window.location.href)}&text=${encodeURIComponent(text)}`;
-  window.open(telegramUrl, '_blank');
+  shareToWhatsApp(text, url);
 }

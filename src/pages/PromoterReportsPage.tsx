@@ -127,7 +127,7 @@ export default function PromoterReportsPage() {
       // 2. Fetch user info
       const { data: usersData } = await supabase
         .from('users')
-        .select('id, first_name, last_name, telegram_username, referral_code')
+        .select('id, first_name, last_name, phone_number, referral_code')
         .in('id', promoterUserIds);
 
       // 3. Fetch teams & points
@@ -199,7 +199,7 @@ export default function PromoterReportsPage() {
 
       ppData.forEach(pp => {
         const user = usersData?.find(u => u.id === pp.user_id);
-        const name = user?.telegram_username || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'N/A';
+        const name = user?.phone_number || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'N/A';
         const teamName = pp.team_id ? teamsMap[pp.team_id] || '--' : '--';
         const pointName = pp.point_id ? pointsMap[pp.point_id] || '--' : '--';
 
@@ -257,7 +257,7 @@ export default function PromoterReportsPage() {
 
       ppData.forEach(pp => {
         const user = usersData?.find(u => u.id === pp.user_id);
-        const name = user?.telegram_username || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'N/A';
+        const name = user?.phone_number || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'N/A';
         const teamName = pp.team_id ? teamsMap[pp.team_id] || '--' : '--';
         const pointName = pp.point_id ? pointsMap[pp.point_id] || '--' : '--';
 

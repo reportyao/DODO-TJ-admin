@@ -27,8 +27,7 @@ interface PendingPickup {
   created_at: string;
   user: {
     id: string;
-    telegram_id: string;
-    telegram_username: string | null;
+    phone_number: string;
     first_name: string | null;
     last_name: string | null;
     avatar_url: string | null;
@@ -103,7 +102,7 @@ export default function PendingPickupsPage() {
           if (prize.user_id) {
             const { data: userData } = await supabase
               .from('users')
-              .select('id, telegram_id, telegram_username, first_name, last_name, avatar_url')
+              .select('id, phone_number, first_name, last_name, avatar_url')
               .eq('id', prize.user_id)
               .single();
             user = userData;
@@ -170,13 +169,13 @@ export default function PendingPickupsPage() {
         console.error('加载拼团中奖记录失败:', groupBuyError);
       } else if (groupBuyResults) {
         for (const result of groupBuyResults) {
-          // 获取用户信息（通过telegram_id）
+          // 获取用户信息（通过phone_number）
           let user = null;
           if (result.winner_id) {
             const { data: userData } = await supabase
               .from('users')
-              .select('id, telegram_id, telegram_username, first_name, last_name, avatar_url')
-              .eq('telegram_id', result.winner_id)
+              .select('id, phone_number, first_name, last_name, avatar_url')
+              .eq('phone_number', result.winner_id)
               .single();
             user = userData;
           }
@@ -249,7 +248,7 @@ export default function PendingPickupsPage() {
           if (order.user_id) {
             const { data: userData } = await supabase
               .from('users')
-              .select('id, telegram_id, telegram_username, first_name, last_name, avatar_url')
+              .select('id, phone_number, first_name, last_name, avatar_url')
               .eq('id', order.user_id)
               .single();
             user = userData;
@@ -338,9 +337,9 @@ export default function PendingPickupsPage() {
       const search = searchTerm.toLowerCase();
       const matchName = pickup.prize_name.toLowerCase().includes(search);
       const matchCode = pickup.pickup_code?.toLowerCase().includes(search);
-      const matchUser = pickup.user?.telegram_username?.toLowerCase().includes(search) ||
+      const matchUser = pickup.user?.phone_number?.toLowerCase().includes(search) ||
         pickup.user?.first_name?.toLowerCase().includes(search) ||
-        pickup.user?.telegram_id?.includes(search);
+        pickup.user?.phone_number?.includes(search);
       return matchName || matchCode || matchUser;
     }
     return true;
@@ -653,10 +652,10 @@ export default function PendingPickupsPage() {
                           )}
                           <div>
                             <div className="text-sm font-medium text-gray-900">
-                              {pickup.user.first_name || pickup.user.telegram_username || '未知用户'}
+                              {pickup.user.first_name || pickup.user.phone_number || '未知用户'}
                             </div>
                             <div className="text-xs text-gray-500">
-                              ID: {pickup.user.telegram_id}
+                              ID: {pickup.user.phone_number}
                             </div>
                           </div>
                         </div>
@@ -771,7 +770,7 @@ export default function PendingPickupsPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">用户</span>
-                  <span>{selectedPickup.user?.first_name || selectedPickup.user?.telegram_username || '-'}</span>
+                  <span>{selectedPickup.user?.first_name || selectedPickup.user?.phone_number || '-'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">自提点</span>

@@ -18,15 +18,13 @@ interface EntryWithUser {
   is_winning: boolean;
   created_at: string;
   user?: {
-    telegram_username: string | null;
-    telegram_id: string;
+    phone_number: string;
   };
 }
 
 interface LotteryDetail extends Tables<'lotteries'> {
   winning_user?: {
-    telegram_username: string | null;
-    telegram_id: string;
+    phone_number: string;
   };
 }
 
@@ -104,7 +102,7 @@ export const LotteryDetailPage: React.FC = () => {
       if (lotteryData.winning_user_id) {
         const { data: userData, error: userError } = await supabase
           .from('users')
-          .select('telegram_username, telegram_id')
+          .select('phone_number')
           .eq('id', lotteryData.winning_user_id)
           .single();
 
@@ -144,19 +142,19 @@ export const LotteryDetailPage: React.FC = () => {
 
       // 获取用户信息
       const userIds = [...new Set(entriesData?.map(e => e.user_id) || [])];
-      let usersMap: Record<string, { telegram_username: string | null; telegram_id: string }> = {};
+      let usersMap: Record<string, { phone_number: string | null }> = {};
       
       if (userIds.length > 0) {
         const { data: usersData } = await supabase
           .from('users')
-          .select('id, telegram_username, telegram_id')
+          .select('id, phone_number')
           .in('id', userIds);
         
         if (usersData) {
           usersMap = usersData.reduce((acc, user) => {
-            acc[user.id] = { telegram_username: user.telegram_username, telegram_id: user.telegram_id };
+            acc[user.id] = { phone_number: user.phone_number };
             return acc;
-          }, {} as Record<string, { telegram_username: string | null; telegram_id: string }>);
+          }, {} as Record<string, { phone_number: string | null }>);
         }
       }
 
@@ -206,7 +204,7 @@ export const LotteryDetailPage: React.FC = () => {
   const userEntriesMap = new Map<string, { username: string; count: number; tickets: number[] }>();
   entries.forEach(entry => {
     const userId = entry.user_id;
-    const username = entry.user?.telegram_username || entry.user?.telegram_id || '未知用户';
+    const username = entry.user?.phone_number || '未知用户';
     const ticketNumber = parseTicketNumber(entry.numbers);
     
     if (!userEntriesMap.has(userId)) {
@@ -301,7 +299,7 @@ export const LotteryDetailPage: React.FC = () => {
                 <div>
                   <div className="text-sm text-gray-500">中奖用户</div>
                   <div className="font-medium">
-                    {lottery.winning_user.telegram_username || lottery.winning_user.telegram_id}
+                    {lottery.winning_user.phone_number}
                   </div>
                 </div>
               )}
@@ -394,7 +392,7 @@ export const LotteryDetailPage: React.FC = () => {
                           )}
                         </TableCell>
                         <TableCell>
-                          {entry.user?.telegram_username || entry.user?.telegram_id || '未知用户'}
+                          {entry.user?.phone_number || '未知用户'}
                         </TableCell>
                         <TableCell>{formatDateTime(entry.created_at)}</TableCell>
                         <TableCell>

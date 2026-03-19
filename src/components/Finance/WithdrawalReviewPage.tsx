@@ -15,7 +15,7 @@ type Withdrawal = Tables<'withdrawal_requests'> & {
   users?: {
     id: string;
     display_name?: string;
-    telegram_username?: string;
+    phone_number?: string;
   };
 };
 type WithdrawalStatus = Enums<'WithdrawalStatus'>;
@@ -58,7 +58,7 @@ export const WithdrawalReviewPage: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from('withdrawal_requests')
-        .select('*, users(id, display_name, telegram_username)')
+        .select('*, users(id, display_name, phone_number)')
         .order('created_at', { ascending: false });
 
       if (error) {throw error;}
@@ -104,7 +104,7 @@ export const WithdrawalReviewPage: React.FC = () => {
       targetId: id,
       details: {
         user_id: currentWithdrawal?.user_id,
-        user_name: currentWithdrawal?.users?.display_name || currentWithdrawal?.users?.telegram_username,
+        user_name: currentWithdrawal?.users?.display_name || currentWithdrawal?.users?.phone_number,
         amount: currentWithdrawal?.amount,
         currency: currentWithdrawal?.currency,
         withdrawal_method: currentWithdrawal?.withdrawal_method,
@@ -187,7 +187,7 @@ export const WithdrawalReviewPage: React.FC = () => {
                     <TableCell className="font-medium">{withdrawal.id.substring(0, 8)}...</TableCell>
                     <TableCell>
                       <div className="text-sm">
-                        <div className="font-medium">{withdrawal.users?.display_name || withdrawal.users?.telegram_username || '未知用户'}</div>
+                        <div className="font-medium">{withdrawal.users?.display_name || withdrawal.users?.phone_number || '未知用户'}</div>
                         <div className="text-gray-500 text-xs">ID: {withdrawal.user_id ? `${withdrawal.user_id.substring(0, 8)}...` : '-'}</div>
                       </div>
                     </TableCell>

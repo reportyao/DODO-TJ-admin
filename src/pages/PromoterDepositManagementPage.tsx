@@ -67,16 +67,15 @@ interface PromoterDeposit {
   created_at: string;
   // Joined fields from RPC
   promoter_name: string;
-  promoter_telegram_id: string;
+  promoter_phone_number: string;
   target_user_name: string;
-  target_telegram_id: string;
-  target_telegram_username: string;
+  target_phone_number: string;
 }
 
 interface PromoterStats {
   promoter_id: string;
   promoter_name: string;
-  telegram_id: string;
+  phone_number: string;
   team_name: string;
   deposit_count: number;
   total_amount: number;
@@ -290,7 +289,7 @@ export default function PromoterDepositManagementPage() {
       const stats: PromoterStats[] = ((data as any[]) || []).map((s: any) => ({
         promoter_id: s.promoter_id,
         promoter_name: s.promoter_name || '未知',
-        telegram_id: s.telegram_id || '',
+        phone_number: s.phone_number || '',
         team_name: s.team_name || '--',
         deposit_count: safeNumber(s.deposit_count),
         total_amount: safeNumber(s.total_amount),
@@ -477,9 +476,9 @@ export default function PromoterDepositManagementPage() {
     const rows = deposits.map((d) => [
       d.id.substring(0, 8),
       d.promoter_name,
-      d.promoter_telegram_id,
+      d.promoter_phone_number,
       d.target_user_name,
-      d.target_telegram_id,
+      d.target_phone_number,
       d.amount.toFixed(2),
       d.bonus_amount.toFixed(2),
       d.status === 'COMPLETED' ? '已完成' : d.status === 'FAILED' ? '失败' : d.status,
@@ -654,7 +653,7 @@ export default function PromoterDepositManagementPage() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="搜索地推人员/用户名/Telegram ID..."
+                placeholder="搜索地推人员/用户名/手机号..."
                 value={searchTerm}
                 onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
                 className="w-full pl-9 pr-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
@@ -753,14 +752,14 @@ export default function PromoterDepositManagementPage() {
                         <TableCell>
                           <div>
                             <p className="text-sm font-medium">{d.promoter_name}</p>
-                            <p className="text-xs text-gray-400">{d.promoter_telegram_id}</p>
+                            <p className="text-xs text-gray-400">{d.promoter_phone_number}</p>
                           </div>
                         </TableCell>
                         <TableCell>
                           <div>
                             <p className="text-sm font-medium">{d.target_user_name}</p>
                             <p className="text-xs text-gray-400">
-                              {d.target_telegram_username ? `@${d.target_telegram_username}` : d.target_telegram_id}
+                              {d.target_phone_number || '--'}
                             </p>
                           </div>
                         </TableCell>
@@ -850,7 +849,7 @@ export default function PromoterDepositManagementPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>地推人员</TableHead>
-                    <TableHead>Telegram ID</TableHead>
+                    <TableHead>手机号</TableHead>
                     <TableHead>团队</TableHead>
                     <TableHead className="text-right">充值笔数</TableHead>
                     <TableHead className="text-right">充值总额</TableHead>
@@ -863,7 +862,7 @@ export default function PromoterDepositManagementPage() {
                   {promoterStats.map((s) => (
                     <TableRow key={s.promoter_id}>
                       <TableCell className="font-medium">{s.promoter_name}</TableCell>
-                      <TableCell className="text-sm text-gray-500">{s.telegram_id}</TableCell>
+                      <TableCell className="text-sm text-gray-500">{s.phone_number}</TableCell>
                       <TableCell className="text-sm">{s.team_name}</TableCell>
                       <TableCell className="text-right">{s.deposit_count}</TableCell>
                       <TableCell className="text-right font-medium text-green-600">
@@ -1017,15 +1016,15 @@ export default function PromoterDepositManagementPage() {
                 <div>
                   <p className="text-gray-500">地推人员</p>
                   <p className="font-medium">{selectedDeposit.promoter_name}</p>
-                  <p className="text-xs text-gray-400">{selectedDeposit.promoter_telegram_id}</p>
+                  <p className="text-xs text-gray-400">{selectedDeposit.promoter_phone_number}</p>
                 </div>
                 <div>
                   <p className="text-gray-500">目标用户</p>
                   <p className="font-medium">{selectedDeposit.target_user_name}</p>
                   <p className="text-xs text-gray-400">
-                    {selectedDeposit.target_telegram_username
-                      ? `@${selectedDeposit.target_telegram_username}`
-                      : selectedDeposit.target_telegram_id}
+                    {selectedDeposit.target_phone_number
+                      ? selectedDeposit.target_phone_number
+                      : selectedDeposit.target_phone_number}
                   </p>
                 </div>
                 <div>

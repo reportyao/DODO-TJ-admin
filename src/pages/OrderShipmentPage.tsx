@@ -52,7 +52,7 @@ interface PendingOrder {
   product_sku?: string;
   user_id: string;
   user_name?: string;
-  user_telegram_id?: string;
+  user_phone_number?: string;
   created_at: string;
   amount?: number;
 }
@@ -106,8 +106,7 @@ export default function OrderShipmentPage() {
           ),
           users:user_id (
             first_name,
-            telegram_username,
-            telegram_id
+            phone_number
           )
         `)
         .or('logistics_status.is.null,logistics_status.eq.PENDING_SHIPMENT')
@@ -138,8 +137,7 @@ export default function OrderShipmentPage() {
           ),
           users:user_id (
             first_name,
-            telegram_username,
-            telegram_id
+            phone_number
           )
         `)
         .or('logistics_status.is.null,logistics_status.eq.PENDING_SHIPMENT')
@@ -195,8 +193,8 @@ export default function OrderShipmentPage() {
             product_image: lottery?.image_url || order.metadata?.product_image,
             product_sku: lottery?.inventory_product_id,
             user_id: order.user_id,
-            user_name: user?.first_name || user?.telegram_username || '未知用户',
-            user_telegram_id: user?.telegram_id,
+            user_name: user?.first_name || user?.phone_number || '未知用户',
+            user_phone_number: user?.phone_number,
             created_at: order.created_at,
             amount: order.total_amount,
           });
@@ -217,8 +215,8 @@ export default function OrderShipmentPage() {
             product_image: lottery?.image_url,
             product_sku: lottery?.inventory_product_id,
             user_id: prize.user_id,
-            user_name: user?.first_name || user?.telegram_username || '未知用户',
-            user_telegram_id: user?.telegram_id,
+            user_name: user?.first_name || user?.phone_number || '未知用户',
+            user_phone_number: user?.phone_number,
             created_at: prize.created_at,
             amount: prize.prize_value,
           });
@@ -231,7 +229,7 @@ export default function OrderShipmentPage() {
         const winnerIds = groupBuyOrders.map(o => o.winner_id).filter(Boolean);
         const { data: winners } = await supabase
           .from('users')
-          .select('id, first_name, telegram_username, telegram_id')
+          .select('id, first_name, phone_number')
           .in('id', winnerIds);
         
         const winnersMap = new Map((winners || []).map(u => [u.id, u]));
@@ -259,8 +257,8 @@ export default function OrderShipmentPage() {
             product_image: product?.image_urls?.[0],
             product_sku: order.product_id,
             user_id: order.winner_id,
-            user_name: user?.first_name || user?.telegram_username || '未知用户',
-            user_telegram_id: user?.telegram_id,
+            user_name: user?.first_name || user?.phone_number || '未知用户',
+            user_phone_number: user?.phone_number,
             created_at: order.created_at,
             amount: product?.original_price,
           });

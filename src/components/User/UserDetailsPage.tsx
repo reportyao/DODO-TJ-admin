@@ -125,7 +125,7 @@ export const UserDetailsPage: React.FC = () => {
   return (
     <Card className="w-full max-w-4xl mx-auto">
       <CardHeader>
-        <CardTitle>用户详情: {user.telegram_username || ((user.first_name || '') + ' ' + (user.last_name || '')).trim() || '未知用户'}</CardTitle>
+        <CardTitle>用户详情: {user.phone_number || ((user.first_name || '') + ' ' + (user.last_name || '')).trim() || '未知用户'}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid grid-cols-2 gap-4">
@@ -134,12 +134,12 @@ export const UserDetailsPage: React.FC = () => {
             <Input value={user.id} readOnly />
           </div>
           <div className="space-y-2">
-            <Label>Telegram ID</Label>
-            <Input value={user.telegram_id} readOnly />
+            <Label>手机号</Label>
+            <Input value={user.phone_number} readOnly />
           </div>
           <div className="space-y-2">
-            <Label>用户名</Label>
-            <Input value={user.telegram_username || 'N/A'} readOnly />
+            <Label>显示名</Label>
+            <Input value={(user as any).display_name || user.first_name || 'N/A'} readOnly />
           </div>
           <div className="space-y-2">
             <Label>姓名</Label>
@@ -147,7 +147,7 @@ export const UserDetailsPage: React.FC = () => {
           </div>
           <div className="space-y-2">
             <Label>邀请人</Label>
-            <Input value={user.referred_by_user?.telegram_username || '无'} readOnly />
+            <Input value={user.referred_by_user?.phone_number || '无'} readOnly />
           </div>
           <div className="space-y-2">
             <Label>邀请码</Label>
@@ -171,7 +171,7 @@ export const UserDetailsPage: React.FC = () => {
             <StatCard title="二级邀请人数" value={referralStats.level2_count} />
             <StatCard title="累计佣金 (TJS)" value={referralStats.total_commission.toFixed(2)} />
           </div>
-          <Button variant="outline" className="mt-4" onClick={() => window.location.href = `/admin/referral-management?search=${user.telegram_id}`}>
+          <Button variant="outline" className="mt-4" onClick={() => window.location.href = `/admin/referral-management?search=${user.phone_number}`}>
             查看邀请列表
           </Button>
         </div>

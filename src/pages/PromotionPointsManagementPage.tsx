@@ -65,7 +65,6 @@ interface PointWithStats extends PromotionPoint {
 interface PointStaffMember {
   user_id: string;
   user_name: string;
-  telegram_username: string | null;
   referral_code: string | null;
   promoter_status: string;
   registrations: number;
@@ -629,7 +628,7 @@ export default function PromotionPointsManagementPage() {
       // 2. Get user info
       const { data: usersData } = await supabase
         .from('users')
-        .select('id, first_name, last_name, telegram_username, referral_code')
+        .select('id, first_name, last_name, phone_number, referral_code')
         .in('id', userIds);
 
       const userMap: Record<string, any> = {};
@@ -697,13 +696,13 @@ export default function PromotionPointsManagementPage() {
       const staffList: PointStaffMember[] = ppData.map(pp => {
         const user = userMap[pp.user_id];
         const name = user
-          ? (user.telegram_username || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'N/A')
+          ? (user.phone_number || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'N/A')
           : 'N/A';
 
         return {
           user_id: pp.user_id,
           user_name: name,
-          telegram_username: user?.telegram_username || null,
+          phone_number: user?.phone_number || null,
           referral_code: user?.referral_code || null,
           promoter_status: pp.promoter_status,
           registrations: regCounts[pp.user_id] || 0,
@@ -1462,8 +1461,8 @@ export default function PromotionPointsManagementPage() {
                           </TableCell>
                           <TableCell className="font-medium">
                             {staff.user_name}
-                            {staff.telegram_username && (
-                              <div className="text-xs text-gray-500">@{staff.telegram_username}</div>
+                            {staff.phone_number && (
+                              <div className="text-xs text-gray-500">{staff.first_name || staff.phone_number || "N/A"}</div>
                             )}
                           </TableCell>
                           <TableCell className="text-sm text-gray-600">{staff.referral_code || '--'}</TableCell>

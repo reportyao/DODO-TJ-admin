@@ -4,8 +4,8 @@ import toast from 'react-hot-toast';
 
 interface User {
   id: string;
-  telegram_id: string;
-  telegram_username?: string | null;
+  phone_number: string;
+  display_name?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   level: number;
@@ -26,7 +26,7 @@ const UserManagementPage: React.FC = () => {
       setLoading(true);
       const { data, error } = await supabase
         .from('users')
-        .select('id, telegram_id, telegram_username, first_name, last_name, level')
+        .select('id, phone_number, first_name, last_name, level')
         .order('created_at', { ascending: false })
         .limit(100);
 
@@ -69,10 +69,10 @@ const UserManagementPage: React.FC = () => {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Telegram ID
+                手机号
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                用户名
+                显示名
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 姓名
@@ -87,10 +87,10 @@ const UserManagementPage: React.FC = () => {
             {(users || []).map((user) => (
               <tr key={user.id}>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {user.telegram_id}
+                  {user.phone_number}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {user.telegram_username || 'N/A'}
+                  {user.display_name || user.first_name || 'N/A'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                   {user.first_name || user.last_name ? `${user.first_name || ''} ${user.last_name || ''}`.trim() : 'N/A'}

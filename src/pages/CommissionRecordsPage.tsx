@@ -21,15 +21,13 @@ interface CommissionRecord {
     id: string;
     display_name: string;
     first_name: string;
-    telegram_id: string;
-    telegram_username: string | null;
+    phone_number: string;
   };
   from_user?: {
     id: string;
     display_name: string;
     first_name: string;
-    telegram_id: string;
-    telegram_username: string | null;
+    phone_number: string;
   };
 }
 
@@ -83,7 +81,7 @@ export default function CommissionRecordsPage() {
       // 查询用户信息 - 使用正确的字段名
       const { data: usersData } = await supabase
         .from('users')
-        .select('id, display_name, first_name, telegram_id, telegram_username')
+        .select('id, display_name, first_name, phone_number')
         .in('id', Array.from(userIds));
 
       // 组装数据
@@ -116,7 +114,7 @@ export default function CommissionRecordsPage() {
       const { data: users, error: userError } = await supabase
         .from('users')
         .select('id')
-        .or(`display_name.ilike.%${searchTerm}%,first_name.ilike.%${searchTerm}%,telegram_id.ilike.%${searchTerm}%,telegram_username.ilike.%${searchTerm}%`);
+        .or(`display_name.ilike.%${searchTerm}%,first_name.ilike.%${searchTerm}%,phone_number.ilike.%${searchTerm}%,phone_number.ilike.%${searchTerm}%`);
 
       if (userError) {throw userError;}
 
@@ -141,7 +139,7 @@ export default function CommissionRecordsPage() {
 
       const { data: usersData } = await supabase
         .from('users')
-        .select('id, display_name, first_name, telegram_id, telegram_username')
+        .select('id, display_name, first_name, phone_number')
         .in('id', Array.from(allUserIds));
 
       const recordsWithUsers = data?.map(commission => ({
@@ -190,7 +188,7 @@ export default function CommissionRecordsPage() {
   // 获取用户显示名称
   const getUserDisplayName = (user: CommissionRecord['user']) => {
     if (!user) {return '-';}
-    return user.display_name || user.telegram_username || user.first_name || user.telegram_id || '-';
+    return user.display_name || user.first_name || user.phone_number || '-';
   };
 
   const exportData = () => {
@@ -198,10 +196,10 @@ export default function CommissionRecordsPage() {
       返利ID: r.id,
       用户ID: r.beneficiary_id || r.user_id || '',
       用户名: getUserDisplayName(r.user),
-      用户TG: r.user?.telegram_id || '',
+      用户手机: r.user?.phone_number || '',
       邀请人ID: r.source_user_id || r.from_user_id || '',
       邀请人: getUserDisplayName(r.from_user),
-      邀请人TG: r.from_user?.telegram_id || '',
+      邀请人手机: r.from_user?.phone_number || '',
       层级: r.level,
       比例: `${(r.rate * 100).toFixed(2)}%`,
       金额: r.amount,
@@ -290,7 +288,7 @@ export default function CommissionRecordsPage() {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-              placeholder="搜索用户名或Telegram ID..."
+              placeholder="搜索用户名或手机号..."
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
@@ -387,7 +385,7 @@ export default function CommissionRecordsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="text-sm font-medium text-gray-900">{getUserDisplayName(record.user)}</div>
-                    <div className="text-xs text-gray-500">{record.user?.telegram_id || '-'}</div>
+                    <div className="text-xs text-gray-500">{record.user?.phone_number || '-'}</div>
                   </td>
                   <td className="px-4 py-3">
                     <div className="text-xs text-gray-500 font-mono max-w-[100px] truncate" title={record.source_user_id || record.from_user_id}>
@@ -396,7 +394,7 @@ export default function CommissionRecordsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="text-sm font-medium text-gray-900">{getUserDisplayName(record.from_user)}</div>
-                    <div className="text-xs text-gray-500">{record.from_user?.telegram_id || '-'}</div>
+                    <div className="text-xs text-gray-500">{record.from_user?.phone_number || '-'}</div>
                   </td>
                   <td className="px-4 py-3">
                     <span className="text-sm text-gray-900">L{record.level}</span>
