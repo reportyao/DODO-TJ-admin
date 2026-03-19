@@ -26,7 +26,7 @@ const UserManagementPage: React.FC = () => {
       setLoading(true);
       const { data, error } = await supabase
         .from('users')
-        .select('id, phone_number, first_name, last_name, level')
+        .select('id, phone_number, display_name, first_name, last_name, level')
         .order('created_at', { ascending: false })
         .limit(100);
 

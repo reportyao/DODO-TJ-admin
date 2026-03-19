@@ -114,7 +114,7 @@ export default function CommissionRecordsPage() {
       const { data: users, error: userError } = await supabase
         .from('users')
         .select('id')
-        .or(`display_name.ilike.%${searchTerm}%,first_name.ilike.%${searchTerm}%,phone_number.ilike.%${searchTerm}%,phone_number.ilike.%${searchTerm}%`);
+        .or(`display_name.ilike.%${searchTerm}%,first_name.ilike.%${searchTerm}%,phone_number.ilike.%${searchTerm}%`);
 
       if (userError) {throw userError;}
 
