@@ -32,7 +32,7 @@ export const OrderService = {
     if (orderData.user_id) {
       const { data: user } = await supabase
         .from('users')
-        .select('id, phone_number, first_name, last_name, phone_number')
+        .select('id, phone_number, first_name, last_name')
         .eq('id', orderData.user_id)
         .single();
       userData = user;
