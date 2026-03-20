@@ -55,30 +55,68 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     'lotteries.edit': ['/lotteries'],
     'lotteries.delete': ['/lotteries'],
     'lotteries.draw': ['/draw-logs'],
-    'orders.view': ['/orders'],
-    'orders.edit': ['/orders'],
+    'orders.view': ['/orders', '/order-shipment'],
+    'orders.edit': ['/orders', '/order-shipment'],
     'orders.cancel': ['/orders'],
-    'finance.view': ['/deposit-review', '/withdrawal-review', '/commission-records'],
-    'finance.deposit.review': ['/deposit-review'],
+    'finance.view': ['/deposit-review', '/withdrawal-review', '/commission-records', '/deposit-alerts'],
+    'finance.deposit.review': ['/deposit-review', '/deposit-alerts'],
     'finance.withdrawal.review': ['/withdrawal-review'],
     'finance.commission.view': ['/commission-records', '/commission-config'],
     'finance.commission.edit': ['/commission-config'],
-    'shipping.view': ['/shipping-management'],
-    'shipping.edit': ['/shipping-management'],
-    'showoff.view': ['/showoff-review'],
-    'showoff.review': ['/showoff-review'],
-    'showoff.delete': ['/showoff-review'],
+    'shipping.view': [
+      '/shipping-management',
+      '/shipment-batches',
+      '/batch-arrival-confirm',
+      '/batch-statistics',
+      '/pickup-verification',
+      '/pickup-points',
+      '/pickup-stats',
+      '/pending-pickups',
+    ],
+    'shipping.edit': [
+      '/shipping-management',
+      '/shipment-batches',
+      '/batch-arrival-confirm',
+      '/batch-statistics',
+    ],
+    'showoff.view': ['/showoff-review', '/showoff-management'],
+    'showoff.review': ['/showoff-review', '/showoff-create', '/showoff-management'],
+    'showoff.delete': ['/showoff-review', '/showoff-management'],
     'resale.view': ['/resale-management'],
     'resale.edit': ['/resale-management'],
     'config.payment': ['/payment-config'],
     'config.algorithm': ['/algorithm-config'],
-    'config.banner': ['/banner-management'], // 修复: 添加Banner管理权限映射
-
+    'config.banner': ['/banner-management'],
+    // 推广员管理
+    'promoter.view': [
+      '/promoter-management',
+      '/promoter-dashboard',
+      '/promoter-deposits',
+      '/promoter-reports',
+      '/promoter-settlement',
+      '/promotion-points',
+    ],
+    'promoter.edit': [
+      '/promoter-management',
+      '/promoter-deposits',
+      '/promoter-settlement',
+    ],
+    // 邀请/返佣管理
+    'referral.view': ['/referral-management'],
+    'referral.edit': ['/referral-management'],
+    // 商品库存管理
+    'inventory.view': ['/inventory-products', '/group-buy-products', '/group-buy-sessions'],
+    'inventory.edit': ['/inventory-products', '/group-buy-products', '/group-buy-sessions'],
+    // 系统管理
     'admin.view': ['/admin-management'],
     'admin.create': ['/admin-management'],
     'admin.edit': ['/admin-management'],
     'admin.delete': ['/admin-management'],
-    'audit.view': ['/audit-logs'],
+    'audit.view': ['/audit-logs', '/error-logs', '/channel-analytics'],
+    // AI 管理（超级管理员专属，但映射保留）
+    'ai.manage': ['/ai-management'],
+    // 权限管理
+    'permission.manage': ['/permission-management'],
   };
 
   // 加载管理员权限
