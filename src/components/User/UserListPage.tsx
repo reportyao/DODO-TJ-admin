@@ -51,7 +51,12 @@ export const UserListPage = () => {
 
       // 如果有搜索条件，按手机号、姓名、邀请码模糊搜索
       if (activeSearch.trim()) {
-        const term = activeSearch.trim();
+        // 安全处理：转义 PostgREST 过滤器中的特殊字符，防止过滤器注入
+        const term = activeSearch.trim()
+          .replace(/\\/g, '\\\\')  // 转义反斜杠
+          .replace(/,/g, '\\,')     // 转义逗号（PostgREST OR 分隔符）
+          .replace(/\(/g, '\\(')    // 转义括号
+          .replace(/\)/g, '\\)');
         query = query.or(
           `phone_number.ilike.%${term}%,first_name.ilike.%${term}%,last_name.ilike.%${term}%,referral_code.eq.${term}`
         );
