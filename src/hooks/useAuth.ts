@@ -38,7 +38,7 @@ export function useAuth() {
           console.log('[Dev] No session found, creating mock admin user')
           setUser({
             id: 'dev-admin',
-            email: 'admin@tezbarakat.com',
+            email: 'admin@dodo.tj',
             role: 'admin',
             permissions: ['*']
           })
@@ -48,7 +48,7 @@ export function useAuth() {
         // 出错时也使用模拟用户
         setUser({
           id: 'dev-admin',
-          email: 'admin@tezbarakat.com',
+          email: 'admin@dodo.tj',
           role: 'admin',
           permissions: ['*']
         })
@@ -79,7 +79,7 @@ export function useAuth() {
         // 使用模拟用户而不是null
         setUser({
           id: 'dev-admin',
-          email: 'admin@tezbarakat.com',
+          email: 'admin@dodo.tj',
           role: 'admin',
           permissions: ['*']
         })

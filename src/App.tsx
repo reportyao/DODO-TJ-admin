@@ -103,7 +103,7 @@ function App(): JSX.Element {
         {/* Sidebar */}
         <div className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-gray-900 text-white transition-all duration-300 overflow-y-auto`}>
           <div className="p-4 border-b border-gray-700">
-            <h1 className="font-bold text-xl">TezBarakat Admin</h1>
+            <h1 className="font-bold text-xl">DODO Admin</h1>
           </div>
           <nav className="mt-2 space-y-1 px-2 pb-4">
             <NavLink to="/" label="仪表盘" icon="📊" />
