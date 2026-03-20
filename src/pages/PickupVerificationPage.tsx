@@ -338,12 +338,17 @@ const PickupVerificationPage: React.FC = () => {
       }
       
       // 所有表都更新相同的字段
+      const nowIso = new Date().toISOString();
       const updateData: any = {
         pickup_status: 'PICKED_UP',
         logistics_status: 'PICKED_UP',  // 同时更新logistics_status
-        picked_up_at: new Date().toISOString(),
+        picked_up_at: nowIso,
         picked_up_by: adminId,
       };
+      // 【R18修复】full_purchase_orders 有 claimed_at 字段，核销时同步更新
+      if (prizeInfo.source_type === 'full_purchase') {
+        updateData.claimed_at = nowIso;
+      }
       
       const { error: updateError } = await supabase
         .from(tableName)
