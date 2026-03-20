@@ -4,8 +4,10 @@ import { useSupabase } from '@/contexts/SupabaseContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { EmptyState } from '@/components/EmptyState';
 import toast from 'react-hot-toast';
+import { Search, X } from 'lucide-react';
 
 const LIMIT = 50;
 
@@ -29,6 +31,8 @@ export const UserListPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeSearch, setActiveSearch] = useState('');
 
   const formatDateTime = (dateString: string) => {
     return new Date(dateString).toLocaleString('zh-CN');
@@ -40,11 +44,20 @@ export const UserListPage = () => {
       const from = (page - 1) * LIMIT;
       const to = from + LIMIT - 1;
 
-      const { data, error } = await supabase
+      let query = supabase
         .from('users')
         .select('*')
-        .order('created_at', { ascending: false })
-        .range(from, to);
+        .order('created_at', { ascending: false });
+
+      // 如果有搜索条件，按手机号、姓名、邀请码模糊搜索
+      if (activeSearch.trim()) {
+        const term = activeSearch.trim();
+        query = query.or(
+          `phone_number.ilike.%${term}%,first_name.ilike.%${term}%,last_name.ilike.%${term}%,referral_code.eq.${term}`
+        );
+      }
+
+      const { data, error } = await query.range(from, to);
 
       if (error) {throw error;}
 
@@ -56,11 +69,28 @@ export const UserListPage = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [supabase, page]);
+  }, [supabase, page, activeSearch]);
 
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
+
+  const handleSearch = () => {
+    setPage(1); // 搜索时重置到第一页
+    setActiveSearch(searchTerm);
+  };
+
+  const handleClearSearch = () => {
+    setSearchTerm('');
+    setPage(1);
+    setActiveSearch('');
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  };
 
   return (
     <Card>
@@ -68,10 +98,47 @@ export const UserListPage = () => {
         <CardTitle className="text-2xl font-bold">用户管理</CardTitle>
       </CardHeader>
       <CardContent>
+        {/* 搜索栏 */}
+        <div className="flex gap-2 mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              placeholder="搜索手机号、姓名或邀请码..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={handleKeyPress}
+              className="pl-10 pr-10"
+            />
+            {searchTerm && (
+              <button
+                onClick={handleClearSearch}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <Button onClick={handleSearch} variant="default">
+            搜索
+          </Button>
+        </div>
+
+        {activeSearch && (
+          <div className="mb-3 text-sm text-gray-500">
+            搜索: &quot;{activeSearch}&quot;
+            <button onClick={handleClearSearch} className="ml-2 text-blue-500 hover:underline">
+              清除
+            </button>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="text-center py-10">加载中...</div>
         ) : users.length === 0 ? (
-          <EmptyState title="暂无用户" message="当前没有用户数据" />
+          <EmptyState 
+            title={activeSearch ? "未找到匹配用户" : "暂无用户"} 
+            message={activeSearch ? `没有找到与 "${activeSearch}" 匹配的用户` : "当前没有用户数据"} 
+          />
         ) : (
           <div className="overflow-x-auto">
             <Table>

@@ -229,11 +229,11 @@
     "shareReferralLink": "Поделиться реферальной ссылкой"
   },
   "auth": {
-    "welcome": "Добро пожаловать в LuckyMart",
+    "welcome": "Добро пожаловать в TezBarakat",
     "description": "Ведущая социальная лотерейная платформа Таджикистана",
-    "loginWithTelegram": "Войти через Telegram",
+    "loginWithTelegram": "Войти по номеру телефона",
     "guestMode": "Гостевой режим",
-    "pleaseLogin": "Пожалуйста, войдите через Telegram"
+    "pleaseLogin": "Пожалуйста, войдите для доступа"
   },
   "algorithmConfig": {
     "title": "Конфигурация алгоритма розыгрыша",
@@ -367,7 +367,7 @@
     "database": "База данных",
     "api": "API",
     "frontend": "Передняя часть",
-    "telegram": "Telegram",
+    "whatsapp": "WhatsApp",
     "performanceMetrics": "Метрики производительности",
     "responseTime": "Время ответа",
     "errorRate": "Уровень ошибок",

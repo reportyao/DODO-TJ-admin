@@ -41,7 +41,7 @@ export default function LoginPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">LuckyMart 管理后台</h1>
+            <h1 className="text-2xl font-bold text-gray-900">TezBarakat 管理后台</h1>
             <p className="text-gray-600 mt-2">请登录您的管理员账户</p>
           </div>
 
@@ -107,7 +107,7 @@ export default function LoginPage() {
 
         {/* 版权信息 */}
         <div className="text-center mt-8 text-sm text-gray-600">
-          <p>© 2025 LuckyMart. All rights reserved.</p>
+          <p>© 2025 TezBarakat. All rights reserved.</p>
         </div>
       </div>
     </div>

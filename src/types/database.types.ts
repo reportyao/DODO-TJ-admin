@@ -314,8 +314,11 @@ export type Database = {
           referral_code: string
           referrer_id: string | null
           status: Database['public']['Enums']['UserStatus']
-          telegram_id: string
-          telegram_username: string | null
+          telegram_id?: string | null
+          telegram_username?: string | null
+          phone_number: string
+          password_hash?: string | null
+          whatsapp_opt_in?: boolean
           updated_at: string
           username: string | null,
           level: number,
@@ -332,8 +335,11 @@ export type Database = {
           referral_code: string
           referrer_id?: string | null
           status?: Database['public']['Enums']['UserStatus']
-          telegram_id: string
+          telegram_id?: string | null
           telegram_username?: string | null
+          phone_number: string
+          password_hash?: string | null
+          whatsapp_opt_in?: boolean
           updated_at?: string
           username?: string | null,
           level?: number,
@@ -350,8 +356,11 @@ export type Database = {
           referral_code?: string
           referrer_id?: string | null
           status?: Database['public']['Enums']['UserStatus']
-          telegram_id?: string
+          telegram_id?: string | null
           telegram_username?: string | null
+          phone_number?: string
+          password_hash?: string | null
+          whatsapp_opt_in?: boolean
           updated_at?: string
           username?: string | null,
           level?: number,

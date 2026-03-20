@@ -232,11 +232,11 @@
     "shareReferralLink": "分享推荐链接"
   },
   "auth": {
-    "welcome": "欢迎来到 LuckyMart",
+    "welcome": "欢迎来到 TezBarakat",
     "description": "塔吉克斯坦领先的社交积分商城平台",
-    "loginWithTelegram": "通过 Telegram 登录",
+    "loginWithTelegram": "手机号登录",
     "guestMode": "游客模式",
-    "pleaseLogin": "请通过 Telegram 访问此应用"
+    "pleaseLogin": "请登录后访问此应用"
   },
   "algorithmConfig": {
     "title": "开奖算法配置",
@@ -370,7 +370,7 @@
     "database": "数据库",
     "api": "API",
     "frontend": "前端",
-    "telegram": "Telegram",
+    "whatsapp": "WhatsApp",
     "performanceMetrics": "性能指标",
     "responseTime": "响应时间",
     "errorRate": "错误率",

@@ -229,11 +229,11 @@
     "shareReferralLink": "Мубодилаи пайванди тавсия"
   },
   "auth": {
-    "welcome": "Хуш омадед ба LuckyMart",
+    "welcome": "Хуш омадед ба TezBarakat",
     "description": "Платформаи пешбари иҷтимоии қуръаи Тоҷикистон",
-    "loginWithTelegram": "Ворид шудан тавассути Telegram",
+    "loginWithTelegram": "Ворид шудан бо рақами телефон",
     "guestMode": "Реҷаи меҳмон",
-    "pleaseLogin": "Лутфан тавассути Telegram ворид шавед"
+    "pleaseLogin": "Лутфан барои дастрасӣ ворид шавед"
   },
   "algorithmConfig": {
     "title": "Танзимоти алгоритми қуръакашӣ",
@@ -367,7 +367,7 @@
     "database": "Банки маълумот",
     "api": "API",
     "frontend": "Бахши пештар",
-    "telegram": "Telegram",
+    "whatsapp": "WhatsApp",
     "performanceMetrics": "Метрикаи самарадониӣ",
     "responseTime": "Вақти паасух",
     "errorRate": "Таваари хатот",

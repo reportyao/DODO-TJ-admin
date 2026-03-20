@@ -519,8 +519,8 @@ const ErrorLogsPage: React.FC = () => {
                     <div className="text-sm text-gray-900">{selectedLog.phone_number || '-'}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-gray-500">Telegram用户名</div>
-                    <div className="text-sm text-gray-900">{selectedLog.phone_number ? selectedLog.phone_number : '-'}</div>
+                    <div className="text-xs text-gray-500">平台类型</div>
+                    <div className="text-sm text-gray-900">{selectedLog.platform_type || (selectedLog.is_pwa ? 'PWA' : '浏览器')}</div>
                   </div>
                 </div>
               </div>
@@ -557,11 +557,11 @@ const ErrorLogsPage: React.FC = () => {
                     <div className="text-sm text-gray-900">{selectedLog.network_type || '-'}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-gray-500">Telegram平台</div>
+                    <div className="text-xs text-gray-500">运行环境</div>
                     <div className="text-sm text-gray-900">{selectedLog.platform_type || '-'}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-gray-500">Mini App</div>
+                    <div className="text-xs text-gray-500">PWA 模式</div>
                     <div className="text-sm text-gray-900">{selectedLog.is_pwa ? '是' : '否'}</div>
                   </div>
                 </div>

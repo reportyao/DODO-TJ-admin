@@ -142,7 +142,3 @@ export function shareToWhatsApp(text: string, url?: string): void {
   window.open(whatsappUrl, '_blank');
 }
 
-// 向后兼容：保留旧函数名但调用WhatsApp
-export function shareToTelegram(text: string, url?: string): void {
-  shareToWhatsApp(text, url);
-}
