@@ -41,7 +41,7 @@ vi.mock('@supabase/supabase-js', () => ({
 describe('Supabase Client Integration Test', () => {
   it('应该使用正确的环境变量初始化 Supabase 客户端', () => {
     expect(createClient).toHaveBeenCalledWith(
-      'https://owyitxwxmxwbkqgzffdw.supabase.co',
+      'https://qcrcgpwlfouqslokwbzl.supabase.co',
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93eWl0eHd4bXh3YmtxZ3pmZmR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI0MjM4NTMsImV4cCI6MjA3Nzk5OTg1M30.xsdiUmVfN9Cwa7jkusYubs4ZI34ZpYSdD_nsAB_X2w0'
     )
   })

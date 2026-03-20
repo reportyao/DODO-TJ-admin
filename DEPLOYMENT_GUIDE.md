@@ -45,7 +45,7 @@ cp .env.test .env
 
 ```bash
 # Supabase配置
-VITE_SUPABASE_URL=https://zvouvjkrexowtujnqtna.supabase.co
+VITE_SUPABASE_URL=https://qcrcgpwlfouqslokwbzl.supabase.co
 VITE_SUPABASE_ANON_KEY=<匿名密钥>
 VITE_SUPABASE_SERVICE_ROLE_KEY=<服务角色密钥>
 
@@ -157,7 +157,7 @@ ls -lh /var/www/tezbarakat.com/admin
 
 ```bash
 # 检查Supabase URL
-grep -q "zvouvjkrexowtujnqtna" /var/www/tezbarakat.com/admin/assets/*.js && echo "✓ Correct Supabase URL" || echo "✗ Wrong Supabase URL"
+grep -q "qcrcgpwlfouqslokwbzl" /var/www/tezbarakat.com/admin/assets/*.js && echo "✓ Correct Supabase URL" || echo "✗ Wrong Supabase URL"
 
 # 检查Service Role Key
 grep -q "service_role" /var/www/tezbarakat.com/admin/assets/*.js && echo "✓ Service role key included" || echo "✗ Service role key missing"

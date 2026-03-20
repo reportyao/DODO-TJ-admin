@@ -116,7 +116,7 @@ echo ""
 
 # 验证构建文件
 echo "验证构建配置..."
-if grep -q "zvouvjkrexowtujnqtna" "$DEPLOY_DIR/assets/"*.js 2>/dev/null; then
+if grep -q "qcrcgpwlfouqslokwbzl" "$DEPLOY_DIR/assets/"*.js 2>/dev/null; then
     echo -e "${GREEN}✓ Supabase URL 正确${NC}"
 else
     echo -e "${RED}✗ Supabase URL 错误${NC}"
