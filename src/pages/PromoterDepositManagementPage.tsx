@@ -472,7 +472,7 @@ export default function PromoterDepositManagementPage() {
       return str;
     };
 
-    const headers = ['充值ID', '地推人员', '地推Telegram', '目标用户', '用户Telegram', '金额(TJS)', '充值赠送(TJS)', '状态', '备注', '时间'];
+    const headers = ['充值ID', '地推人员', '地推手机号', '目标用户', '用户手机号', '金额(TJS)', '充值赠送(TJS)', '状态', '备注', '时间'];
     const rows = deposits.map((d) => [
       d.id.substring(0, 8),
       d.promoter_name,

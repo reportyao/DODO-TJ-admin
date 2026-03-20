@@ -881,7 +881,7 @@ export default function PromoterManagementPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>姓名</TableHead>
-                      <TableHead>Telegram</TableHead>
+                      <TableHead>手机号</TableHead>
                       <TableHead>邀请码</TableHead>
                       <TableHead>团队</TableHead>
                       <TableHead>点位</TableHead>
