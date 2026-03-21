@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSupabase } from '../contexts/SupabaseContext';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -81,6 +82,7 @@ const DEFAULT_CONFIG: AlertConfig = {
 
 export default function DepositAlertsPage() {
   const { supabase } = useSupabase();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [alerts, setAlerts] = useState<DepositAlert[]>([]);
   const [filterTab, setFilterTab] = useState<FilterTab>('all');
@@ -307,7 +309,7 @@ export default function DepositAlertsPage() {
           </h1>
           <p className="text-gray-600 mt-1">
             实时监控待审充值状态，识别异常和地推相关充值 ·
-            <span className="text-blue-600 hover:underline ml-1 cursor-pointer" onClick={() => window.location.href = '/admin/deposit-review'}>
+            <span className="text-blue-600 hover:underline ml-1 cursor-pointer" onClick={() => navigate('/admin/deposit-review')}>
               前往充值审核页面处理 <ExternalLink className="w-3 h-3 inline" />
             </span>
           </p>
