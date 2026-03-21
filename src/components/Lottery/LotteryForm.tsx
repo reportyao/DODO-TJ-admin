@@ -316,11 +316,53 @@ export const LotteryForm: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      // 验证图片
+      // 修复 A04: 添加全面输入验证
       if (formData.image_urls.length === 0) {
         toast.error('请至少上传一张图片');
         setIsSubmitting(false);
         return;
+      }
+
+      if (!formData.title?.zh?.trim()) {
+        toast.error('请输入中文标题');
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!formData.ticket_price || Number(formData.ticket_price) <= 0) {
+        toast.error('票价必须大于 0');
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!formData.total_tickets || Number(formData.total_tickets) <= 0) {
+        toast.error('总票数必须大于 0');
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (formData.full_purchase_enabled && (!formData.full_purchase_price || Number(formData.full_purchase_price) <= 0)) {
+        toast.error('已启用全款购买，请设置全款价格');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 修复 A04-3: 编辑模式下防止修改已售彩票的关键字段
+      if (isEdit && lotteryRound === null) {
+        // 获取当前已售票数
+        const { data: currentLottery } = await supabase
+          .from('lotteries')
+          .select('sold_tickets')
+          .eq('id', id)
+          .single();
+
+        if (currentLottery && currentLottery.sold_tickets > 0) {
+          if (Number(formData.total_tickets) < currentLottery.sold_tickets) {
+            toast.error(`总票数不能小于已售票数 ${currentLottery.sold_tickets}`);
+            setIsSubmitting(false);
+            return;
+          }
+        }
       }
 
       // 计算结束时间和开奖时间（售罄后180秒自动开奖）
@@ -339,7 +381,7 @@ export const LotteryForm: React.FC = () => {
         period: isEdit ? formData.period : generatePeriod(),
         ticket_price: Number(formData.ticket_price),
         total_tickets: Number(formData.total_tickets),
-        max_per_user: formData.unlimited_purchase ? 999999 : Number(formData.max_per_user),
+        max_per_user: formData.unlimited_purchase ? null : Number(formData.max_per_user),
         currency: 'TJS',
         status: formData.status,
         image_url: formData.image_urls[0] || null,
