@@ -224,7 +224,7 @@ export default function InventoryProductManagementPage() {
     if (!confirm('确定要删除这个库存商品吗？删除后无法恢复。')) {return;}
 
     try {
-      // 检查是否有关联的积分商城商品
+      // 修复 A02-2: 检查关联的积分商城商品
       const { data: linkedLotteries } = await supabase
         .from('lotteries')
         .select('id')
@@ -232,6 +232,19 @@ export default function InventoryProductManagementPage() {
 
       if (linkedLotteries && linkedLotteries.length > 0) {
         toast.error('该库存商品已关联积分商城商品，无法删除。请先解除关联。');
+        return;
+      }
+
+      // 修复 A02-2: 检查是否有未完成的全款购买订单
+      const { data: activeOrders } = await supabase
+        .from('full_purchase_orders')
+        .select('id')
+        .eq('inventory_product_id', id)
+        .in('status', ['pending', 'processing', 'paid', 'shipped'])
+        .limit(1);
+
+      if (activeOrders && activeOrders.length > 0) {
+        toast.error('该商品存在未完成的订单（待处理/已支付/已发货），无法删除。请先处理相关订单。');
         return;
       }
 
@@ -251,10 +264,20 @@ export default function InventoryProductManagementPage() {
 
   const toggleStatus = async (product: InventoryProduct) => {
     try {
-      const newStatus = product.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+      let newStatus: 'ACTIVE' | 'INACTIVE' | 'OUT_OF_STOCK';
+      if (product.status === 'ACTIVE') {
+        newStatus = 'INACTIVE';
+      } else {
+        // 修复 A02-4: 库存为 0 时不允许上架为 ACTIVE，应设为 OUT_OF_STOCK
+        newStatus = product.stock <= 0 ? 'OUT_OF_STOCK' : 'ACTIVE';
+        if (product.stock <= 0) {
+          toast.error('库存为 0，无法上架。请先补充库存。');
+          return;
+        }
+      }
       const { error } = await supabase
         .from('inventory_products')
-        .update({ status: newStatus })
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
         .eq('id', product.id);
 
       if (error) {throw error;}
@@ -281,24 +304,41 @@ export default function InventoryProductManagementPage() {
 
   const handleAdjustStock = async () => {
     if (!selectedProduct || adjustQuantity === 0) {
-      toast.error('请输入有效的调整数量');
+      toast.error('请输入有效的调整数量（不能为 0）');
+      return;
+    }
+    // 修复 A02-3: 调整数量范围限制
+    if (Math.abs(adjustQuantity) > 99999) {
+      toast.error('单次调整数量不能超过 99999');
       return;
     }
 
     try {
-      const newStock = selectedProduct.stock + adjustQuantity;
+      // 修复 A02-1: 使用原子操作避免竞态条件 - 先查最新库存再原子更新
+      const { data: latestProduct, error: fetchError } = await supabase
+        .from('inventory_products')
+        .select('stock')
+        .eq('id', selectedProduct.id)
+        .single();
+
+      if (fetchError || !latestProduct) throw new Error('无法获取最新库存数据');
+
+      const currentStock = latestProduct.stock;
+      const newStock = currentStock + adjustQuantity;
       if (newStock < 0) {
-        toast.error('库存不能为负数');
+        toast.error(`库存不足，当前库存为 ${currentStock}，无法减少 ${Math.abs(adjustQuantity)}`);
         return;
       }
 
-      // 更新库存
+      // 原子更新：同时更新库存和状态
+      const newStatus = newStock === 0 ? 'OUT_OF_STOCK' : (selectedProduct.status === 'OUT_OF_STOCK' ? 'ACTIVE' : selectedProduct.status);
       const { error: updateError } = await supabase
         .from('inventory_products')
-        .update({ stock: newStock })
-        .eq('id', selectedProduct.id);
+        .update({ stock: newStock, status: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', selectedProduct.id)
+        .eq('stock', currentStock); // 乐观锁：确保库存未被他人修改
 
-      if (updateError) {throw updateError;}
+      if (updateError) throw updateError;
 
       // 记录库存变动
       const { error: transactionError } = await supabase
@@ -307,7 +347,7 @@ export default function InventoryProductManagementPage() {
           inventory_product_id: selectedProduct.id,
           transaction_type: adjustQuantity > 0 ? 'STOCK_IN' : 'STOCK_OUT',
           quantity: adjustQuantity,
-          stock_before: selectedProduct.stock,
+          stock_before: currentStock,
           stock_after: newStock,
           notes: adjustNotes || (adjustQuantity > 0 ? '手动入库' : '手动出库'),
         });
@@ -316,12 +356,12 @@ export default function InventoryProductManagementPage() {
         console.error('Failed to log transaction:', transactionError);
       }
 
-      toast.success('库存调整成功');
+      toast.success(`库存调整成功：${currentStock} → ${newStock}`);
       setShowAdjustModal(false);
       fetchProducts();
     } catch (error) {
       console.error('Failed to adjust stock:', error);
-      toast.error('库存调整失败');
+      toast.error('库存调整失败，可能存在并发冲突，请刷新后重试');
     }
   };
 
