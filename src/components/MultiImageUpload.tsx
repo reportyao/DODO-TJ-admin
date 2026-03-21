@@ -93,8 +93,8 @@ export const MultiImageUpload: React.FC<MultiImageUploadProps> = ({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY}`,
-            'apikey': import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({
             imageUrl: url,

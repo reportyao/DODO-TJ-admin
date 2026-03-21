@@ -77,50 +77,45 @@ export default function PickupStatsPage() {
   const loadStats = async () => {
     setLoading(true);
     try {
-      // 1. 获取抽奖奖品统计 (prizes表)
-      const { data: prizes, error: prizesError } = await supabase
-        .from('prizes')
-        .select('pickup_status');
-
-      if (prizesError) {throw prizesError;}
-
-      const lotteryStats = {
-        total: prizes?.length || 0,
-        pending_claim: prizes?.filter(p => p.pickup_status === 'PENDING_CLAIM' || !p.pickup_status).length || 0,
-        pending_pickup: prizes?.filter(p => p.pickup_status === 'PENDING_PICKUP').length || 0,
-        picked_up: prizes?.filter(p => p.pickup_status === 'PICKED_UP').length || 0,
-        expired: prizes?.filter(p => p.pickup_status === 'EXPIRED').length || 0,
+      // 使用数据库端 count 聚合，避免全量加载导致 Supabase 1000 条限制截断数据
+      const countByStatus = async (table: string, statuses: string[]) => {
+        const results = await Promise.all(
+          statuses.map(s =>
+            supabase.from(table).select('id', { count: 'exact', head: true }).eq('pickup_status', s)
+          )
+        );
+        return results.map(r => r.count || 0);
       };
+
+      // 1. 获取抽奖奖品统计 (prizes表)
+      const [lotteryTotal, lotteryPendingClaim, lotteryPendingPickup, lotteryPickedUp, lotteryExpired] = await Promise.all([
+        supabase.from('prizes').select('id', { count: 'exact', head: true }).then(r => r.count || 0),
+        supabase.from('prizes').select('id', { count: 'exact', head: true }).or('pickup_status.eq.PENDING_CLAIM,pickup_status.is.null').then(r => r.count || 0),
+        supabase.from('prizes').select('id', { count: 'exact', head: true }).eq('pickup_status', 'PENDING_PICKUP').then(r => r.count || 0),
+        supabase.from('prizes').select('id', { count: 'exact', head: true }).eq('pickup_status', 'PICKED_UP').then(r => r.count || 0),
+        supabase.from('prizes').select('id', { count: 'exact', head: true }).eq('pickup_status', 'EXPIRED').then(r => r.count || 0),
+      ]);
+      const lotteryStats = { total: lotteryTotal, pending_claim: lotteryPendingClaim, pending_pickup: lotteryPendingPickup, picked_up: lotteryPickedUp, expired: lotteryExpired };
 
       // 2. 获取拼团结果统计 (group_buy_results表)
-      const { data: groupBuyResults, error: groupBuyError } = await supabase
-        .from('group_buy_results')
-        .select('pickup_status');
-
-      if (groupBuyError) {throw groupBuyError;}
-
-      const groupBuyStats = {
-        total: groupBuyResults?.length || 0,
-        pending_claim: groupBuyResults?.filter(p => p.pickup_status === 'PENDING_CLAIM' || !p.pickup_status).length || 0,
-        pending_pickup: groupBuyResults?.filter(p => p.pickup_status === 'PENDING_PICKUP').length || 0,
-        picked_up: groupBuyResults?.filter(p => p.pickup_status === 'PICKED_UP').length || 0,
-        expired: groupBuyResults?.filter(p => p.pickup_status === 'EXPIRED').length || 0,
-      };
+      const [gbTotal, gbPendingClaim, gbPendingPickup, gbPickedUp, gbExpired] = await Promise.all([
+        supabase.from('group_buy_results').select('id', { count: 'exact', head: true }).then(r => r.count || 0),
+        supabase.from('group_buy_results').select('id', { count: 'exact', head: true }).or('pickup_status.eq.PENDING_CLAIM,pickup_status.is.null').then(r => r.count || 0),
+        supabase.from('group_buy_results').select('id', { count: 'exact', head: true }).eq('pickup_status', 'PENDING_PICKUP').then(r => r.count || 0),
+        supabase.from('group_buy_results').select('id', { count: 'exact', head: true }).eq('pickup_status', 'PICKED_UP').then(r => r.count || 0),
+        supabase.from('group_buy_results').select('id', { count: 'exact', head: true }).eq('pickup_status', 'EXPIRED').then(r => r.count || 0),
+      ]);
+      const groupBuyStats = { total: gbTotal, pending_claim: gbPendingClaim, pending_pickup: gbPendingPickup, picked_up: gbPickedUp, expired: gbExpired };
 
       // 3. 获取全款购买统计 (full_purchase_orders表)
-      const { data: fullPurchaseOrders, error: fullPurchaseError } = await supabase
-        .from('full_purchase_orders')
-        .select('pickup_status');
-
-      if (fullPurchaseError) {throw fullPurchaseError;}
-
-      const fullPurchaseStats = {
-        total: fullPurchaseOrders?.length || 0,
-        pending_claim: fullPurchaseOrders?.filter(p => p.pickup_status === 'PENDING_CLAIM' || !p.pickup_status).length || 0,
-        pending_pickup: fullPurchaseOrders?.filter(p => p.pickup_status === 'PENDING_PICKUP' || p.pickup_status === 'PENDING').length || 0,
-        picked_up: fullPurchaseOrders?.filter(p => p.pickup_status === 'PICKED_UP').length || 0,
-        expired: fullPurchaseOrders?.filter(p => p.pickup_status === 'EXPIRED').length || 0,
-      };
+      const [fpTotal, fpPendingClaim, fpPendingPickup, fpPickedUp, fpExpired] = await Promise.all([
+        supabase.from('full_purchase_orders').select('id', { count: 'exact', head: true }).then(r => r.count || 0),
+        supabase.from('full_purchase_orders').select('id', { count: 'exact', head: true }).or('pickup_status.eq.PENDING_CLAIM,pickup_status.is.null').then(r => r.count || 0),
+        supabase.from('full_purchase_orders').select('id', { count: 'exact', head: true }).in('pickup_status', ['PENDING_PICKUP', 'PENDING']).then(r => r.count || 0),
+        supabase.from('full_purchase_orders').select('id', { count: 'exact', head: true }).eq('pickup_status', 'PICKED_UP').then(r => r.count || 0),
+        supabase.from('full_purchase_orders').select('id', { count: 'exact', head: true }).eq('pickup_status', 'EXPIRED').then(r => r.count || 0),
+      ]);
+      const fullPurchaseStats = { total: fpTotal, pending_claim: fpPendingClaim, pending_pickup: fpPendingPickup, picked_up: fpPickedUp, expired: fpExpired };
 
       // 4. 合并统计数据
       const combinedStats: PickupStats = {
