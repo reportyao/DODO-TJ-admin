@@ -168,7 +168,7 @@ export const LotteryListPage: React.FC = () => {
 
       if (insertError) {throw insertError;}
 
-      toast.success(`商城复制成功! 新期号: ${newPeriod}（状态为 PENDING，请编辑后发布）`);
+      toast.success(`商城复制成功! 新期号: ${newPeriod}（状态为待开始，请编辑后发布）`);
       fetchLotteries();
     } catch (error: any) {
       toast.error(`复制失败: ${error.message}`);
@@ -195,7 +195,7 @@ export const LotteryListPage: React.FC = () => {
       }
 
       if (lottery.status === 'ACTIVE' || lottery.status === 'SOLD_OUT') {
-        toast.error(`无法删除：该期状态为 ${lottery.status}，请先将其设为 CANCELLED 后再删除。`);
+        toast.error(`无法删除：该期状态为活跃状态，请先将其取消后再删除。`);
         return;
       }
 
@@ -235,14 +235,14 @@ export const LotteryListPage: React.FC = () => {
                   : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
               }`}
             >
-              {s === 'ALL' ? '全部' : s}
+              {s === 'ALL' ? '全部' : s === 'ACTIVE' ? '进行中' : s === 'PENDING' ? '待开始' : s === 'SOLD_OUT' ? '已售罄' : s === 'COMPLETED' ? '已完成' : s === 'CANCELLED' ? '已取消' : s}
             </button>
           ))}
         </div>
         {isLoading ? (
           <div className="text-center py-10">加载中...</div>
         ) : lotteries.length === 0 ? (
-          <EmptyState title="暂无积分商城" message="当前没有积分商城活动，请点击上方按钮创建。" action={<Button onClick={() => navigate('/lotteries/new')}>创建新商城</Button>} />
+          <EmptyState title="暂无商城活动" message="当前没有商城活动，请点击上方按钮创建。" action={<Button onClick={() => navigate('/lotteries/new')}>创建新商城</Button>} />
         ) : (
           <div className="overflow-x-auto">
             <Table>
@@ -266,7 +266,7 @@ export const LotteryListPage: React.FC = () => {
                     <TableCell>{lottery.total_tickets}/{lottery.sold_tickets || 0}</TableCell>
                     <TableCell>
                       <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(lottery.status)}`}>
-                        {lottery.status}
+                        {lottery.status === 'ACTIVE' ? '进行中' : lottery.status === 'COMPLETED' ? '已完成' : lottery.status === 'PENDING' ? '待开始' : lottery.status === 'DRAWING' ? '开奖中' : lottery.status === 'SOLD_OUT' ? '已售罄' : lottery.status === 'CANCELLED' ? '已取消' : lottery.status}
                       </span>
                     </TableCell>
                     <TableCell>{formatDateTime(lottery.start_time)}</TableCell>

@@ -214,7 +214,7 @@ export const OrderListPage: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <span className={`px-2 py-1 text-[10px] font-bold rounded-full uppercase ${getStatusColor(order.status as OrderStatus)}`}>
-                          {order.status}
+                          {STATUS_OPTIONS.find(o => o.value === order.status)?.label || order.status}
                         </span>
                       </TableCell>
                       <TableCell className="text-xs text-gray-500">

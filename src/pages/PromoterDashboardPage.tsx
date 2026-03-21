@@ -219,7 +219,7 @@ export default function PromoterDashboardPage() {
         // Set promoter stats
         const pList = (data.promoters || []).map((p: any) => ({
           user_id: p.user_id,
-          name: p.name?.trim() || 'N/A',
+          name: p.name?.trim() || '668265e0',
           referral_code: p.referral_code || '',
           team_name: p.team_name || null,
           point_name: p.point_name || null,

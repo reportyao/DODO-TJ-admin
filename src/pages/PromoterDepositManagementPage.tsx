@@ -481,7 +481,7 @@ export default function PromoterDepositManagementPage() {
       d.target_phone_number,
       d.amount.toFixed(2),
       d.bonus_amount.toFixed(2),
-      d.status === 'COMPLETED' ? '已完成' : d.status === 'FAILED' ? '失败' : d.status,
+      d.status === 'COMPLETED' ? '已完成' : d.status === 'FAILED' ? '失败' : d.status === 'PENDING' ? '待处理' : d.status,
       d.note || '',
       new Date(d.created_at).toLocaleString('zh-CN'),
     ]);
@@ -783,7 +783,7 @@ export default function PromoterDepositManagementPage() {
                                 : 'bg-yellow-100 text-yellow-700'
                             }`}
                           >
-                            {d.status === 'COMPLETED' ? '已完成' : d.status === 'FAILED' ? '失败' : d.status}
+                            {d.status === 'COMPLETED' ? '已完成' : d.status === 'FAILED' ? '失败' : d.status === 'PENDING' ? '待处理' : d.status}
                           </span>
                         </TableCell>
                         <TableCell className="text-sm text-gray-500 max-w-[120px] truncate">

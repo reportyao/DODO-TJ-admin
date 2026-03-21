@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSupabase } from '../contexts/SupabaseContext';
 import { 
   Users, 
@@ -299,20 +300,21 @@ interface PendingItemProps {
 }
 
 function PendingItem({ title, count, link, color }: PendingItemProps) {
+  const navigate = useNavigate();
   const colorClasses = {
     yellow: 'bg-yellow-100 text-yellow-800',
     red: 'bg-red-100 text-red-800',
   };
 
   return (
-    <a
-      href={link}
-      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+    <div
+      onClick={() => navigate(link)}
+      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
     >
       <span className="text-gray-700">{title}</span>
       <span className={`px-3 py-1 rounded-full text-sm font-semibold ${colorClasses[color]}`}>
         {count}
       </span>
-    </a>
+    </div>
   );
 }

@@ -143,7 +143,7 @@ export default function DepositAlertsPage() {
         if (promoterUsers) {
           promoterNamesMap = Object.fromEntries(promoterUsers.map(u => [
             u.id,
-            u.phone_number || [u.first_name, u.last_name].filter(Boolean).join(' ') || 'N/A'
+            u.phone_number || [u.first_name, u.last_name].filter(Boolean).join(' ') || '暂无'
           ]));
         }
       }
@@ -152,7 +152,7 @@ export default function DepositAlertsPage() {
       const now = new Date();
       const enrichedAlerts: DepositAlert[] = deposits.map(dep => {
         const user = usersMap[dep.user_id];
-        const userName = user?.phone_number || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'N/A';
+        const userName = user?.phone_number || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || '暂无';
         const referredById = user?.referred_by_id;
         const isPromoterReferred = referredById ? promoterUserIds.has(referredById) : false;
         const promoterName = referredById && isPromoterReferred ? promoterNamesMap[referredById] || '' : '';
@@ -307,9 +307,9 @@ export default function DepositAlertsPage() {
           </h1>
           <p className="text-gray-600 mt-1">
             实时监控待审充值状态，识别异常和地推相关充值 ·
-            <a href="/admin/deposit-review" className="text-blue-600 hover:underline ml-1">
+            <span className="text-blue-600 hover:underline ml-1 cursor-pointer" onClick={() => window.location.href = '/admin/deposit-review'}>
               前往充值审核页面处理 <ExternalLink className="w-3 h-3 inline" />
-            </a>
+            </span>
           </p>
         </div>
         <div className="flex gap-2">

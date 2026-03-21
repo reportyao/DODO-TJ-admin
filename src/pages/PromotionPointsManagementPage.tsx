@@ -698,8 +698,8 @@ export default function PromotionPointsManagementPage() {
       const staffList: PointStaffMember[] = ppData.map(pp => {
         const user = userMap[pp.user_id];
         const name = user
-          ? (user.phone_number || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'N/A')
-          : 'N/A';
+          ? (user.phone_number || `${user.first_name || ''} ${user.last_name || ''}`.trim() || '暂无')
+          : '暂无';
 
         return {
           user_id: pp.user_id,

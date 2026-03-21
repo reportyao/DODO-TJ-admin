@@ -246,7 +246,7 @@ export const WithdrawalReviewPage: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(withdrawal.status as WithdrawalStatus)}`}>
-                          {withdrawal.status}
+                          {withdrawal.status === 'PENDING' ? '待审核' : withdrawal.status === 'APPROVED' ? '已批准' : withdrawal.status === 'REJECTED' ? '已拒绝' : withdrawal.status === 'COMPLETED' ? '已完成' : withdrawal.status}
                         </span>
                       </TableCell>
                       <TableCell className="text-xs">{formatDateTime(withdrawal.created_at)}</TableCell>

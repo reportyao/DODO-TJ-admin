@@ -176,7 +176,7 @@ export const ShowoffReviewPage: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(showoff.status)}`}>
-                          {showoff.status}
+                          {showoff.status === 'PENDING' ? '待审核' : showoff.status === 'APPROVED' ? '已通过' : showoff.status === 'REJECTED' ? '已拒绝' : showoff.status}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -213,7 +213,7 @@ export const ShowoffReviewPage: React.FC = () => {
           <DialogHeader>
             <DialogTitle>晒单详情</DialogTitle>
             <DialogDescription>
-              ID: {selectedShowoff?.id} | 状态: {selectedShowoff?.status}
+              ID: {selectedShowoff?.id} | 状态: {selectedShowoff?.status === 'PENDING' ? '待审核' : selectedShowoff?.status === 'APPROVED' ? '已通过' : selectedShowoff?.status === 'REJECTED' ? '已拒绝' : selectedShowoff?.status}
             </DialogDescription>
           </DialogHeader>
 
@@ -352,7 +352,7 @@ export const ShowoffReviewPage: React.FC = () => {
                   <div>
                     <span className="text-gray-600">审核状态:</span>
                     <span className={`ml-2 px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(selectedShowoff?.status)}`}>
-                      {selectedShowoff?.status}
+                      {selectedShowoff?.status === 'PENDING' ? '待审核' : selectedShowoff?.status === 'APPROVED' ? '已通过' : selectedShowoff?.status === 'REJECTED' ? '已拒绝' : selectedShowoff?.status}
                     </span>
                   </div>
                   <div>

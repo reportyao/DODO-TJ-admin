@@ -163,15 +163,15 @@ export const UserListPage = () => {
                 {users.map((user) => (
                   <TableRow key={user.id}>
                     <TableCell className="font-medium">{user.phone_number}</TableCell>
-                    <TableCell>{user.display_name || user.first_name || 'N/A'}</TableCell>
+                    <TableCell>{user.display_name || user.first_name || '668265e0'}</TableCell>
                     <TableCell>
                       {user.first_name || user.last_name 
                         ? `${user.first_name || ''} ${user.last_name || ''}`.trim() 
-                        : 'N/A'}
+                        : '暂无'}
                     </TableCell>
                     <TableCell>{user.level}</TableCell>
                     <TableCell>{user.commission_rate || 0}%</TableCell>
-                    <TableCell>{user.status}</TableCell>
+                    <TableCell>{user.status === 'ACTIVE' ? '正常' : user.status === 'BLOCKED' ? '已封禁' : user.status === 'INACTIVE' ? '未激活' : user.status}</TableCell>
                     <TableCell>{formatDateTime(user.created_at)}</TableCell>
                     <TableCell className="flex space-x-2">
                       <Button variant="outline" size="sm" onClick={() => navigate(`/users/${user.id}`)}>

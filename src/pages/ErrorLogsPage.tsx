@@ -345,7 +345,7 @@ const ErrorLogsPage: React.FC = () => {
                 <tr key={log.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <span className={`inline-block w-2 h-2 rounded-full ${errorTypeColors[log.error_type] || 'bg-gray-500'}`} />
-                    <span className="ml-2 text-xs text-gray-600">{log.error_type}</span>
+                    <span className="ml-2 text-xs text-gray-600">{log.error_type === 'JS_ERROR' ? 'JS错误' : log.error_type === 'API_ERROR' ? 'API错误' : log.error_type === 'NETWORK_ERROR' ? '网络错误' : log.error_type === 'UNHANDLED_REJECTION' ? '未处理异常' : log.error_type}</span>
                   </td>
                   <td className="px-4 py-3">
                     <div className="max-w-xs truncate text-sm text-gray-900" title={log.error_message}>
@@ -456,9 +456,9 @@ const ErrorLogsPage: React.FC = () => {
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <span className={`inline-block w-2 h-2 rounded-full ${errorTypeColors[selectedLog.error_type]}`} />
-                    <span className="font-medium text-red-800">{selectedLog.error_type}</span>
+                    <span className="font-medium text-red-800">{selectedLog.error_type === 'JS_ERROR' ? 'JS错误' : selectedLog.error_type === 'API_ERROR' ? 'API错误' : selectedLog.error_type === 'NETWORK_ERROR' ? '网络错误' : selectedLog.error_type === 'UNHANDLED_REJECTION' ? '未处理异常' : selectedLog.error_type}</span>
                     <span className={`ml-auto px-2 py-1 text-xs font-medium rounded-full ${statusColors[selectedLog.status]}`}>
-                      {selectedLog.status}
+                      {selectedLog.status === 'NEW' ? '待处理' : selectedLog.status === 'REVIEWING' ? '处理中' : selectedLog.status === 'RESOLVED' ? '已解决' : selectedLog.status === 'IGNORED' ? '已忽略' : selectedLog.status}
                     </span>
                   </div>
                   <p className="text-red-900 font-mono text-sm break-all">{selectedLog.error_message}</p>

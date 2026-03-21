@@ -66,7 +66,7 @@ export default function GroupBuyProductManagementPage() {
     max_participants: 3,
     duration_hours: 24,
     stock: 100,
-    currency: 'CNY',
+    currency: 'TJS',
     status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
     price_comparisons: [] as PriceComparisonItem[],
   });
@@ -262,7 +262,7 @@ export default function GroupBuyProductManagementPage() {
       max_participants: product.max_participants || 3,
       duration_hours: product.duration_hours || 24,
       stock: product.stock || 100,
-      currency: product.currency || 'CNY',
+      currency: product.currency || 'TJS',
       status: product.status || 'ACTIVE',
       price_comparisons: product.price_comparisons || [],
     });
@@ -302,7 +302,7 @@ export default function GroupBuyProductManagementPage() {
       max_participants: product.max_participants || 3,
       duration_hours: product.duration_hours || 24,
       stock: product.stock || 100,
-      currency: product.currency || 'CNY',
+      currency: product.currency || 'TJS',
       status: 'INACTIVE',
       price_comparisons: product.price_comparisons || [],
     });
@@ -412,7 +412,7 @@ export default function GroupBuyProductManagementPage() {
       max_participants: 3,
       duration_hours: 24,
       stock: 100,
-      currency: 'CNY',
+      currency: 'TJS',
       status: 'ACTIVE',
       price_comparisons: [],
     });
@@ -486,10 +486,10 @@ export default function GroupBuyProductManagementPage() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">
-                      原价: ¥{product.original_price}
+                      原价: {product.original_price} TJS
                     </div>
                     <div className="text-sm text-gray-500">
-                      拼团价: ¥{product.group_price}
+                      拼团价: {product.group_price} TJS
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -600,7 +600,7 @@ export default function GroupBuyProductManagementPage() {
                             {product.name_i18n?.zh || product.name}
                           </div>
                           <div className="text-xs text-gray-500">
-                            库存: {product.stock} | 价格: ¥{product.original_price}
+                            库存: {product.stock} | 价格: {product.original_price} TJS
                           </div>
                         </div>
                       </div>
@@ -708,7 +708,7 @@ export default function GroupBuyProductManagementPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    原价 (¥) *
+                    原价 (TJS) *
                   </label>
                   <input
                     type="number"
@@ -812,7 +812,7 @@ export default function GroupBuyProductManagementPage() {
                     }
                     className="w-full px-3 py-2 border rounded"
                   >
-                    <option value="CNY">CNY (人民币)</option>
+                    <option value="TJS">TJS (索莫尼)</option>
                     <option value="USD">USD (美元)</option>
                     <option value="RUB">RUB (卢布)</option>
                   </select>
@@ -828,7 +828,7 @@ export default function GroupBuyProductManagementPage() {
                   {(formData.price_comparisons || []).map((item, index) => (
                     <div key={index} className="flex items-center gap-2">
                       <span className="text-sm">{item.platform}</span>
-                      <span className="text-sm">¥{item.price}</span>
+                      <span className="text-sm">{item.price} TJS</span>
                       <button
                         type="button"
                         onClick={() => handleRemovePriceComparison(index)}

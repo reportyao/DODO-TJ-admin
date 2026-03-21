@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useSupabase } from '@/contexts/SupabaseContext';
 import { Tables } from '@/types/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -21,6 +21,7 @@ interface ReferralStats {
 
 export const UserDetailsPage: React.FC = () => {
   const { supabase } = useSupabase();
+  const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [referralStats, setReferralStats] = useState<ReferralStats>({
@@ -139,11 +140,11 @@ export const UserDetailsPage: React.FC = () => {
           </div>
           <div className="space-y-2">
             <Label>显示名</Label>
-            <Input value={(user as any).display_name || user.first_name || 'N/A'} readOnly />
+            <Input value={(user as any).display_name || user.first_name || '暂无'} readOnly />
           </div>
           <div className="space-y-2">
             <Label>姓名</Label>
-            <Input value={`${user.first_name || ''} ${user.last_name || ''}`.trim() || 'N/A'} readOnly />
+            <Input value={`${user.first_name || ''} ${user.last_name || ''}`.trim() || '暂无'} readOnly />
           </div>
           <div className="space-y-2">
             <Label>邀请人</Label>
@@ -151,7 +152,7 @@ export const UserDetailsPage: React.FC = () => {
           </div>
           <div className="space-y-2">
             <Label>邀请码</Label>
-            <Input value={user.referral_code || 'N/A'} readOnly />
+            <Input value={user.referral_code || '暂无'} readOnly />
           </div>
           <div className="space-y-2">
             <Label>注册时间</Label>
@@ -159,19 +160,19 @@ export const UserDetailsPage: React.FC = () => {
           </div>
           <div className="space-y-2">
             <Label>最后登录时间</Label>
-            <Input value={user.last_login_at ? formatDateTime(user.last_login_at) : 'N/A'} readOnly />
+            <Input value={user.last_login_at ? formatDateTime(user.last_login_at) : '暂无'} readOnly />
           </div>
         </div>
 
         
         <div className="pt-4 border-t">
-          <h3 className="text-xl font-semibold mb-4">邀请层级 (Referral Structure)</h3>
+          <h3 className="text-xl font-semibold mb-4">邀请层级</h3>
           <div className="grid grid-cols-3 gap-4">
             <StatCard title="一级邀请人数" value={referralStats.level1_count} />
             <StatCard title="二级邀请人数" value={referralStats.level2_count} />
             <StatCard title="累计佣金 (TJS)" value={referralStats.total_commission.toFixed(2)} />
           </div>
-          <Button variant="outline" className="mt-4" onClick={() => window.location.href = `/admin/referral-management?search=${user.phone_number}`}>
+          <Button variant="outline" className="mt-4" onClick={() => navigate(`/admin/referral-management?search=${user.phone_number}`)}>
             查看邀请列表
           </Button>
         </div>

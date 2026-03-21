@@ -276,7 +276,7 @@ export const OperationalShowoffCreatePage: React.FC = () => {
                       product.status === 'ACTIVE' ? 'bg-green-100 text-green-700' :
                       'bg-gray-100 text-gray-700'
                     }`}>
-                      {product.status}
+                      {product.status === 'ACTIVE' ? '在售' : product.status === 'INACTIVE' ? '下架' : product.status === 'SOLD_OUT' ? '已售罄' : product.status}
                     </span>
                   </div>
                 ))}

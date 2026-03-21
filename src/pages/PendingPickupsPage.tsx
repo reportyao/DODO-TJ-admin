@@ -642,7 +642,7 @@ export default function PendingPickupsPage() {
                           </div>
                           <div className="flex items-center space-x-2 mt-1">
                             {getTypeBadge(pickup.type)}
-                            <span className="text-sm text-gray-500">¥{pickup.prize_value}</span>
+                            <span className="text-sm text-gray-500">{pickup.prize_value} TJS</span>
                           </div>
                         </div>
                       </div>
@@ -770,7 +770,7 @@ export default function PendingPickupsPage() {
                 )}
                 <div>
                   <div className="font-bold text-gray-900">{selectedPickup.prize_name}</div>
-                  <div className="text-sm text-gray-500">¥{selectedPickup.prize_value}</div>
+                  <div className="text-sm text-gray-500">{selectedPickup.prize_value} TJS</div>
                 </div>
               </div>
 

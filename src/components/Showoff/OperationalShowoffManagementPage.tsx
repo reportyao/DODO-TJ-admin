@@ -353,7 +353,7 @@ export const OperationalShowoffManagementPage: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <span className="text-gray-600">状态:</span>
-                    <span className="ml-2 font-medium">{selectedShowoff.status}</span>
+                    <span className="ml-2 font-medium">{selectedShowoff.status === 'PENDING' ? '待审核' : selectedShowoff.status === 'APPROVED' ? '已通过' : selectedShowoff.status === 'REJECTED' ? '已拒绝' : selectedShowoff.status}</span>
                   </div>
                   <div>
                     <span className="text-gray-600">显示状态:</span>
