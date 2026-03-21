@@ -79,41 +79,43 @@ export default function DashboardPage() {
         .select('*', { count: 'exact', head: true })
         .eq('status', 'COMPLETED');
 
-      // 获取订单统计
-      const { count: totalOrders, error: ordersError } = await supabase
-        .from('orders')
-        .select('*', { count: 'exact', head: true });
+      // 获取订单统计（同时统计一元购彩票订单和全款购买订单）
+      const [{ count: lotteryOrders }, { count: fullOrders }] = await Promise.all([
+        supabase.from('orders').select('*', { count: 'exact', head: true }),
+        supabase.from('full_purchase_orders').select('*', { count: 'exact', head: true }),
+      ]);
+      const totalOrders = (lotteryOrders || 0) + (fullOrders || 0);
 
-      // 获取待处理充值
-      const { count: pendingDeposits, error: depositsError } = await supabase
+      // 获取待处理充値
+      const { count: pendingDeposits } = await supabase
         .from('deposit_requests')
         .select('*', { count: 'exact', head: true })
         .eq('status', 'PENDING');
 
       // 获取待处理提现
-      const { count: pendingWithdrawals, error: withdrawalsError } = await supabase
+      const { count: pendingWithdrawals } = await supabase
         .from('withdrawal_requests')
         .select('*', { count: 'exact', head: true })
         .eq('status', 'PENDING');
 
-      // 获取总收入 (已批准的充值)
-      const { data: revenueData, error: revenueError } = await supabase
+      // 获取总收入 - 使用数据库端汇总（避免全量加载）
+      const { data: revenueAgg } = await supabase
         .from('deposit_requests')
-        .select('amount')
-        .eq('status', 'APPROVED');
-
-      const totalRevenue = revenueData?.reduce((sum, d) => sum + (parseFloat(d.amount) || 0), 0) || 0;
+        .select('amount.sum()')
+        .eq('status', 'APPROVED')
+        .single();
+      const totalRevenue = (revenueAgg as any)?.sum ?? 0;
 
       // 获取今日收入
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const { data: todayRevenueData, error: todayRevenueError } = await supabase
+      const { data: todayAgg } = await supabase
         .from('deposit_requests')
-        .select('amount')
+        .select('amount.sum()')
         .eq('status', 'APPROVED')
-        .gte('processed_at', today.toISOString());
-
-      const todayRevenue = todayRevenueData?.reduce((sum, d) => sum + (parseFloat(d.amount) || 0), 0) || 0;
+        .gte('processed_at', today.toISOString())
+        .single();
+      const todayRevenue = (todayAgg as any)?.sum ?? 0;
 
       setStats({
         totalUsers: totalUsers || 0,
