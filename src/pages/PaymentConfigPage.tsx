@@ -21,6 +21,18 @@ interface PaymentConfig {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  // 旧字段兼容
+  name?: string;
+  type?: string;
+  config?: any;
+  instructions?: any;
+  min_amount?: number;
+  max_amount?: number;
+  is_active?: boolean;
+  provider?: string;
+  require_payer_name?: boolean;
+  require_payer_account?: boolean;
+  require_payer_phone?: boolean;
 }
 
 const initialFormData = {
@@ -77,27 +89,30 @@ export const PaymentConfigPage: React.FC = () => {
   const handleOpenModal = (config: PaymentConfig | null = null) => {
     if (config) {
       setEditingConfig(config);
-      const configData = config.config_data || {};
+      // 兼容旧数据：config_data可能为null，从旧字段config中回填
+      const configData = config.config_data || config.config || {};
+      // 兼容旧数据：instructions可能在顶层而非config_data中
+      const instructions = configData.instructions || config.instructions || { zh: '', ru: '', tg: '' };
       setFormData({
-        config_key: config.config_key,
-        config_type: config.config_type as any,
-        method: configData.method || 'BANK_TRANSFER',
+        config_key: config.config_key || config.name || '',
+        config_type: (config.config_type || 'DEPOSIT') as any,
+        method: configData.method || config.type || 'BANK_TRANSFER',
         account_number: configData.account_number || '',
         account_name: configData.account_name || '',
-        bank_name: configData.bank_name || '',
+        bank_name: configData.bank_name || configData.bank_name || '',
         phone_number: configData.phone_number || '',
         qr_code_urls: configData.qr_code_url ? [configData.qr_code_url] : [],
         require_payer_name: config.require_payer_name || false,
         require_payer_account: config.require_payer_account || false,
         require_payer_phone: config.require_payer_phone || false,
-        instructions: configData.instructions || { zh: '', ru: '', tg: '' },
-        min_amount: configData.min_amount || 10,
-        max_amount: configData.max_amount || 10000,
+        instructions: instructions,
+        min_amount: configData.min_amount || config.min_amount || 10,
+        max_amount: configData.max_amount || config.max_amount || 10000,
         processing_time: configData.processing_time || '10-30分钟',
-        name_i18n: config.name_i18n || { zh: '', ru: '', tg: '' },
+        name_i18n: config.name_i18n || { zh: config.name || '', ru: '', tg: '' },
         description_i18n: config.description_i18n || { zh: '', ru: '', tg: '' },
-        is_enabled: config.is_enabled,
-        sort_order: config.sort_order,
+        is_enabled: config.is_enabled ?? true,
+        sort_order: config.sort_order || 0,
       });
     } else {
       setEditingConfig(null);
@@ -275,7 +290,7 @@ export const PaymentConfigPage: React.FC = () => {
           <Card key={config.id} className={!config.is_enabled ? 'opacity-60' : ''}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-lg font-bold">
-                {config.name_i18n?.zh || config.config_key}
+                {config.name_i18n?.zh || config.name || config.config_key}
               </CardTitle>
               <div className="flex space-x-2">
                 <Button variant="ghost" size="icon" onClick={() => toggleActive(config.id, config.is_enabled)}>
@@ -291,10 +306,10 @@ export const PaymentConfigPage: React.FC = () => {
             </CardHeader>
             <CardContent>
               <div className="text-sm space-y-1">
-                <p><span className="font-semibold">类型:</span> {config.config_type === 'DEPOSIT' ? '充值' : '提现'}</p>
-                <p><span className="font-semibold">方法:</span> {config.config_data?.method}</p>
-                <p><span className="font-semibold">限额:</span> {config.config_data?.min_amount} - {config.config_data?.max_amount} TJS</p>
-                <p className="line-clamp-2 text-gray-500 mt-2">{config.description_i18n?.zh}</p>
+                <p><span className="font-semibold">类型:</span> {config.config_type === 'WITHDRAW' ? '提现' : '充值'}</p>
+                <p><span className="font-semibold">方法:</span> {config.config_data?.method || config.type || '-'}</p>
+                <p><span className="font-semibold">限额:</span> {config.config_data?.min_amount || config.min_amount || '-'} - {config.config_data?.max_amount || config.max_amount || '-'} TJS</p>
+                <p className="line-clamp-2 text-gray-500 mt-2">{config.description_i18n?.zh || ''}</p>
               </div>
             </CardContent>
           </Card>
