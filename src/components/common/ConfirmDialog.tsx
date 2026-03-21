@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -26,11 +26,10 @@ export function ConfirmDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{message}</DialogDescription>
         </DialogHeader>
         
         <div className="space-y-4">
-          <p>{message}</p>
-          
           {itemCount && itemCount > 1 && (
             <div className="bg-yellow-50 p-3 rounded text-yellow-800 border border-yellow-200">
               ⚠️ 此操作将影响 <strong>{itemCount}</strong> 个项目

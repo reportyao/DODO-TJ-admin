@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Button } from './button';
-import { createClient } from '@supabase/supabase-js';
 import toast from 'react-hot-toast';
+import { supabase as storageClient } from '@/lib/supabase';
 
 interface ImageUploadProps {
   value: string[];
@@ -11,13 +11,7 @@ interface ImageUploadProps {
   bucket?: string; // 指定使用的Storage Bucket，默认为'lottery-images'
 }
 
-// 创建独立的Storage客户端（使用service_role绕过RLS）
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseServiceKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
-// 使用与 SupabaseContext 相同的 storageKey，避免 Multiple GoTrueClient 警告
-const storageClient = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false, storageKey: 'admin-supabase-auth' }
-});
+// 复用 supabase.ts 中的单例客户端，避免 Multiple GoTrueClient 警告
 
 export const ImageUpload: React.FC<ImageUploadProps> = ({
   value = [],
