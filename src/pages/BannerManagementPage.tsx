@@ -65,7 +65,25 @@ export default function BannerManagementPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
+    // 必填字段验证
+    if (!formData.title.trim()) {
+      toast.error('Banner 标题不能为空');
+      return;
+    }
+    const hasImage = formData.image_url || formData.image_url_zh || formData.image_url_ru || formData.image_url_tg;
+    if (!hasImage) {
+      toast.error('请至少上传一张 Banner 图片');
+      return;
+    }
+    // 时间范围验证
+    if (formData.start_time && formData.end_time) {
+      if (new Date(formData.start_time) >= new Date(formData.end_time)) {
+        toast.error('开始时间必须早于结束时间');
+        return;
+      }
+    }
+
     try {
       const bannerData = {
         title: formData.title,
