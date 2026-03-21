@@ -108,10 +108,39 @@ export const PaymentConfigPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
+    // 必填字段验证
+    if (!formData.config_key.trim()) {
+      toast.error('配置 Key 不能为空');
+      return;
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(formData.config_key.trim())) {
+      toast.error('配置 Key 只能包含字母、数字、下划线和短横线');
+      return;
+    }
+    if (!formData.name_i18n.zh.trim()) {
+      toast.error('请填写中文名称');
+      return;
+    }
+    if (formData.min_amount <= 0) {
+      toast.error('最小金额必须大于 0');
+      return;
+    }
     if (formData.max_amount <= formData.min_amount) {
       toast.error('最大金额必须大于最小金额');
       return;
+    }
+    // 新建时检查 config_key 唯一性
+    if (!editingConfig) {
+      const { data: existing } = await supabase
+        .from('payment_config')
+        .select('id')
+        .eq('config_key', formData.config_key.trim())
+        .maybeSingle();
+      if (existing) {
+        toast.error(`配置 Key "${formData.config_key}" 已存在，请使用不同的 Key`);
+        return;
+      }
     }
 
     try {
@@ -181,14 +210,25 @@ export const PaymentConfigPage: React.FC = () => {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`确定要删除支付方式"${name}"吗？`)) {return;}
-
+    if (!window.confirm(`确定要删除支付方式“${name}”吗？`)) {return;}
     try {
+      // 检查是否有待审批的充値记录使用此支付方式
+      const config = configs.find(c => c.id === id);
+      if (config) {
+        const { count } = await supabase
+          .from('deposit_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('payment_config_key', config.config_key)
+          .eq('status', 'pending');
+        if ((count || 0) > 0) {
+          toast.error(`该支付方式有 ${count} 条待审批的充値申请，请先处理完毕再删除`);
+          return;
+        }
+      }
       const { error } = await supabase
         .from('payment_config')
         .delete()
         .eq('id', id);
-
       if (error) {throw error;}
       toast.success('支付配置已删除');
       fetchConfigs();
