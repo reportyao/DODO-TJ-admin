@@ -86,57 +86,71 @@ export default function BatchStatisticsPage() {
         top_skus: [],
       };
 
-      // 批次统计
-      const { data: batches } = await supabase
+      // 批次统计 - 使用数据库端 COUNT 聚合（避免全量加载被 Supabase 1000 条限制截断）
+      const batchStatuses = ['IN_TRANSIT_CHINA', 'IN_TRANSIT_TAJIKISTAN', 'ARRIVED', 'CANCELLED'];
+      const batchCountResults = await Promise.all(
+        batchStatuses.map(status =>
+          supabase.from('shipment_batches').select('id', { count: 'exact', head: true }).eq('status', status)
+        )
+      );
+      const [inTransitChinaRes, inTransitTjRes, arrivedRes, cancelledRes] = batchCountResults;
+      stats.in_transit_china_batches = inTransitChinaRes.count || 0;
+      stats.in_transit_tj_batches = inTransitTjRes.count || 0;
+      stats.arrived_batches = arrivedRes.count || 0;
+      stats.cancelled_batches = cancelledRes.count || 0;
+
+      const { count: totalBatches } = await supabase
         .from('shipment_batches')
-        .select('status, shipped_at, arrived_at, estimated_arrival_date');
+        .select('id', { count: 'exact', head: true });
+      stats.total_batches = totalBatches || 0;
 
-      if (batches) {
-        stats.total_batches = batches.length;
-        stats.in_transit_china_batches = batches.filter(b => b.status === 'IN_TRANSIT_CHINA').length;
-        stats.in_transit_tj_batches = batches.filter(b => b.status === 'IN_TRANSIT_TAJIKISTAN').length;
-        stats.arrived_batches = batches.filter(b => b.status === 'ARRIVED').length;
-        stats.cancelled_batches = batches.filter(b => b.status === 'CANCELLED').length;
+      // 计算平均运输天数（只加载已到达批次的时间字段）
+      const { data: arrivedBatches } = await supabase
+        .from('shipment_batches')
+        .select('shipped_at, arrived_at, estimated_arrival_date')
+        .eq('status', 'ARRIVED')
+        .not('shipped_at', 'is', null)
+        .not('arrived_at', 'is', null);
 
-        // 计算平均运输天数
-        const arrivedBatches = batches.filter(b => b.status === 'ARRIVED' && b.shipped_at && b.arrived_at);
-        if (arrivedBatches.length > 0) {
-          let totalDays = 0;
-          let onTimeCount = 0;
-          
-          for (const batch of arrivedBatches) {
-            const shippedDate = new Date(batch.shipped_at);
-            const arrivedDate = new Date(batch.arrived_at);
-            const days = (arrivedDate.getTime() - shippedDate.getTime()) / (1000 * 60 * 60 * 24);
-            totalDays += days;
-            
-            if (batch.estimated_arrival_date) {
-              const estimatedDate = new Date(batch.estimated_arrival_date);
-              if (arrivedDate <= estimatedDate) {
-                onTimeCount++;
-              }
-            }
+      if (arrivedBatches && arrivedBatches.length > 0) {
+        let totalTransitDays = 0;
+        let onTimeCount = 0;
+        for (const batch of arrivedBatches) {
+          const shippedDate = new Date(batch.shipped_at);
+          const arrivedDate = new Date(batch.arrived_at);
+          const d = (arrivedDate.getTime() - shippedDate.getTime()) / (1000 * 60 * 60 * 24);
+          totalTransitDays += d;
+          if (batch.estimated_arrival_date && arrivedDate <= new Date(batch.estimated_arrival_date)) {
+            onTimeCount++;
           }
-          
-          stats.avg_transit_days = Math.round((totalDays / arrivedBatches.length) * 10) / 10;
-          stats.on_time_rate = Math.round((onTimeCount / arrivedBatches.length) * 100);
         }
+        stats.avg_transit_days = Math.round((totalTransitDays / arrivedBatches.length) * 10) / 10;
+        stats.on_time_rate = Math.round((onTimeCount / arrivedBatches.length) * 100);
       }
 
-      // 订单统计
-      const { data: orderItems } = await supabase
+      // 订单统计 - 使用数据库端 COUNT 聚合
+      const arrivalStatuses = ['NORMAL', 'MISSING', 'DAMAGED'];
+      const [totalItemsRes, ...arrivalResults] = await Promise.all([
+        supabase.from('batch_order_items').select('id', { count: 'exact', head: true }),
+        ...arrivalStatuses.map(s =>
+          supabase.from('batch_order_items').select('id', { count: 'exact', head: true }).eq('arrival_status', s)
+        ),
+      ]);
+      stats.total_orders = totalItemsRes.count || 0;
+      stats.normal_orders = arrivalResults[0].count || 0;
+      stats.missing_orders = arrivalResults[1].count || 0;
+      stats.damaged_orders = arrivalResults[2].count || 0;
+
+      // Top SKU 统计（限制加载 200 条以计算 Top 10）
+      const { data: skuItems } = await supabase
         .from('batch_order_items')
-        .select('arrival_status, product_sku, product_name');
+        .select('product_sku, product_name')
+        .not('product_sku', 'is', null)
+        .limit(200);
 
-      if (orderItems) {
-        stats.total_orders = orderItems.length;
-        stats.normal_orders = orderItems.filter(o => o.arrival_status === 'NORMAL').length;
-        stats.missing_orders = orderItems.filter(o => o.arrival_status === 'MISSING').length;
-        stats.damaged_orders = orderItems.filter(o => o.arrival_status === 'DAMAGED').length;
-
-        // SKU统计
+      if (skuItems) {
         const skuCounts: Record<string, { name: string; count: number }> = {};
-        for (const item of orderItems) {
+        for (const item of skuItems) {
           if (item.product_sku) {
             if (!skuCounts[item.product_sku]) {
               skuCounts[item.product_sku] = { name: item.product_name || '', count: 0 };
