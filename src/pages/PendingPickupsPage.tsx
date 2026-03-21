@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { useAdminAuth } from '../contexts/AdminAuthContext';
 import toast from 'react-hot-toast';
 import {
   MagnifyingGlassIcon,
@@ -57,6 +58,7 @@ type FilterStatus = 'all' | 'PENDING_CLAIM' | 'PENDING_PICKUP' | 'EXPIRED';
 type FilterType = 'all' | 'lottery' | 'group_buy' | 'full_purchase';
 
 export default function PendingPickupsPage() {
+  const { admin } = useAdminAuth();
   const [pickups, setPickups] = useState<PendingPickup[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
@@ -406,7 +408,8 @@ export default function PendingPickupsPage() {
 
   // 打开核销模态框
   const openVerifyModal = (pickup: PendingPickup) => {
-    if (pickup.pickup_status !== 'PENDING_PICKUP') {
+    const allowedStatuses = ['PENDING_CLAIM', 'PENDING_PICKUP', 'PENDING', 'READY_FOR_PICKUP'];
+    if (!allowedStatuses.includes(pickup.pickup_status)) {
       toast.error('只能核销待提货状态的奖品');
       return;
     }
@@ -417,14 +420,13 @@ export default function PendingPickupsPage() {
   // 执行核销
   const handleVerify = async () => {
     if (!selectedPickup) {return;}
+    if (!admin) {
+      toast.error('未登录，请重新登录');
+      return;
+    }
     
     setVerifying(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        throw new Error('未登录');
-      }
-
       let tableName = 'prizes';
       if (selectedPickup.type === 'group_buy') {
         tableName = 'group_buy_results';
@@ -432,27 +434,35 @@ export default function PendingPickupsPage() {
         tableName = 'full_purchase_orders';
       }
       
-      // 所有表都更新相同的字段
+      const nowIso = new Date().toISOString();
       const updateData: any = {
         pickup_status: 'PICKED_UP',
-        picked_up_at: new Date().toISOString(),
-        picked_up_by: user.id,
+        logistics_status: 'PICKED_UP',
+        picked_up_at: nowIso,
+        picked_up_by: admin.id,
       };
-      
-      const { error: updateError } = await supabase
+      // full_purchase_orders 额外更新 claimed_at
+      if (selectedPickup.type === 'full_purchase') {
+        updateData.claimed_at = nowIso;
+      }
+
+      // 使用原子性条件更新防止重复核销（TOCTOU 修复）
+      const { data: updatedRows, error: updateError } = await supabase
         .from(tableName)
         .update(updateData)
-        .eq('id', selectedPickup.id);
+        .eq('id', selectedPickup.id)
+        .in('pickup_status', ['PENDING_CLAIM', 'PENDING_PICKUP', 'PENDING', 'READY_FOR_PICKUP'])
+        .select('id');
 
       if (updateError) {throw updateError;}
 
-      // 核销成功
-      console.log('核销成功:', {
-        prize_id: selectedPickup.id,
-        pickup_code: selectedPickup.pickup_code,
-        type: selectedPickup.type,
-        operator: user.id,
-      });
+      if (!updatedRows || updatedRows.length === 0) {
+        toast.error('核销失败：该提货码已被核销或状态已变更，请刷新后重试');
+        setShowVerifyModal(false);
+        setSelectedPickup(null);
+        loadPickups();
+        return;
+      }
 
       toast.success('核销成功！');
       setShowVerifyModal(false);

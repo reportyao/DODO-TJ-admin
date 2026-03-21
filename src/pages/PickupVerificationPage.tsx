@@ -350,20 +350,24 @@ const PickupVerificationPage: React.FC = () => {
         updateData.claimed_at = nowIso;
       }
       
-      const { error: updateError } = await supabase
+      // 使用原子性条件更新防止重复核销（TOCTOU 修复）
+      // 只有当 pickup_status 仍为待核销状态时才更新，防止并发重复核销
+      const { data: updatedRows, error: updateError } = await supabase
         .from(tableName)
         .update(updateData)
-        .eq('id', prizeInfo.id);
+        .eq('id', prizeInfo.id)
+        .in('pickup_status', ['PENDING_CLAIM', 'PENDING_PICKUP', 'PENDING', 'READY_FOR_PICKUP'])
+        .select('id');
 
       if (updateError) {throw updateError;}
 
-      // 核销成功
-      console.log('核销成功:', {
-        prize_id: prizeInfo.id,
-        pickup_code: prizeInfo.pickup_code,
-        source_type: prizeInfo.source_type,
-        operator: adminId,
-      });
+      // 检查是否真的更新了记录（若为 0 行则说明已被其他管理员核销）
+      if (!updatedRows || updatedRows.length === 0) {
+        toast.error('核销失败：该提货码已被核销或状态已变更，请刷新后重试');
+        setPickupCode('');
+        setPrizeInfo(null);
+        return;
+      }
 
       toast.success('核销成功！');
       setPickupCode('');
