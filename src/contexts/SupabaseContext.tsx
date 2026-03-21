@@ -23,9 +23,7 @@ let supabaseServiceInstance: SupabaseClient<DB> | null = null
 
 function getSupabaseClient(): SupabaseClient<DB> {
   if (!supabaseServiceInstance) {
-    console.log('[Supabase] Creating service role client...');
-    console.log('[Supabase] URL:', supabaseUrl);
-    console.log('[Supabase] Service Role Key (first 20 chars):', supabaseServiceRoleKey.substring(0, 20) + '...');
+    // 安全修复 A06: 移除打印密钥的日志（即使是部分内容也不应在控制台显示）
     
     supabaseServiceInstance = createClient<DB>(supabaseUrl, supabaseServiceRoleKey, {
       auth: {
@@ -53,7 +51,7 @@ function getSupabaseClient(): SupabaseClient<DB> {
       }
     });
     
-    console.log('[Supabase] Service role client created successfully');
+
   }
   return supabaseServiceInstance
 }
