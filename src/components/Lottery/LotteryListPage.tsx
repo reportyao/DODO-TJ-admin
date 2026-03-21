@@ -42,6 +42,7 @@ export const LotteryListPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [totalPages, setTotalPages] = useState(1);
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const LIMIT = 10; // 每页显示 10 条
   const [isLoading, setIsLoading] = useState(true);
 
@@ -51,23 +52,32 @@ export const LotteryListPage: React.FC = () => {
       const from = (page - 1) * LIMIT;
       const to = from + LIMIT - 1;
 
-      const { data, error } = await supabase
+      let query = supabase
         .from('lotteries')
-        .select('*')
+        .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(from, to);
+
+      if (statusFilter !== 'ALL') {
+        query = query.eq('status', statusFilter);
+      }
+
+      const { data, error, count } = await query;
 
       if (error) {throw error;}
 
       setLotteries(data || []);
       setHasMore((data || []).length === LIMIT);
+      if (count !== null) {
+        setTotalPages(Math.ceil(count / LIMIT));
+      }
     } catch (error: any) {
       toast.error(`加载积分商城列表失败: ${error.message}`);
       console.error('Error loading lotteries:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [supabase, page]);
+  }, [supabase, page, statusFilter]);
 
   useEffect(() => {
     fetchLotteries();
@@ -132,11 +142,12 @@ export const LotteryListPage: React.FC = () => {
       const newEndTime = new Date(now.getTime() + originalDuration).toISOString();
       
       // 复制积分商城数据（重置所有状态相关字段）
+      // 修复 A03-2: 复制后状态改为 PENDING，需管理员审核后手动发布
       const newLottery = {
         ...originalLottery,
         id: undefined, // 让数据库生成新 ID
         period: newPeriod,
-        status: 'ACTIVE' as LotteryStatus,
+        status: 'PENDING' as LotteryStatus,
         sold_tickets: 0,
         winning_ticket_number: null,
         winning_user_id: null,
@@ -157,8 +168,8 @@ export const LotteryListPage: React.FC = () => {
 
       if (insertError) {throw insertError;}
 
-      toast.success(`积分商城复制成功! 新期号: ${newPeriod}`);
-      fetchLotteries(); // 刷新列表
+      toast.success(`积分商城复制成功! 新期号: ${newPeriod}（状态为 PENDING，请编辑后发布）`);
+      fetchLotteries();
     } catch (error: any) {
       toast.error(`复制失败: ${error.message}`);
       console.error('Error copying lottery:', error);
@@ -166,9 +177,28 @@ export const LotteryListPage: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('确定要删除这个积分商城吗？')) {return;}
+    if (!window.confirm('确定要删除这个积分商城吗？此操作不可恢复。')) {return;}
 
     try {
+      // 修复 A03-1: 检查是否有已售票数，防止删除有用户购票的活跃彩票
+      const { data: lottery, error: fetchError } = await supabase
+        .from('lotteries')
+        .select('sold_tickets, status')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      if (lottery.sold_tickets > 0) {
+        toast.error(`无法删除：该期已有 ${lottery.sold_tickets} 张票被购买。请先完成开奖或退款处理后再删除。`);
+        return;
+      }
+
+      if (lottery.status === 'ACTIVE' || lottery.status === 'SOLD_OUT') {
+        toast.error(`无法删除：该期状态为 ${lottery.status}，请先将其设为 CANCELLED 后再删除。`);
+        return;
+      }
+
       const { error } = await supabase
         .from('lotteries')
         .delete()
@@ -177,7 +207,7 @@ export const LotteryListPage: React.FC = () => {
       if (error) {throw error;}
 
       toast.success('积分商城删除成功!');
-      fetchLotteries(); // 刷新列表
+      fetchLotteries();
     } catch (error: any) {
       toast.error(`删除失败: ${error.message}`);
       console.error('Error deleting lottery:', error);
@@ -193,6 +223,22 @@ export const LotteryListPage: React.FC = () => {
         </Button>
       </CardHeader>
       <CardContent>
+        {/* 修复 A03-3: 添加状态筛选 */}
+        <div className="flex gap-2 mb-4">
+          {['ALL', 'ACTIVE', 'PENDING', 'SOLD_OUT', 'COMPLETED', 'CANCELLED'].map((s) => (
+            <button
+              key={s}
+              onClick={() => { setStatusFilter(s); setPage(1); }}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                statusFilter === s
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {s === 'ALL' ? '全部' : s}
+            </button>
+          ))}
+        </div>
         {isLoading ? (
           <div className="text-center py-10">加载中...</div>
         ) : lotteries.length === 0 ? (
