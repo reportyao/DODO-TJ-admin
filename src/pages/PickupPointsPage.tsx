@@ -192,6 +192,15 @@ export default function PickupPointsPage() {
       toast.error('请填写名称和地址');
       return;
     }
+    // 验证经纬度范围
+    if (formData.latitude !== null && (formData.latitude < -90 || formData.latitude > 90)) {
+      toast.error('纬度必须在 -90 到 90 之间');
+      return;
+    }
+    if (formData.longitude !== null && (formData.longitude < -180 || formData.longitude > 180)) {
+      toast.error('经度必须在 -180 到 180 之间');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -238,25 +247,43 @@ export default function PickupPointsPage() {
     }
   };
 
-  // 删除自提点
+   // 删除自提点
   const handleDelete = async (id: string) => {
-    if (!confirm('确定要删除这个自提点吗？此操作将停用该自提点，但不会删除历史记录。')) {return;}
-
     try {
+      // 检查是否有待提货订单
+      const { count: pendingCount } = await supabase
+        .from('prizes')
+        .select('id', { count: 'exact', head: true })
+        .eq('pickup_point_id', id)
+        .in('pickup_status', ['PENDING_CLAIM', 'PENDING_PICKUP']);
+
+      const { count: fpPendingCount } = await supabase
+        .from('full_purchase_orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('pickup_point_id', id)
+        .in('pickup_status', ['PENDING_CLAIM', 'PENDING_PICKUP']);
+
+      const totalPending = (pendingCount || 0) + (fpPendingCount || 0);
+      if (totalPending > 0) {
+        toast.error(`该自提点还有 ${totalPending} 个待提货订单，请先处理完毕再停用`);
+        return;
+      }
+
+      if (!confirm('确定要停用这个自提点吗？停用后用户将无法选择此自提点。')) {return;}
+
       // 使用软删除：设置 is_active 为 false 和 status 为 INACTIVE
       const { error } = await supabase
         .from('pickup_points')
         .update({ is_active: false, status: 'INACTIVE' })
         .eq('id', id);
-
       if (error) {throw error;}
-      toast.success('删除成功');
+      toast.success('自提点已停用');
       loadPickupPoints();
     } catch (error) {
-      console.error('删除失败:', error);
-      toast.error('删除失败');
+      console.error('停用失败:', error);
+      toast.error('停用失败');
     }
-  };
+  };;
 
   // 切换启用状态
   const toggleActive = async (id: string, currentStatus: string) => {
