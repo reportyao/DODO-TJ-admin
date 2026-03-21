@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { useSupabase } from '../contexts/SupabaseContext';
 import { useAdminAuth } from '../contexts/AdminAuthContext';
 import toast from 'react-hot-toast';
 import {
@@ -58,6 +58,7 @@ type FilterStatus = 'all' | 'PENDING_CLAIM' | 'PENDING_PICKUP' | 'EXPIRED';
 type FilterType = 'all' | 'lottery' | 'group_buy' | 'full_purchase';
 
 export default function PendingPickupsPage() {
+  const { supabase } = useSupabase();
   const { admin } = useAdminAuth();
   const [pickups, setPickups] = useState<PendingPickup[]>([]);
   const [loading, setLoading] = useState(true);

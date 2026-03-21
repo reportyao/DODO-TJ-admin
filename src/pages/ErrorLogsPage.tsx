@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { supabase } from '../lib/supabase';
+import { useSupabase } from '../contexts/SupabaseContext';
 import {
   ExclamationTriangleIcon,
   CheckCircleIcon,
@@ -86,6 +86,7 @@ const deviceIcons: Record<string, React.ReactNode> = {
 
 const ErrorLogsPage: React.FC = () => {
   const { t } = useTranslation();
+  const { supabase } = useSupabase();
   const [logs, setLogs] = useState<ErrorLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedLog, setSelectedLog] = useState<ErrorLog | null>(null);

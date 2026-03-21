@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Download, DollarSign, CheckCircle, XCircle, Clock } from 'lucide-react';
 import { useSupabase } from '../contexts/SupabaseContext';
+import { useAdminAuth } from '../contexts/AdminAuthContext';
 import toast from 'react-hot-toast';
 
 // 与数据库实际字段一致的接口
@@ -33,6 +34,7 @@ interface CommissionRecord {
 
 export default function CommissionRecordsPage() {
   const { supabase } = useSupabase();
+  const { admin } = useAdminAuth();
   const [records, setRecords] = useState<CommissionRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -163,7 +165,8 @@ export default function CommissionRecordsPage() {
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('bulk-payout-commissions', {
-        body: { commission_ids: Array.from(selectedRecords) }
+        body: { commission_ids: Array.from(selectedRecords) },
+        headers: { 'x-admin-id': admin?.id || '' },
       });
       if (error) { throw error; }
       toast.success(`成功发放 ${data?.success_count ?? 0} 条返利，失败 ${data?.fail_count ?? 0} 条`);

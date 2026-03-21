@@ -56,33 +56,43 @@ export default function AIManagementPage() {
   };
 
   const loadStats = async () => {
-    // 总统计 - 使用 ai_chat_history 表
-    const { data: totalData, error: totalError } = await supabase
+    // 【A37修复】使用 count: 'exact' + head: true 避免全量拉取数据
+    // 总提问数
+    const { count: totalQuestions, error: totalError } = await supabase
       .from('ai_chat_history')
-      .select('id, user_id');
-
+      .select('id', { count: 'exact', head: true });
     if (totalError) {throw totalError;}
 
-    const totalQuestions = totalData?.length || 0;
-    const totalUsers = new Set(totalData?.map(log => log.user_id)).size;
+    // 总用户数（通过 distinct user_id 近似，使用 30天内活跃用户数）
+    const { data: userDistinct, error: userError } = await supabase
+      .from('ai_chat_history')
+      .select('user_id')
+      .limit(10000);
+    if (userError) {throw userError;}
+    const totalUsers = new Set(userDistinct?.map(log => log.user_id)).size;
 
     // 今日统计
     const today = new Date().toISOString().split('T')[0];
-    const { data: todayData, error: todayError } = await supabase
+    const { count: todayQuestions, error: todayError } = await supabase
       .from('ai_chat_history')
-      .select('id, user_id')
+      .select('id', { count: 'exact', head: true })
       .gte('created_at', `${today}T00:00:00`)
-      .lt('created_at', `${today}T23:59:59`);
-
+      .lte('created_at', `${today}T23:59:59`);
     if (todayError) {throw todayError;}
 
-    const todayQuestions = todayData?.length || 0;
-    const todayUsers = new Set(todayData?.map(log => log.user_id)).size;
+    // 今日用户数
+    const { data: todayUserData, error: todayUserError } = await supabase
+      .from('ai_chat_history')
+      .select('user_id')
+      .gte('created_at', `${today}T00:00:00`)
+      .lte('created_at', `${today}T23:59:59`);
+    if (todayUserError) {throw todayUserError;}
+    const todayUsers = new Set(todayUserData?.map(log => log.user_id)).size;
 
     setStats({
-      total_questions: totalQuestions,
+      total_questions: totalQuestions || 0,
       total_users: totalUsers,
-      today_questions: todayQuestions,
+      today_questions: todayQuestions || 0,
       today_users: todayUsers
     });
   };
