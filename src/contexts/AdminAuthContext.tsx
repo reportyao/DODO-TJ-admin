@@ -126,8 +126,9 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         .from('role_permissions')
         .select('permissions')
         .eq('role', adminData.role)
-        .single();
+        .maybeSingle();
 
+      // maybeSingle() 返回 null 而不是 406 错误，当记录不存在时不抛出异常
       if (error) {throw error;}
 
       // permissions是JSONB数组，如 ["users.view", "lotteries.view"]

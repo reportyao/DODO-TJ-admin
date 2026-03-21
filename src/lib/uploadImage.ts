@@ -3,7 +3,10 @@ import imageCompression from 'browser-image-compression'
 
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || ''
 const supabaseServiceKey = (import.meta as any).env.VITE_SUPABASE_SERVICE_ROLE_KEY || ''
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+// 使用与 SupabaseContext 相同的 storageKey，避免 Multiple GoTrueClient 警告
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false, storageKey: 'admin-supabase-auth' }
+})
 
 /**
  * 压缩图片

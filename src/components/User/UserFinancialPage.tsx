@@ -10,6 +10,8 @@ import {
 import { useSupabase } from '../../contexts/SupabaseContext';
 import { useAdminAuth } from '../../contexts/AdminAuthContext';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
+import { Button } from '../ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { toast } from 'react-hot-toast';
 import { Loader2 } from 'lucide-react';
 
@@ -132,8 +134,10 @@ const UserFinancialPage: React.FC = () => {
   const fetchSummary = useCallback(async () => {
     if (!userId || !admin) return;
     try {
-      const { data, error } = await supabase.functions.invoke('admin-user-financial', {
-        body: { user_id: userId, action: 'summary', period },
+      // Edge Function 使用 GET + URL params 读取参数
+      const params = new URLSearchParams({ user_id: userId, action: 'summary', period });
+      const { data, error } = await supabase.functions.invoke(`admin-user-financial?${params.toString()}`, {
+        method: 'GET',
         headers: { 'X-Admin-Id': admin.id }
       });
       if (error) throw error;
@@ -148,15 +152,21 @@ const UserFinancialPage: React.FC = () => {
     if (!userId || !admin) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('admin-user-financial', {
-        body: {
-          user_id: userId,
-          action: 'transactions',
-          page,
-          pageSize: 20,
-          walletType: walletTab !== 'ALL' ? walletTab : undefined,
-          ...filters
-        },
+      // Edge Function 使用 GET + URL params 读取参数
+      const paramsObj: Record<string, string> = {
+        user_id: userId,
+        action: 'transactions',
+        page: String(page),
+        pageSize: '20',
+      };
+      if (walletTab !== 'ALL') paramsObj.walletType = walletTab;
+      if (filters.type) paramsObj.type = filters.type;
+      if (filters.status) paramsObj.status = filters.status;
+      if (filters.startDate) paramsObj.startDate = filters.startDate;
+      if (filters.endDate) paramsObj.endDate = filters.endDate;
+      const params = new URLSearchParams(paramsObj);
+      const { data, error } = await supabase.functions.invoke(`admin-user-financial?${params.toString()}`, {
+        method: 'GET',
         headers: { 'X-Admin-Id': admin.id }
       });
       if (error) throw error;
@@ -180,13 +190,18 @@ const UserFinancialPage: React.FC = () => {
     if (!userId || !admin || isExporting) return;
     setIsExporting(true);
     try {
-      const { data, error } = await supabase.functions.invoke('admin-user-financial', {
-        body: {
-          user_id: userId,
-          action: 'export',
-          walletType: walletTab !== 'ALL' ? walletTab : undefined,
-          ...filters
-        },
+      const paramsObj: Record<string, string> = {
+        user_id: userId,
+        action: 'export',
+      };
+      if (walletTab !== 'ALL') paramsObj.walletType = walletTab;
+      if (filters.type) paramsObj.type = filters.type;
+      if (filters.status) paramsObj.status = filters.status;
+      if (filters.startDate) paramsObj.startDate = filters.startDate;
+      if (filters.endDate) paramsObj.endDate = filters.endDate;
+      const params = new URLSearchParams(paramsObj);
+      const { data, error } = await supabase.functions.invoke(`admin-user-financial?${params.toString()}`, {
+        method: 'GET',
         headers: { 'X-Admin-Id': admin.id }
       });
 

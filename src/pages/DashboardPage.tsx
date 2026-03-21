@@ -57,24 +57,24 @@ export default function DashboardPage() {
       // 获取活跃用户数 (最近7天有登录)
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const { count: activeUsers, error: activeUsersError } = await supabase
+      const { count: activeUsers } = await supabase
         .from('users')
         .select('*', { count: 'exact', head: true })
         .gte('last_login_at', sevenDaysAgo.toISOString());
 
-      // 获取积分商城活动统计
+      // 获取商城活动统计
       const { count: totalLotteries, error: lotteriesError } = await supabase
         .from('lotteries')
         .select('*', { count: 'exact', head: true });
       
       if (lotteriesError) {throw lotteriesError;}
 
-      const { count: activeLotteries, error: activeLotteriesError } = await supabase
+      const { count: activeLotteries } = await supabase
         .from('lotteries')
         .select('*', { count: 'exact', head: true })
         .eq('status', 'ACTIVE');
 
-      const { count: completedLotteries, error: completedLotteriesError } = await supabase
+      const { count: completedLotteries } = await supabase
         .from('lotteries')
         .select('*', { count: 'exact', head: true })
         .eq('status', 'COMPLETED');
@@ -86,7 +86,7 @@ export default function DashboardPage() {
       ]);
       const totalOrders = (lotteryOrders || 0) + (fullOrders || 0);
 
-      // 获取待处理充値
+      // 获取待处理充值
       const { count: pendingDeposits } = await supabase
         .from('deposit_requests')
         .select('*', { count: 'exact', head: true })
@@ -98,24 +98,26 @@ export default function DashboardPage() {
         .select('*', { count: 'exact', head: true })
         .eq('status', 'PENDING');
 
-      // 获取总收入 - 使用数据库端汇总（避免全量加载）
-      const { data: revenueAgg } = await supabase
+      // 获取总收入 - 直接取字段在客户端汇总（Supabase JS 不支持 .sum() 语法）
+      const { data: revenueData } = await supabase
         .from('deposit_requests')
-        .select('amount.sum()')
-        .eq('status', 'APPROVED')
-        .single();
-      const totalRevenue = (revenueAgg as any)?.sum ?? 0;
+        .select('amount')
+        .eq('status', 'APPROVED');
+      const totalRevenue = (revenueData || []).reduce(
+        (sum: number, r: any) => sum + (Number(r.amount) || 0), 0
+      );
 
       // 获取今日收入
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const { data: todayAgg } = await supabase
+      const { data: todayData } = await supabase
         .from('deposit_requests')
-        .select('amount.sum()')
+        .select('amount')
         .eq('status', 'APPROVED')
-        .gte('processed_at', today.toISOString())
-        .single();
-      const todayRevenue = (todayAgg as any)?.sum ?? 0;
+        .gte('processed_at', today.toISOString());
+      const todayRevenue = (todayData || []).reduce(
+        (sum: number, r: any) => sum + (Number(r.amount) || 0), 0
+      );
 
       setStats({
         totalUsers: totalUsers || 0,
@@ -187,7 +189,7 @@ export default function DashboardPage() {
           color="blue"
         />
         <StatCard
-          title="积分商城活动"
+          title="商城活动"
           value={stats.totalLotteries.toLocaleString()}
           subtitle={`进行中: ${stats.activeLotteries} | 已完成: ${stats.completedLotteries}`}
           icon={<Gift className="w-8 h-8" />}
@@ -239,11 +241,11 @@ export default function DashboardPage() {
           </h2>
           <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <span className="text-gray-600">活跃积分商城活动</span>
+              <span className="text-gray-600">活跃商城活动</span>
               <span className="font-semibold text-purple-600">{stats.activeLotteries}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-gray-600">已完成积分商城</span>
+              <span className="text-gray-600">已完成商城活动</span>
               <span className="font-semibold text-green-600">{stats.completedLotteries}</span>
             </div>
             <div className="flex justify-between items-center">
