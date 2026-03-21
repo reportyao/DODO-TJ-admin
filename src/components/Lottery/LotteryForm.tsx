@@ -223,7 +223,7 @@ export const LotteryForm: React.FC = () => {
         });
       }
     } catch (error: any) {
-      toast.error(`加载积分商城信息失败: ${error.message}`);
+      toast.error(`加载商城信息失败: ${error.message}`);
       console.error('Error loading lottery:', error);
     } finally {
       setIsLoading(false);
@@ -413,7 +413,7 @@ export const LotteryForm: React.FC = () => {
 
       if (result.error) {throw result.error;}
 
-      toast.success(isEdit ? '积分商城信息更新成功!' : '积分商城创建成功!');
+      toast.success(isEdit ? '商城信息更新成功!' : '商城创建成功!');
       navigate('/lotteries');
     } catch (error: any) {
       toast.error(error.message || (isEdit ? '更新失败' : '创建失败'));
@@ -466,7 +466,7 @@ export const LotteryForm: React.FC = () => {
         </Card>
       )}
       <CardHeader>
-        <CardTitle>{isEdit ? '编辑积分商城' : '创建新积分商城'}</CardTitle>
+        <CardTitle>{isEdit ? '编辑商城' : '创建新商城'}</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -605,7 +605,7 @@ export const LotteryForm: React.FC = () => {
           {/* 多语言标题 */}
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
-              <span>积分商城标题</span>
+              <span>商城标题</span>
               <span className="text-xs text-gray-500 font-normal">(将同步到 title_i18n)</span>
             </Label>
             <MultiLanguageInput
@@ -618,7 +618,7 @@ export const LotteryForm: React.FC = () => {
           {/* 多语言描述 */}
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
-              <span>积分商城描述 / 详情</span>
+              <span>商城描述 / 详情</span>
               <span className="text-xs text-gray-500 font-normal">(支持多行文本，将同步到 description_i18n)</span>
             </Label>
             <MultiLanguageInput
@@ -763,7 +763,7 @@ export const LotteryForm: React.FC = () => {
           </div>
 
           <Button type="submit" className="w-full" disabled={isSubmitting || isDrawn}>
-            {isSubmitting ? '提交中...' : isEdit ? (isDrawn ? '已开奖，无法修改' : '保存更改') : '创建积分商城'}
+            {isSubmitting ? '提交中...' : isEdit ? (isDrawn ? '已开奖，无法修改' : '保存更改') : '创建商城'}
           </Button>
         </form>
       </CardContent>
