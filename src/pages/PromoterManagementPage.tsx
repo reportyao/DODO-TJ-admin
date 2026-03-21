@@ -373,7 +373,20 @@ export default function PromoterManagementPage() {
   // CRUD Operations - Promoters
   // ============================================================
 
+  const validatePromoterForm = (): boolean => {
+    if (promoterForm.daily_base_salary < 0) {
+      toast.error('日工不能为负数');
+      return false;
+    }
+    if (promoterForm.daily_deposit_limit <= 0) {
+      toast.error('日充値限额必须大于 0');
+      return false;
+    }
+    return true;
+  };
+
   const handleAddPromoter = async (userId: string) => {
+    if (!validatePromoterForm()) return;
     try {
       const { error } = await supabase
         .from('promoter_profiles')
@@ -402,6 +415,7 @@ export default function PromoterManagementPage() {
 
   const handleUpdatePromoter = async () => {
     if (!editingPromoter) return;
+    if (!validatePromoterForm()) return;
     try {
       const { error } = await supabase
         .from('promoter_profiles')
@@ -441,17 +455,22 @@ export default function PromoterManagementPage() {
     }
   };
 
-  const handleDismissPromoter = async (promoter: PromoterProfile) => {
-    if (!confirm(`确定要解除 ${promoter.user_name} 的地推人员身份吗？`)) return;
+   const [dismissTarget, setDismissTarget] = useState<PromoterProfile | null>(null);
+
+  const handleDismissPromoter = (promoter: PromoterProfile) => {
+    setDismissTarget(promoter);
+  };
+
+  const confirmDismissPromoter = async () => {
+    if (!dismissTarget) return;
     try {
       const { error } = await supabase
         .from('promoter_profiles')
         .update({ promoter_status: 'dismissed' })
-        .eq('user_id', promoter.user_id);
-
+        .eq('user_id', dismissTarget.user_id);
       if (error) throw error;
-
       toast.success('已解除地推人员');
+      setDismissTarget(null);
       fetchPromoters();
     } catch (err: any) {
       toast.error('操作失败: ' + err.message);
@@ -1557,6 +1576,22 @@ export default function PromoterManagementPage() {
               <Button variant="outline" onClick={() => { setShowAddPoint(false); setEditingPoint(null); }}>取消</Button>
               <Button onClick={handleSavePoint}>{editingPoint ? '保存' : '创建'}</Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 解雇确认弹窗 */}
+      <Dialog open={!!dismissTarget} onOpenChange={(open) => !open && setDismissTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认解雇地推人员</DialogTitle>
+            <DialogDescription>
+              确定要解除 <strong>{dismissTarget?.user_name}</strong> 的地推人员身份吗？此操作不可撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" onClick={() => setDismissTarget(null)}>取消</Button>
+            <Button variant="destructive" onClick={confirmDismissPromoter}>确认解雇</Button>
           </div>
         </DialogContent>
       </Dialog>
