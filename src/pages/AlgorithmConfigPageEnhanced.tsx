@@ -56,6 +56,15 @@ export default function AlgorithmConfigPageEnhanced() {
 
   const handleSave = async (algorithm: DrawAlgorithm) => {
     try {
+      // 如果设置为默认，必须先取消其他算法的默认状态（防止多个默认算法并存）
+      if (algorithm.is_default) {
+        const { error: clearError } = await supabase
+          .from('draw_algorithms')
+          .update({ is_default: false, updated_at: new Date().toISOString() })
+          .neq('id', algorithm.id);
+        if (clearError) {throw clearError;}
+      }
+
       const { error } = await supabase
         .from('draw_algorithms')
         .update({
@@ -70,14 +79,6 @@ export default function AlgorithmConfigPageEnhanced() {
         .eq('id', algorithm.id);
 
       if (error) {throw error;}
-
-      // 如果设置为默认，取消其他算法的默认状态
-      if (algorithm.is_default) {
-        await supabase
-          .from('draw_algorithms')
-          .update({ is_default: false })
-          .neq('id', algorithm.id);
-      }
 
       toast.success('保存成功！');
       setEditingId(null);
