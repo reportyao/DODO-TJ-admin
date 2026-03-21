@@ -245,6 +245,10 @@ export default function ChannelAnalyticsPage() {
   const [sortField, setSortField] = useState<SortField>('registrations');
   const [sortAsc, setSortAsc] = useState(false);
 
+  // Delete code confirmation
+  const [deleteCodeTarget, setDeleteCodeTarget] = useState<InviteCodeRecord | null>(null);
+  const [deletingCode, setDeletingCode] = useState(false);
+
   // ============================================================
   // Data Fetching - Cost Config
   // ============================================================
@@ -750,19 +754,27 @@ export default function ChannelAnalyticsPage() {
     }
   };
 
-  const handleDeleteCode = async (code: InviteCodeRecord) => {
-    if (!confirm(`确定要删除邀请码 "${code.code}" 吗？`)) return;
+  const handleDeleteCode = (code: InviteCodeRecord) => {
+    setDeleteCodeTarget(code);
+  };
+
+  const confirmDeleteCode = async () => {
+    if (!deleteCodeTarget) return;
+    setDeletingCode(true);
     try {
       const { error } = await supabase
         .from('managed_invite_codes')
         .delete()
-        .eq('id', code.id);
+        .eq('id', deleteCodeTarget.id);
 
       if (error) throw error;
       toast.success('邀请码已删除');
+      setDeleteCodeTarget(null);
       fetchInviteCodes();
     } catch (err: any) {
       toast.error('删除失败: ' + err.message);
+    } finally {
+      setDeletingCode(false);
     }
   };
 
@@ -1510,6 +1522,32 @@ export default function ChannelAnalyticsPage() {
               <Button variant="outline" onClick={() => setShowAddCode(false)}>取消</Button>
               <Button onClick={handleAddCode}>添加</Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除邀请码确认弹窗 */}
+      <Dialog open={!!deleteCodeTarget} onOpenChange={(open) => { if (!open) setDeleteCodeTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>确认删除邀请码</DialogTitle>
+            <DialogDescription>
+              确定要删除邀请码 <strong>{deleteCodeTarget?.code}</strong> 吗？
+              {deleteCodeTarget?.promoter_name && (
+                <span className="block mt-1 text-gray-600">所属推广员：{deleteCodeTarget.promoter_name}</span>
+              )}
+              删除后该邀请码将无法使用，此操作不可撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button variant="outline" onClick={() => setDeleteCodeTarget(null)}>取消</Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteCode}
+              disabled={deletingCode}
+            >
+              {deletingCode ? '删除中...' : '确认删除'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
