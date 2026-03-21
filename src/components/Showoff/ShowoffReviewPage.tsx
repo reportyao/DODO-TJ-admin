@@ -75,11 +75,24 @@ export const ShowoffReviewPage: React.FC = () => {
     setIsDetailDialogOpen(true);
   };
 
+  const MAX_REWARD_COINS = 500; // 单次审核最大奖励上限
+
   const handleReview = async (status: 'APPROVED' | 'REJECTED') => {
     if (!selectedShowoff) {return;}
     if (!admin) {
       toast.error('未登录');
       return;
+    }
+    // 验证奖励金币数量
+    if (status === 'APPROVED') {
+      if (rewardCoins < 0) {
+        toast.error('奖励 Lucky Coins 不能为负数');
+        return;
+      }
+      if (rewardCoins > MAX_REWARD_COINS) {
+        toast.error(`单次奖励上限为 ${MAX_REWARD_COINS} Lucky Coins`);
+        return;
+      }
     }
 
     const audit = createAuditTimer(supabase, {
@@ -95,30 +108,19 @@ export const ShowoffReviewPage: React.FC = () => {
     });
 
     try {
-      // 调用 Edge Function 处理晒单审核
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/approve-showoff`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY,
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY}`,
-            'x-admin-id': admin.id,
-          },
-          body: JSON.stringify({
-            showoffId: selectedShowoff.id,
-            action: status,
-            rewardCoins: status === 'APPROVED' ? rewardCoins : 0,
-            adminNote: adminNote || null,
-          }),
-        }
-      );
-
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.error || '审核失败');
+        // 调用 Edge Function 处理晴单审核（使用 supabase.functions.invoke 避免暴露 service_role key）
+      const { data: result, error: fnError } = await supabase.functions.invoke('approve-showoff', {
+        body: {
+          showoffId: selectedShowoff.id,
+          action: status,
+          rewardCoins: status === 'APPROVED' ? rewardCoins : 0,
+          adminNote: adminNote || null,
+          adminId: admin.id,
+        },
+      });
+      if (fnError) {throw fnError;}
+      if (!result?.success) {
+        throw new Error(result?.error || '审核失败');
       }
 
       await audit.success({
