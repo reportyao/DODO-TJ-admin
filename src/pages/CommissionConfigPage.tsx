@@ -47,6 +47,27 @@ export default function CommissionConfigPage() {
   };
 
   const handleSave = async (setting: CommissionSetting) => {
+    // 输入验证：比例范围
+    if (isNaN(setting.rate) || setting.rate < 0) {
+      toast.error('佣金比例不能为负数');
+      return;
+    }
+    if (setting.rate > 0.5) {
+      toast.error('单级佣金比例不能超过 50%，请检查输入');
+      return;
+    }
+    // 检查三级佣金总和是否超过 80%
+    const totalRate = settings.reduce((sum, s) => {
+      return sum + (s.id === setting.id ? setting.rate : s.rate);
+    }, 0);
+    if (totalRate > 0.8) {
+      toast.error(`三级佣金总比例 ${(totalRate * 100).toFixed(2)}% 超过 80%，请调整各级比例`);
+      return;
+    }
+    if (isNaN(setting.min_payout_amount) || setting.min_payout_amount < 0) {
+      toast.error('最低发放金额不能为负数');
+      return;
+    }
     setSaving(true);
     try {
       const { error } = await supabase
