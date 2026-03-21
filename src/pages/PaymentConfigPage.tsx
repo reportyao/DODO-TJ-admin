@@ -320,7 +320,7 @@ export const PaymentConfigPage: React.FC = () => {
               <div className="space-y-2">
                 <Label>配置类型</Label>
                 <select 
-                  className="flex h-9 w-full rounded-md border border-zinc-200 bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-9 w-full rounded-md border border-zinc-200 bg-white text-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
                   value={formData.config_type}
                   onChange={(e) => setFormData({...formData, config_type: e.target.value as any})}
                 >

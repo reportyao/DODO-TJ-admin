@@ -34,3 +34,14 @@ img {
 .fixed {
   position: fixed;
 }
+
+/* 确保所有表单元素在任何模式下都使用浅色背景 */
+select,
+select option {
+  background-color: white;
+  color: #18181b;
+}
+
+input, textarea {
+  color-scheme: light;
+}
