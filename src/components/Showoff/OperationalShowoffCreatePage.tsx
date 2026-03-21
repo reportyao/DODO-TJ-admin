@@ -103,46 +103,37 @@ export const OperationalShowoffCreatePage: React.FC = () => {
       return;
     }
 
-    if (!admin) {
+      if (!admin) {
       toast.error('管理员未登录');
       return;
     }
-
+    // 验证 likesCount 不能为负数
+    if (likesCount !== '' && (likesCount as number) < 0) {
+      toast.error('点赞数不能为负数');
+      return;
+    }
     setIsSubmitting(true);
-
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-create-showoff`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY,
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY}`,
-            'x-admin-id': admin.id,
-          },
-          body: JSON.stringify({
-            display_username: displayUsername.trim(),
-            display_avatar_url: displayAvatarUrl.trim(),
-            content: content.trim(),
-            images: images,
-            lottery_id: lotteryId || null,
-            title: title.trim() || null,
-            reward_coins: rewardCoins || 0,
-            likes_count: likesCount !== '' ? likesCount : null,
-
-            created_at: createdAt || null,
-          }),
-        }
-      );
-
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.error || '创建失败');
+      // 使用 supabase.functions.invoke 避免在请求头中暴露 service_role key
+      const { data: result, error: fnError } = await supabase.functions.invoke('admin-create-showoff', {
+        body: {
+          display_username: displayUsername.trim(),
+          display_avatar_url: displayAvatarUrl.trim(),
+          content: content.trim(),
+          images: images,
+          lottery_id: lotteryId || null,
+          title: title.trim() || null,
+          reward_coins: rewardCoins || 0,
+          likes_count: likesCount !== '' ? likesCount : null,
+          created_at: createdAt || null,
+          admin_id: admin.id,
+        },
+      });
+      if (fnError) {throw fnError;}
+      if (!result?.success) {
+        throw new Error(result?.error || '创建失败');
       }
-
-      toast.success('运营晒单创建成功！');
+      toast.success('运营晴单创建成功！');
       
       // 重置表单
       setDisplayUsername('');
