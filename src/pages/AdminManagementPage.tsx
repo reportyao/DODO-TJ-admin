@@ -151,7 +151,23 @@ export default function AdminManagementPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('确定要删除此管理员吗？')) {return;}
+    // 防止删除自己
+    if (id === currentAdmin?.id) {
+      toast.error('不能删除当前登录的管理员账号');
+      return;
+    }
+
+    // 防止删除最后一个 super_admin
+    const targetAdmin = admins.find(a => a.id === id);
+    if (targetAdmin?.role === 'super_admin') {
+      const superAdminCount = admins.filter(a => a.role === 'super_admin' && a.status === 'active').length;
+      if (superAdminCount <= 1) {
+        toast.error('系统必须保留至少一个活跃的超级管理员');
+        return;
+      }
+    }
+
+    if (!confirm(`确定要删除管理员“${targetAdmin?.username}”吗？此操作不可恢复。`)) {return;}
 
     try {
       const { error } = await supabase
