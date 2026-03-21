@@ -1,16 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeftIcon,
   BanknotesIcon,
   CurrencyDollarIcon,
-  ArrowTrendingUpIcon,
-  ArrowTrendingDownIcon,
   DocumentArrowDownIcon,
   FunnelIcon
 } from '@heroicons/react/24/outline';
 import { useSupabase } from '../../contexts/SupabaseContext';
+import { useAdminAuth } from '../../contexts/AdminAuthContext';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
+import { toast } from 'react-hot-toast';
+import { Loader2 } from 'lucide-react';
 
 interface FinancialSummary {
   luckyCoinsBalance: number;
@@ -64,7 +65,6 @@ interface Transaction {
   isIncome: boolean;
 }
 
-// 钱包类型 Tab 配置
 type WalletTab = 'ALL' | 'TJS' | 'LUCKY_COIN';
 
 const WALLET_TABS: { value: WalletTab; label: string; color: string }[] = [
@@ -73,47 +73,9 @@ const WALLET_TABS: { value: WalletTab; label: string; color: string }[] = [
   { value: 'LUCKY_COIN', label: '🎯 积分', color: 'text-blue-700' },
 ];
 
-// 根据钱包类型获取交易类型选项
 const getTxTypeOptions = (walletTab: WalletTab) => {
-  if (walletTab === 'TJS') {
-    return [
-      { value: '', label: '全部' },
-      { value: 'DEPOSIT', label: '充値' },
-      { value: 'PROMOTER_DEPOSIT', label: '地推代充' },
-      { value: 'FIRST_DEPOSIT_BONUS', label: '充值赠送' },
-      { value: 'WITHDRAWAL', label: '提现' },
-      { value: 'WITHDRAWAL_FREEZE', label: '提现冻结' },
-      { value: 'WITHDRAWAL_UNFREEZE', label: '提现解冻' },
-      { value: 'GROUP_BUY_PURCHASE', label: '拼团消费' },
-      { value: 'GROUP_BUY_REFUND', label: '拼团退款' },
-      { value: 'GROUP_BUY_REFUND_TO_BALANCE', label: '拼团退款转余额' },
-      { value: 'BONUS', label: '奖励' },
-      { value: 'COIN_EXCHANGE', label: '币种兑换' },
-    ];
-  }
-  if (walletTab === 'LUCKY_COIN') {
-    return [
-      { value: '', label: '全部' },
-      { value: 'LOTTERY_PURCHASE', label: '一元购消费' },
-      { value: 'FULL_PURCHASE', label: '全款购买' },
-      { value: 'MARKET_PURCHASE', label: '市场购买' },
-      { value: 'RESALE_PURCHASE', label: '转售购买' },
-      { value: 'SPIN_REWARD', label: '转盘奖励' },
-      { value: 'NEW_USER_GIFT', label: '新用户礼物' },
-      { value: 'SHOWOFF_REWARD', label: '晒单奖励' },
-      { value: 'COMMISSION', label: '佣金收入' },
-      { value: 'COMMISSION_PAYOUT', label: '批量佣金发放' },
-      { value: 'REFERRAL_REWARD', label: '邀请奖励' },
-      { value: 'FIRST_GROUP_BUY_REWARD', label: '首次拼团奖励' },
-      { value: 'GROUP_BUY_REFUND', label: '拼团退款转积分' },
-      { value: 'MARKET_SALE', label: '市场出售' },
-      { value: 'RESALE_INCOME', label: '转售收入' },
-      { value: 'COIN_EXCHANGE', label: '币种兑换' },
-    ];
-  }
-  return [
-    { value: '', label: '全部' },
-    // TJS 余额相关
+  const common = [{ value: '', label: '全部' }];
+  const tjs = [
     { value: 'DEPOSIT', label: '充値' },
     { value: 'PROMOTER_DEPOSIT', label: '地推代充' },
     { value: 'FIRST_DEPOSIT_BONUS', label: '充值赠送' },
@@ -125,7 +87,8 @@ const getTxTypeOptions = (walletTab: WalletTab) => {
     { value: 'GROUP_BUY_REFUND_TO_BALANCE', label: '拼团退款转余额' },
     { value: 'BONUS', label: '奖励' },
     { value: 'COIN_EXCHANGE', label: '币种兑换' },
-    // LUCKY_COIN 积分相关
+  ];
+  const points = [
     { value: 'LOTTERY_PURCHASE', label: '一元购消费' },
     { value: 'FULL_PURCHASE', label: '全款购买' },
     { value: 'MARKET_PURCHASE', label: '市场购买' },
@@ -137,125 +100,114 @@ const getTxTypeOptions = (walletTab: WalletTab) => {
     { value: 'COMMISSION_PAYOUT', label: '批量佣金发放' },
     { value: 'REFERRAL_REWARD', label: '邀请奖励' },
     { value: 'FIRST_GROUP_BUY_REWARD', label: '首次拼团奖励' },
+    { value: 'GROUP_BUY_REFUND', label: '拼团退款转积分' },
     { value: 'MARKET_SALE', label: '市场出售' },
     { value: 'RESALE_INCOME', label: '转售收入' },
+    { value: 'COIN_EXCHANGE', label: '币种兑换' },
   ];
+
+  if (walletTab === 'TJS') return [...common, ...tjs];
+  if (walletTab === 'LUCKY_COIN') return [...common, ...points];
+  return [...common, ...tjs, ...points];
 };
 
 const UserFinancialPage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
   const { supabase } = useSupabase();
+  const { admin } = useAdminAuth();
   
   const [summary, setSummary] = useState<FinancialSummary | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [period, setPeriod] = useState('all');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [walletTab, setWalletTab] = useState<WalletTab>('ALL');
-  const [filters, setFilters] = useState({
-    type: '',
-    status: '',
-    startDate: '',
-    endDate: ''
-  });
+  const [filters, setFilters] = useState({ type: '', status: '', startDate: '', endDate: '' });
   const [showFilters, setShowFilters] = useState(false);
 
-  useEffect(() => {
-    if (userId) {
-      fetchSummary();
-    }
-  }, [userId, period]);
-
-  useEffect(() => {
-    if (userId) {
-      fetchTransactions();
-    }
-  }, [userId, page, filters, walletTab]);
-
-  const getHeaders = () => ({
-    'X-Admin-Id': (() => { try { return JSON.parse(localStorage.getItem('admin_user') || '{}').id || ''; } catch { return ''; } })(),
-    'Content-Type': 'application/json',
-    'apikey': import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY,
-    'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY}`
-  });
-
-  const fetchSummary = async () => {
+  const fetchSummary = useCallback(async () => {
+    if (!userId || !admin) return;
     try {
-      const summaryUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-user-financial?user_id=${userId}&action=summary&period=${period}`;
-      const summaryResponse = await fetch(summaryUrl, { headers: getHeaders() });
-      const summaryData = await summaryResponse.json();
-      if (summaryData.success) {
-        setSummary(summaryData.data);
-      }
-    } catch (error) {
+      const { data, error } = await supabase.functions.invoke('admin-user-financial', {
+        body: { user_id: userId, action: 'summary', period },
+        headers: { 'X-Admin-Id': admin.id }
+      });
+      if (error) throw error;
+      if (data.success) setSummary(data.data);
+    } catch (error: any) {
       console.error('Failed to fetch summary:', error);
+      toast.error('获取财务概览失败');
     }
-  };
+  }, [supabase, userId, admin, period]);
 
-  const fetchTransactions = async () => {
+  const fetchTransactions = useCallback(async () => {
+    if (!userId || !admin) return;
     setLoading(true);
     try {
-      const transactionsUrl = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-user-financial`);
-      transactionsUrl.searchParams.set('user_id', userId!);
-      transactionsUrl.searchParams.set('action', 'transactions');
-      transactionsUrl.searchParams.set('page', page.toString());
-      transactionsUrl.searchParams.set('pageSize', '20');
-      if (walletTab !== 'ALL') {
-        transactionsUrl.searchParams.set('walletType', walletTab);
+      const { data, error } = await supabase.functions.invoke('admin-user-financial', {
+        body: {
+          user_id: userId,
+          action: 'transactions',
+          page,
+          pageSize: 20,
+          walletType: walletTab !== 'ALL' ? walletTab : undefined,
+          ...filters
+        },
+        headers: { 'X-Admin-Id': admin.id }
+      });
+      if (error) throw error;
+      if (data.success) {
+        setTransactions(data.data.transactions);
+        setTotalPages(data.data.pagination.totalPages);
+        setTotalCount(data.data.pagination.total);
       }
-      if (filters.type) transactionsUrl.searchParams.set('type', filters.type);
-      if (filters.status) transactionsUrl.searchParams.set('status', filters.status);
-      if (filters.startDate) transactionsUrl.searchParams.set('startDate', filters.startDate);
-      if (filters.endDate) transactionsUrl.searchParams.set('endDate', filters.endDate);
-
-      const transactionsResponse = await fetch(transactionsUrl.toString(), { headers: getHeaders() });
-      const transactionsData = await transactionsResponse.json();
-      if (transactionsData.success) {
-        setTransactions(transactionsData.data.transactions);
-        setTotalPages(transactionsData.data.pagination.totalPages);
-        setTotalCount(transactionsData.data.pagination.total);
-      }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to fetch transactions:', error);
+      toast.error('获取交易流水失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, [supabase, userId, admin, page, filters, walletTab]);
+
+  useEffect(() => { fetchSummary(); }, [fetchSummary]);
+  useEffect(() => { fetchTransactions(); }, [fetchTransactions]);
 
   const handleExport = async () => {
+    if (!userId || !admin || isExporting) return;
+    setIsExporting(true);
     try {
-      const exportUrl = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-user-financial`);
-      exportUrl.searchParams.set('user_id', userId!);
-      exportUrl.searchParams.set('action', 'export');
-      if (walletTab !== 'ALL') exportUrl.searchParams.set('walletType', walletTab);
-      if (filters.type) exportUrl.searchParams.set('type', filters.type);
-      if (filters.status) exportUrl.searchParams.set('status', filters.status);
-      if (filters.startDate) exportUrl.searchParams.set('startDate', filters.startDate);
-      if (filters.endDate) exportUrl.searchParams.set('endDate', filters.endDate);
-
-      const response = await fetch(exportUrl.toString(), {
-        headers: {
-          'X-Admin-Id': (() => { try { return JSON.parse(localStorage.getItem('admin_user') || '{}').id || ''; } catch { return ''; } })(),
-          'apikey': import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY,
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY}`
-        }
+      const { data, error } = await supabase.functions.invoke('admin-user-financial', {
+        body: {
+          user_id: userId,
+          action: 'export',
+          walletType: walletTab !== 'ALL' ? walletTab : undefined,
+          ...filters
+        },
+        headers: { 'X-Admin-Id': admin.id }
       });
 
-      const blob = await response.blob();
+      if (error) throw error;
+      
+      // 假设 Edge Function 返回的是 CSV 字符串或 Blob
+      const blob = new Blob([data], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const tabLabel = walletTab === 'ALL' ? 'all' : walletTab.toLowerCase();
-      a.download = `user_${userId}_${tabLabel}_transactions_${new Date().toISOString()}.csv`;
+      a.download = `user_${userId}_transactions_${new Date().toISOString().split('T')[0]}.csv`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-    } catch (error) {
+      toast.success('导出成功');
+    } catch (error: any) {
       console.error('Failed to export:', error);
+      toast.error('导出失败');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -265,200 +217,75 @@ const UserFinancialPage: React.FC = () => {
     setFilters({ type: '', status: '', startDate: '', endDate: '' });
   };
 
-  // 获取钱包类型的显示标签和颜色
-  const getWalletBadge = (walletType: string) => {
-    if (walletType === 'TJS') {
-      return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-          💰 TJS
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-        🎯 积分
-      </span>
-    );
-  };
-
-  // 格式化金额显示（带单位）
-  const formatAmount = (amount: number, walletType: string, showSign: boolean = true) => {
-    const absAmount = Math.abs(amount);
-    const unit = walletType === 'TJS' ? ' TJS' : ' 积分';
-    const sign = showSign ? (amount >= 0 ? '+' : '-') : '';
-    return `${sign}${absAmount.toFixed(2)}${unit}`;
-  };
-
-  // 格式化余额变化
-  const formatBalanceChange = (before: number | null, after: number | null, walletType: string) => {
-    const unit = walletType === 'TJS' ? ' TJS' : ' 积分';
-    const beforeStr = before !== null && before !== undefined ? `${Number(before).toFixed(2)}` : '—';
-    const afterStr = after !== null && after !== undefined ? `${Number(after).toFixed(2)}` : '—';
-    return `${beforeStr} → ${afterStr}${unit}`;
+  const formatDateTime = (dateString: string) => {
+    return new Date(dateString).toLocaleString('zh-CN', {
+      month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+    });
   };
 
   if (loading && !summary) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">加载中...</div>
-      </div>
-    );
+    return <div className="flex items-center justify-center h-64 text-gray-500">加载中...</div>;
   }
 
   return (
     <div className="p-6">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-4">
-          <button
-            onClick={() => navigate('/users')}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
+          <button onClick={() => navigate('/users')} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
             <ArrowLeftIcon className="w-5 h-5" />
           </button>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">用户财务数据</h1>
-            <p className="text-sm text-gray-500">用户ID: {userId}</p>
+            <p className="text-sm text-gray-500">用户ID: {userId?.substring(0, 8)}...</p>
           </div>
         </div>
         <div className="flex items-center space-x-3">
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
+          <button onClick={() => setShowFilters(!showFilters)} className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
             <FunnelIcon className="w-5 h-5" />
             <span>筛选</span>
           </button>
-          <button
-            onClick={handleExport}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <DocumentArrowDownIcon className="w-5 h-5" />
-            <span>导出</span>
-          </button>
+          <Button onClick={handleExport} disabled={isExporting} className="flex items-center space-x-2">
+            {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <DocumentArrowDownIcon className="w-5 h-5" />}
+            <span>{isExporting ? '导出中...' : '导出'}</span>
+          </Button>
         </div>
       </div>
 
-      {/* Period Selector */}
       <div className="flex space-x-2 mb-6">
         {['today', 'week', 'month', 'all'].map((p) => (
-          <button
-            key={p}
-            onClick={() => setPeriod(p)}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              period === p
-                ? 'bg-blue-600 text-white'
-                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            {p === 'today' && '今日'}
-            {p === 'week' && '本周'}
-            {p === 'month' && '本月'}
-            {p === 'all' && '全部'}
+          <button key={p} onClick={() => setPeriod(p)} className={`px-4 py-2 rounded-lg transition-colors ${period === p ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
+            {p === 'today' ? '今日' : p === 'week' ? '本周' : p === 'month' ? '本月' : '全部'}
           </button>
         ))}
       </div>
 
-      {/* Summary Cards - 分为两个区域 */}
       {summary && (
-        <div className="space-y-6 mb-6">
-          {/* 第一行：两种钱包余额并排 */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* TJS 余额区 */}
-            <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm opacity-90 font-medium">💰 余额 (TJS)</span>
-                <CurrencyDollarIcon className="w-6 h-6 opacity-80" />
-              </div>
-              <div className="text-3xl font-bold mb-4">{summary.cashBalance?.toFixed(2) || '0.00'} <span className="text-lg font-normal opacity-80">TJS</span></div>
-              <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/20">
-                <div>
-                  <div className="text-xs opacity-70">冻结金额</div>
-                  <div className="text-lg font-semibold">{summary.cashFrozenBalance?.toFixed(2) || '0.00'}</div>
-                </div>
-                <div>
-                  <div className="text-xs opacity-70">累计充值</div>
-                  <div className="text-lg font-semibold">{summary.totalDeposits?.toFixed(2) || '0.00'}</div>
-                </div>
-                <div>
-                  <div className="text-xs opacity-70">累计提现</div>
-                  <div className="text-lg font-semibold">{summary.totalWithdrawals?.toFixed(2) || '0.00'}</div>
-                </div>
-                <div>
-                  <div className="text-xs opacity-70">期间净变化</div>
-                  <div className={`text-lg font-semibold ${summary.periodStats.tjsNetChange >= 0 ? '' : 'text-red-200'}`}>
-                    {summary.periodStats.tjsNetChange >= 0 ? '+' : ''}{summary.periodStats.tjsNetChange?.toFixed(2) || '0.00'}
-                  </div>
-                </div>
-              </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white shadow-lg">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm opacity-90 font-medium">💰 余额 (TJS)</span>
+              <CurrencyDollarIcon className="w-6 h-6 opacity-80" />
             </div>
-
-            {/* LUCKY_COIN 积分区 */}
-            <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm opacity-90 font-medium">🎯 积分 (LUCKY COIN)</span>
-                <BanknotesIcon className="w-6 h-6 opacity-80" />
-              </div>
-              <div className="text-3xl font-bold mb-4">{summary.luckyCoinsBalance?.toFixed(2) || '0.00'} <span className="text-lg font-normal opacity-80">积分</span></div>
-              <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/20">
-                <div>
-                  <div className="text-xs opacity-70">冻结积分</div>
-                  <div className="text-lg font-semibold">{summary.luckyFrozenBalance?.toFixed(2) || '0.00'}</div>
-                </div>
-                <div>
-                  <div className="text-xs opacity-70">累计获得</div>
-                  <div className="text-lg font-semibold">{summary.pointsIncome?.toFixed(2) || '0.00'}</div>
-                </div>
-                <div>
-                  <div className="text-xs opacity-70">累计消费</div>
-                  <div className="text-lg font-semibold">{summary.pointsSpending?.toFixed(2) || '0.00'}</div>
-                </div>
-                <div>
-                  <div className="text-xs opacity-70">期间净变化</div>
-                  <div className={`text-lg font-semibold ${summary.periodStats.pointsNetChange >= 0 ? '' : 'text-red-200'}`}>
-                    {summary.periodStats.pointsNetChange >= 0 ? '+' : ''}{summary.periodStats.pointsNetChange?.toFixed(2) || '0.00'}
-                  </div>
-                </div>
-              </div>
+            <div className="text-3xl font-bold mb-4">{summary.cashBalance?.toFixed(2)} <span className="text-lg font-normal opacity-80">TJS</span></div>
+            <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/20 text-sm">
+              <div><div className="opacity-70">冻结</div><div className="font-semibold">{summary.cashFrozenBalance?.toFixed(2)}</div></div>
+              <div><div className="opacity-70">累计充值</div><div className="font-semibold">{summary.totalDeposits?.toFixed(2)}</div></div>
             </div>
           </div>
-
-          {/* 第二行：TJS 详细统计 */}
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <div className="text-xs text-gray-500 mb-1">TJS 消费</div>
-              <div className="text-xl font-bold text-red-600">{summary.tjsSpending?.toFixed(2) || '0.00'}</div>
+          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white shadow-lg">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm opacity-90 font-medium">🎯 积分</span>
+              <BanknotesIcon className="w-6 h-6 opacity-80" />
             </div>
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <div className="text-xs text-gray-500 mb-1">TJS 收入</div>
-              <div className="text-xl font-bold text-green-600">{summary.tjsIncome?.toFixed(2) || '0.00'}</div>
-            </div>
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <div className="text-xs text-gray-500 mb-1">积分消费</div>
-              <div className="text-xl font-bold text-red-600">{summary.pointsSpending?.toFixed(2) || '0.00'}</div>
-            </div>
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <div className="text-xs text-gray-500 mb-1">积分收入</div>
-              <div className="text-xl font-bold text-green-600">{summary.pointsIncome?.toFixed(2) || '0.00'}</div>
-            </div>
-            {/* Commission */}
-            <div className="bg-white rounded-xl p-4 border border-orange-200">
-              <div className="text-xs text-gray-500 mb-1">总佣金</div>
-              <div className="text-xl font-bold text-orange-600">{summary.totalCommission?.toFixed(2) || '0.00'}</div>
-            </div>
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <div className="text-xs text-gray-500 mb-1">佣金明细</div>
-              <div className="text-xs text-gray-600 space-y-0.5">
-                <div>L1: {summary.level1Commission?.toFixed(2) || '0.00'}</div>
-                <div>L2: {summary.level2Commission?.toFixed(2) || '0.00'}</div>
-                <div>L3: {summary.level3Commission?.toFixed(2) || '0.00'}</div>
-              </div>
+            <div className="text-3xl font-bold mb-4">{summary.luckyCoinsBalance?.toFixed(2)} <span className="text-lg font-normal opacity-80">积分</span></div>
+            <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/20 text-sm">
+              <div><div className="opacity-70">冻结</div><div className="font-semibold">{summary.luckyFrozenBalance?.toFixed(2)}</div></div>
+              <div><div className="opacity-70">累计获得</div><div className="font-semibold">{summary.pointsIncome?.toFixed(2)}</div></div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Wallet Type Tabs + Transactions */}
       <Tabs value={walletTab} onValueChange={handleWalletTabChange} className="w-full">
         <div className="flex items-center justify-between mb-4">
           <TabsList className="bg-gray-100">
@@ -468,187 +295,91 @@ const UserFinancialPage: React.FC = () => {
               </TabsTrigger>
             ))}
           </TabsList>
-          <div className="text-sm text-gray-500">
-            共 {totalCount} 条记录
-          </div>
+          <div className="text-sm text-gray-500">共 {totalCount} 条记录</div>
         </div>
 
-        {/* Filters - 根据当前 Tab 显示不同的类型选项 */}
         {showFilters && (
-          <div className="bg-white rounded-xl p-6 border border-gray-200 mb-4">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">交易类型</label>
-                <select
-                  value={filters.type}
-                  onChange={(e) => { setFilters({ ...filters, type: e.target.value }); setPage(1); }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {getTxTypeOptions(walletTab).map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">状态</label>
-                <select
-                  value={filters.status}
-                  onChange={(e) => { setFilters({ ...filters, status: e.target.value }); setPage(1); }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">全部</option>
-                  <option value="COMPLETED">已完成</option>
-                  <option value="PENDING">待处理</option>
-                  <option value="FAILED">失败</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">开始日期</label>
-                <input
-                  type="date"
-                  value={filters.startDate}
-                  onChange={(e) => { setFilters({ ...filters, startDate: e.target.value }); setPage(1); }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">结束日期</label>
-                <input
-                  type="date"
-                  value={filters.endDate}
-                  onChange={(e) => { setFilters({ ...filters, endDate: e.target.value }); setPage(1); }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-200 mb-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">交易类型</label>
+              <select value={filters.type} onChange={(e) => { setFilters({ ...filters, type: e.target.value }); setPage(1); }} className="w-full px-3 py-2 border rounded-lg text-sm">
+                {getTxTypeOptions(walletTab).map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+              </select>
             </div>
-
-            <div className="flex justify-end space-x-3 mt-4">
-              <button
-                onClick={() => { setFilters({ type: '', status: '', startDate: '', endDate: '' }); setPage(1); }}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                重置
-              </button>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">状态</label>
+              <select value={filters.status} onChange={(e) => { setFilters({ ...filters, status: e.target.value }); setPage(1); }} className="w-full px-3 py-2 border rounded-lg text-sm">
+                <option value="">全部</option>
+                <option value="COMPLETED">已完成</option>
+                <option value="PENDING">待处理</option>
+                <option value="FAILED">失败</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">开始日期</label>
+              <input type="date" value={filters.startDate} onChange={(e) => { setFilters({ ...filters, startDate: e.target.value }); setPage(1); }} className="w-full px-3 py-2 border rounded-lg text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">结束日期</label>
+              <input type="date" value={filters.endDate} onChange={(e) => { setFilters({ ...filters, endDate: e.target.value }); setPage(1); }} className="w-full px-3 py-2 border rounded-lg text-sm" />
             </div>
           </div>
         )}
 
-        {/* 三个 Tab 共享同一个表格渲染 */}
-        {WALLET_TABS.map((tab) => (
-          <TabsContent key={tab.value} value={tab.value}>
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">时间</th>
-                      {walletTab === 'ALL' && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">钱包</th>
-                      )}
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">类型</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">金额</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">余额变化</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">描述</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {loading ? (
-                      <tr>
-                        <td colSpan={walletTab === 'ALL' ? 7 : 6} className="px-6 py-12 text-center text-gray-500">
-                          加载中...
-                        </td>
-                      </tr>
-                    ) : transactions.length === 0 ? (
-                      <tr>
-                        <td colSpan={walletTab === 'ALL' ? 7 : 6} className="px-6 py-12 text-center text-gray-400">
-                          暂无交易记录
-                        </td>
-                      </tr>
-                    ) : (
-                      transactions.map((transaction) => (
-                        <tr key={transaction.id} className={`hover:bg-gray-50 ${
-                          transaction.walletType === 'TJS' ? 'border-l-2 border-l-green-400' : 'border-l-2 border-l-blue-400'
-                        }`}>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                            {new Date(transaction.created_at).toLocaleString('zh-CN', {
-                              year: 'numeric', month: '2-digit', day: '2-digit',
-                              hour: '2-digit', minute: '2-digit', second: '2-digit'
-                            })}
-                          </td>
-                          {walletTab === 'ALL' && (
-                            <td className="px-4 py-3 whitespace-nowrap">
-                              {getWalletBadge(transaction.walletType)}
-                            </td>
-                          )}
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                              transaction.walletType === 'TJS'
-                                ? 'bg-green-50 text-green-700 border border-green-200'
-                                : 'bg-blue-50 text-blue-700 border border-blue-200'
-                            }`}>
-                              {transaction.typeName}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-right">
-                            <span className={transaction.isIncome ? 'text-green-600' : 'text-red-600'}>
-                              {formatAmount(transaction.amount, transaction.walletType, true)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {formatBalanceChange(transaction.balance_before, transaction.balance_after, transaction.walletType)}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-center">
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                              transaction.status === 'COMPLETED' ? 'bg-green-100 text-green-800' :
-                              transaction.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
-                              'bg-red-100 text-red-800'
-                            }`}>
-                              {transaction.status === 'COMPLETED' ? '已完成' :
-                               transaction.status === 'PENDING' ? '待处理' :
-                               transaction.status === 'FAILED' ? '失败' : transaction.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate" title={transaction.description || ''}>
-                            {transaction.description || '—'}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-                  <div className="text-sm text-gray-500">
-                    第 {page} 页，共 {totalPages} 页（{totalCount} 条记录）
-                  </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => setPage(Math.max(1, page - 1))}
-                      disabled={page === 1}
-                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      上一页
-                    </button>
-                    <button
-                      onClick={() => setPage(Math.min(totalPages, page + 1))}
-                      disabled={page === totalPages}
-                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      下一页
-                    </button>
-                  </div>
-                </div>
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>时间</TableHead>
+                <TableHead>类型</TableHead>
+                <TableHead>金额</TableHead>
+                <TableHead>余额变化</TableHead>
+                <TableHead>描述</TableHead>
+                <TableHead>状态</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-10">加载中...</TableCell></TableRow>
+              ) : transactions.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-10 text-gray-500">暂无交易记录</TableCell></TableRow>
+              ) : (
+                transactions.map((tx) => (
+                  <TableRow key={tx.id}>
+                    <TableCell className="text-xs">{formatDateTime(tx.created_at)}</TableCell>
+                    <TableCell>
+                      <div className="text-xs font-medium">{tx.typeName}</div>
+                      <div className="text-[10px] text-gray-400">{tx.walletType === 'TJS' ? '💰 TJS' : '🎯 积分'}</div>
+                    </TableCell>
+                    <TableCell className={`font-bold ${tx.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {tx.amount >= 0 ? '+' : ''}{tx.amount.toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-xs text-gray-500">
+                      {tx.balance_before?.toFixed(2)} → {tx.balance_after?.toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-xs max-w-[200px] truncate" title={tx.description}>{tx.description}</TableCell>
+                    <TableCell>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                        tx.status === 'COMPLETED' ? 'bg-green-100 text-green-800' : 
+                        tx.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {tx.status === 'COMPLETED' ? '完成' : tx.status === 'PENDING' ? '处理中' : '失败'}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))
               )}
+            </TableBody>
+          </Table>
+          
+          <div className="p-4 flex justify-between items-center border-t">
+            <span className="text-xs text-gray-500">第 {page} / {totalPages} 页</span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>上一页</Button>
+              <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={page >= totalPages}>下一页</Button>
             </div>
-          </TabsContent>
-        ))}
+          </div>
+        </div>
       </Tabs>
     </div>
   );
