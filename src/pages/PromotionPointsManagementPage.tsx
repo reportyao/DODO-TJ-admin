@@ -234,6 +234,8 @@ export default function PromotionPointsManagementPage() {
   // Dialog state
   const [showAddPoint, setShowAddPoint] = useState(false);
   const [editingPoint, setEditingPoint] = useState<PromotionPoint | null>(null);
+  const [deletePointTarget, setDeletePointTarget] = useState<PromotionPoint | null>(null);
+  const [deletingPoint, setDeletingPoint] = useState(false);
   const [pointForm, setPointForm] = useState({
     name: '',
     address: '',
@@ -777,27 +779,33 @@ export default function PromotionPointsManagementPage() {
     }
   };
 
-  const handleDeletePoint = async (point: PromotionPoint) => {
-    if (!confirm(`确定要删除点位 "${point.name}" 吗？该操作将解除所有关联的地推人员绑定。`)) return;
+  const handleDeletePoint = (point: PromotionPoint) => {
+    setDeletePointTarget(point);
+  };
+
+  const confirmDeletePoint = async () => {
+    const point = deletePointTarget;
+    if (!point) return;
+    setDeletingPoint(true);
     try {
       // First unlink promoters from this point
       await supabase
         .from('promoter_profiles')
         .update({ point_id: null })
         .eq('point_id', point.id);
-
       const { error } = await supabase
         .from('promotion_points')
         .delete()
         .eq('id', point.id);
-
       if (error) throw error;
-
       toast.success('点位已删除');
+      setDeletePointTarget(null);
       fetchPoints();
       if (activeView === 'analytics') fetchAnalytics();
     } catch (err: any) {
       toast.error('删除失败: ' + err.message);
+    } finally {
+      setDeletingPoint(false);
     }
   };
 
@@ -1483,6 +1491,29 @@ export default function PromotionPointsManagementPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除点位确认弹窗 */}
+      <Dialog open={!!deletePointTarget} onOpenChange={(open) => { if (!open) setDeletePointTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>确认删除点位</DialogTitle>
+            <DialogDescription>
+              确定要删除点位 <strong>{deletePointTarget?.name}</strong> 吗？
+              该操作将解除所有关联的地推人员绑定，此操作不可撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button variant="outline" onClick={() => setDeletePointTarget(null)}>取消</Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeletePoint}
+              disabled={deletingPoint}
+            >
+              {deletingPoint ? '删除中...' : '确认删除'}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
