@@ -148,11 +148,14 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
 
   // 登录
   const login = async (username: string, password: string) => {
+    const MAX_ATTEMPTS = 5;
+    const LOCKOUT_MINUTES = 15;
+
     try {
-      // 查询管理员账户（含密码哈希用于校验）
+      // 查询管理员账户（含密码哈希、失败计数、锁定时间）
       const { data: adminUser, error } = await supabase
         .from('admin_users')
-        .select('id, username, display_name, role, status, password_hash')
+        .select('id, username, display_name, role, status, password_hash, failed_login_attempts, locked_until')
         .eq('username', username)
         .single();
 
@@ -164,16 +167,44 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         throw new Error('账户已被禁用');
       }
 
+      // 检查账户是否被锁定
+      if (adminUser.locked_until && new Date(adminUser.locked_until) > new Date()) {
+        const remainingMinutes = Math.ceil(
+          (new Date(adminUser.locked_until).getTime() - Date.now()) / 60000
+        );
+        throw new Error(`账户已被临时锁定，请 ${remainingMinutes} 分钟后再试`);
+      }
+
       // 校验密码：对输入密码做 SHA-256 哈希后与数据库中的哈希比对
       const inputHash = sha256(password);
       if (adminUser.password_hash && inputHash !== adminUser.password_hash) {
-        throw new Error('用户名或密码错误');
+        // 密码错误：增加失败计数
+        const newAttempts = (adminUser.failed_login_attempts || 0) + 1;
+        const updateData: Record<string, unknown> = { failed_login_attempts: newAttempts };
+
+        if (newAttempts >= MAX_ATTEMPTS) {
+          // 达到最大失败次数，锁定账户
+          updateData.locked_until = new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000).toISOString();
+          updateData.failed_login_attempts = 0; // 重置计数器
+        }
+
+        await supabase.from('admin_users').update(updateData).eq('id', adminUser.id);
+
+        if (newAttempts >= MAX_ATTEMPTS) {
+          throw new Error(`密码错误次数过多，账户已被锁定 ${LOCKOUT_MINUTES} 分钟`);
+        }
+        const remaining = MAX_ATTEMPTS - newAttempts;
+        throw new Error(`用户名或密码错误，还剩 ${remaining} 次尝试机会`);
       }
 
-      // 更新最后登录时间
+      // 登录成功：重置失败计数和锁定状态
       await supabase
         .from('admin_users')
-        .update({ last_login_at: new Date().toISOString() })
+        .update({
+          last_login_at: new Date().toISOString(),
+          failed_login_attempts: 0,
+          locked_until: null
+        })
         .eq('id', adminUser.id);
 
       // 记录登录日志
@@ -185,7 +216,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         });
 
       // 保存到localStorage（不保存密码哈希）
-      const { password_hash: _, ...adminUserSafe } = adminUser;
+      const { password_hash: _, failed_login_attempts: __, locked_until: ___, ...adminUserSafe } = adminUser;
       localStorage.setItem('admin_user', JSON.stringify(adminUserSafe));
 
       // 加载权限
