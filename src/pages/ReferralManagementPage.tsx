@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Search, Users, TrendingUp, Download } from 'lucide-react';
 import { useSupabase } from '../contexts/SupabaseContext';
+import { useAdminAuth } from '../contexts/AdminAuthContext';
 import toast from 'react-hot-toast';
 
 interface User {
@@ -26,6 +27,7 @@ interface ReferralNode extends User {
 
 export default function ReferralManagementPage() {
   const { supabase } = useSupabase();
+  const { admin } = useAdminAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -66,7 +68,8 @@ export default function ReferralManagementPage() {
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('get-referral-tree', {
-        body: { user_id: userId }
+        body: { user_id: userId },
+        headers: { 'x-admin-id': admin?.id || '' },
       });
 
       if (error) {throw error;}
