@@ -345,7 +345,7 @@ export default function PromoterSettlementPage() {
           </Badge>
         );
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return <Badge variant="outline">{status || '未知'}</Badge>;
     }
   };
 
@@ -536,14 +536,15 @@ export default function PromoterSettlementPage() {
                     <TableCell className="text-sm text-gray-500">{formatDateTime(s.confirmed_at)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        {s.settlement_status === 'pending' && (
+                        {(s.settlement_status === 'pending' || s.settlement_status === 'discrepancy') && (
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => openSettlementDialog(s)}
+                            className={s.settlement_status === 'discrepancy' ? 'border-red-300 text-red-600 hover:bg-red-50' : ''}
                           >
                             <CheckCircle className="w-3.5 h-3.5 mr-1" />
-                            确认
+                            {s.settlement_status === 'discrepancy' ? '重新确认' : '确认'}
                           </Button>
                         )}
                         {s.proof_image_url && (
@@ -697,7 +698,7 @@ export default function PromoterSettlementPage() {
                 alt="缴款凭证"
                 className="w-full rounded-lg border"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = '';
+                  (e.target as HTMLImageElement).style.display = 'none';
                   toast.error('凭证图片加载失败');
                 }}
               />

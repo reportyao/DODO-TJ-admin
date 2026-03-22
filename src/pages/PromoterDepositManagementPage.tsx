@@ -1007,10 +1007,12 @@ export default function PromoterDepositManagementPage() {
                     className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                       selectedDeposit.status === 'COMPLETED'
                         ? 'bg-green-100 text-green-700'
+                        : selectedDeposit.status === 'PENDING'
+                        ? 'bg-yellow-100 text-yellow-700'
                         : 'bg-red-100 text-red-700'
                     }`}
                   >
-                    {selectedDeposit.status === 'COMPLETED' ? '已完成' : selectedDeposit.status}
+                    {selectedDeposit.status === 'COMPLETED' ? '已完成' : selectedDeposit.status === 'FAILED' ? '失败' : selectedDeposit.status === 'PENDING' ? '待处理' : selectedDeposit.status}
                   </span>
                 </div>
                 <div>
@@ -1022,9 +1024,7 @@ export default function PromoterDepositManagementPage() {
                   <p className="text-gray-500">目标用户</p>
                   <p className="font-medium">{selectedDeposit.target_user_name}</p>
                   <p className="text-xs text-gray-400">
-                    {selectedDeposit.target_phone_number
-                      ? selectedDeposit.target_phone_number
-                      : selectedDeposit.target_phone_number}
+                    {selectedDeposit.target_phone_number || '暂无'}
                   </p>
                 </div>
                 <div>

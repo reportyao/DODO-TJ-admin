@@ -1470,7 +1470,7 @@ export default function PromotionPointsManagementPage() {
                           <TableCell className="font-medium">
                             {staff.user_name}
                             {staff.phone_number && (
-                              <div className="text-xs text-gray-500">{staff.first_name || staff.phone_number || "N/A"}</div>
+                              <div className="text-xs text-gray-500">{staff.first_name || staff.phone_number || '暂无'}</div>
                             )}
                           </TableCell>
                           <TableCell className="text-sm text-gray-600">{staff.referral_code || '--'}</TableCell>

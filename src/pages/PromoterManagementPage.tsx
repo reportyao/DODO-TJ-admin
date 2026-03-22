@@ -196,7 +196,7 @@ export default function PromoterManagementPage() {
         const user = usersData?.find(u => u.id === pp.user_id);
         return {
           ...pp,
-          user_name: [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.phone_number || '668265e0',
+          user_name: [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.phone_number || '暂无',
           phone_number: user?.phone_number || '',
           referral_code: user?.referral_code || '',
           team_name: pp.team_id ? teamsMap[pp.team_id] || '' : '',
@@ -235,7 +235,7 @@ export default function PromoterManagementPage() {
           if (usersData) {
             leadersMap = Object.fromEntries(usersData.map(u => [
               u.id,
-              u.phone_number || [u.first_name, u.last_name].filter(Boolean).join(' ') || '668265e0'
+              u.phone_number || [u.first_name, u.last_name].filter(Boolean).join(' ') || '暂无'
             ]));
           }
         }
@@ -1196,7 +1196,7 @@ export default function PromoterManagementPage() {
                   >
                     <div>
                       <div className="text-sm font-medium">
-                        {u.phone_number || [u.first_name, u.last_name].filter(Boolean).join(' ') || '668265e0'}
+                        {u.phone_number || [u.first_name, u.last_name].filter(Boolean).join(' ') || '暂无'}
                       </div>
                       <div className="text-xs text-gray-500">
                         ID: {u.phone_number} | 邀请码: {u.referral_code || '--'}

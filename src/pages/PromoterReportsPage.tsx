@@ -199,7 +199,7 @@ export default function PromoterReportsPage() {
 
       ppData.forEach(pp => {
         const user = usersData?.find(u => u.id === pp.user_id);
-        const name = user?.phone_number || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || '668265e0';
+        const name = user?.phone_number || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || '暂无';
         const teamName = pp.team_id ? teamsMap[pp.team_id] || '--' : '--';
         const pointName = pp.point_id ? pointsMap[pp.point_id] || '--' : '--';
 
@@ -257,7 +257,7 @@ export default function PromoterReportsPage() {
 
       ppData.forEach(pp => {
         const user = usersData?.find(u => u.id === pp.user_id);
-        const name = user?.phone_number || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || '668265e0';
+        const name = user?.phone_number || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || '暂无';
         const teamName = pp.team_id ? teamsMap[pp.team_id] || '--' : '--';
         const pointName = pp.point_id ? pointsMap[pp.point_id] || '--' : '--';
 

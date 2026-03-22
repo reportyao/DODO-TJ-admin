@@ -163,7 +163,7 @@ export const UserListPage = () => {
                 {users.map((user) => (
                   <TableRow key={user.id}>
                     <TableCell className="font-medium">{user.phone_number}</TableCell>
-                    <TableCell>{user.display_name || user.first_name || '668265e0'}</TableCell>
+                    <TableCell>{user.display_name || user.first_name || '暂无'}</TableCell>
                     <TableCell>
                       {user.first_name || user.last_name 
                         ? `${user.first_name || ''} ${user.last_name || ''}`.trim() 

@@ -219,7 +219,7 @@ export default function PromoterDashboardPage() {
         // Set promoter stats
         const pList = (data.promoters || []).map((p: any) => ({
           user_id: p.user_id,
-          name: p.name?.trim() || '668265e0',
+          name: p.name?.trim() || '暂无',
           referral_code: p.referral_code || '',
           team_name: p.team_name || null,
           point_name: p.point_name || null,
@@ -401,7 +401,12 @@ export default function PromoterDashboardPage() {
           </h2>
           <p className="text-sm text-gray-500 mt-1">点击列头可排序 · 自动每60秒刷新</p>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto relative">
+          {loading && promoters.length > 0 && (
+            <div className="absolute inset-0 bg-white/60 z-10 flex items-center justify-center">
+              <RefreshCw className="w-6 h-6 animate-spin text-blue-600" />
+            </div>
+          )}
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-gray-50">

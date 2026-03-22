@@ -103,9 +103,9 @@ export default function ReferralManagementPage() {
     const flattenTree = (node: ReferralNode, level: number = 0): any[] => {
       const result = [{
         '用户ID': node.id,
-        '显示名': `${node.first_name || ''} ${node.last_name || ''}`.trim() || node.phone_number || '668265e0',
+        '显示名': `${node.first_name || ''} ${node.last_name || ''}`.trim() || node.phone_number || '暂无',
         '手机号': node.phone_number,
-        '邀请码': node.referral_code || node.invite_code || '668265e0',
+        '邀请码': node.referral_code || node.invite_code || '暂无',
         '层级': level,
         '一级邀请数': node.stats.level1_count,
         '二级邀请数': node.stats.level2_count,
@@ -155,12 +155,12 @@ export default function ReferralManagementPage() {
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <Users className="w-4 h-4 text-gray-400" />
-              <span className="font-medium">{`${node.first_name || ''} ${node.last_name || ''}`.trim() || node.phone_number || '668265e0'}</span>
-              <span className="text-xs text-gray-500">({node.phone_number || '668265e0'})</span>
+              <span className="font-medium">{`${node.first_name || ''} ${node.last_name || ''}`.trim() || node.phone_number || '暂无'}</span>
+              <span className="text-xs text-gray-500">({node.phone_number || '暂无'})</span>
               <span className="text-xs bg-gray-100 px-2 py-1 rounded">L{level}</span>
             </div>
             <div className="text-sm text-gray-600 mt-1">
-              邀请码: {node.referral_code || node.invite_code || '668265e0'} | 
+              邀请码: {node.referral_code || node.invite_code || '暂无'} | 
               邀请: {node.stats.level1_count}人 (L1) / {node.stats.level2_count}人 (L2) / {node.stats.level3_count}人 (L3) |
               返利: {node.stats.total_commission.toFixed(2)} TJS
             </div>
@@ -222,7 +222,7 @@ export default function ReferralManagementPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <p className="text-sm text-gray-600">显示名</p>
-              <p className="font-medium">{`${selectedUser.first_name || ''} ${selectedUser.last_name || ''}`.trim() || selectedUser.phone_number || '668265e0'}</p>
+              <p className="font-medium">{`${selectedUser.first_name || ''} ${selectedUser.last_name || ''}`.trim() || selectedUser.phone_number || '暂无'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-600">手机号</p>
@@ -230,7 +230,7 @@ export default function ReferralManagementPage() {
             </div>
             <div>
               <p className="text-sm text-gray-600">邀请码</p>
-              <p className="font-medium">{selectedUser.referral_code || selectedUser.invite_code || '668265e0'}</p>
+              <p className="font-medium">{selectedUser.referral_code || selectedUser.invite_code || '暂无'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-600">注册时间</p>

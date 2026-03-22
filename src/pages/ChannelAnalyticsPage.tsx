@@ -555,7 +555,7 @@ export default function ChannelAnalyticsPage() {
 
       const userMap: Record<string, string> = {};
       usersData?.forEach(u => {
-        userMap[u.id] = u.phone_number || `${u.first_name || ''} ${u.last_name || ''}`.trim() || '668265e0';
+        userMap[u.id] = u.phone_number || `${u.first_name || ''} ${u.last_name || ''}`.trim() || '暂无';
       });
 
       let pointMap: Record<string, string> = {};
@@ -569,7 +569,7 @@ export default function ChannelAnalyticsPage() {
 
       const enriched: InviteCodeRecord[] = data.map(c => ({
         ...c,
-        promoter_name: userMap[c.promoter_id] || '668265e0',
+        promoter_name: userMap[c.promoter_id] || '暂无',
         point_name: c.point_id ? (pointMap[c.point_id] || '--') : '--',
       }));
 
@@ -1428,7 +1428,7 @@ export default function ChannelAnalyticsPage() {
                         codeForm.promoter_id === u.id ? 'bg-blue-50' : ''
                       }`}
                       onClick={() => {
-                        const name = u.phone_number || `${u.first_name || ''} ${u.last_name || ''}`.trim() || '668265e0';
+                        const name = u.phone_number || `${u.first_name || ''} ${u.last_name || ''}`.trim() || '暂无';
                         setCodeForm(prev => ({
                           ...prev,
                           promoter_id: u.id,
@@ -1439,7 +1439,7 @@ export default function ChannelAnalyticsPage() {
                     >
                       <div className="flex-1">
                         <div className="text-sm font-medium">
-                          {u.phone_number || `${u.first_name || ''} ${u.last_name || ''}`.trim() || '668265e0'}
+                          {u.phone_number || `${u.first_name || ''} ${u.last_name || ''}`.trim() || '暂无'}
                         </div>
                         <div className="text-xs text-gray-500 flex items-center gap-2">
                           <span className="flex items-center gap-1">
