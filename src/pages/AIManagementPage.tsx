@@ -63,13 +63,20 @@ export default function AIManagementPage() {
       .select('id', { count: 'exact', head: true });
     if (totalError) {throw totalError;}
 
-    // 总用户数（通过 distinct user_id 近似，使用 30天内活跃用户数）
-    const { data: userDistinct, error: userError } = await supabase
-      .from('ai_chat_history')
-      .select('user_id')
-      .limit(10000);
-    if (userError) {throw userError;}
-    const totalUsers = new Set(userDistinct?.map(log => log.user_id)).size;
+    // 总用户数：通过数据库级 COUNT(DISTINCT) 获取准确数据，避免前端 limit(10000) 导致的统计失真
+    const { data: userCountData, error: userError } = await supabase
+      .rpc('count_distinct_ai_users');
+    // 如果 RPC 不存在，回退到分页查询方式（取前5000条去重）
+    let totalUsers = 0;
+    if (userError) {
+      const { data: fallback } = await supabase
+        .from('ai_chat_history')
+        .select('user_id')
+        .limit(5000);
+      totalUsers = new Set(fallback?.map((l: any) => l.user_id)).size;
+    } else {
+      totalUsers = userCountData || 0;
+    }
 
     // 今日统计
     const today = new Date().toISOString().split('T')[0];

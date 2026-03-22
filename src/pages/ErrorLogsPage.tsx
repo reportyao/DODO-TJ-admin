@@ -91,6 +91,8 @@ const ErrorLogsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedLog, setSelectedLog] = useState<ErrorLog | null>(null);
   const [showDetail, setShowDetail] = useState(false);
+  // 全量统计数据（独立于已加载的 logs 数组，避免分页导致的统计失真）
+  const [globalStats, setGlobalStats] = useState({ total: 0, new: 0, reviewing: 0, resolved: 0 });
   
   // 筛选条件
   const [filters, setFilters] = useState({
@@ -103,6 +105,45 @@ const ErrorLogsPage: React.FC = () => {
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const PAGE_SIZE = 20;
+
+  // 加载全量统计（不受分页影响）
+  const loadGlobalStats = useCallback(async () => {
+    try {
+      const now = new Date();
+      let startDate: Date | null = null;
+      if (filters.dateRange) {
+        switch (filters.dateRange) {
+          case '1d': startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000); break;
+          case '7d': startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); break;
+          case '30d': startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); break;
+        }
+      }
+
+      const buildQuery = (status?: string) => {
+        let q = supabase.from('error_logs').select('id', { count: 'exact', head: true });
+        if (status) q = q.eq('status', status);
+        if (filters.errorType) q = q.eq('error_type', filters.errorType);
+        if (startDate) q = q.gte('created_at', startDate.toISOString());
+        return q;
+      };
+
+      const [total, newCount, reviewing, resolved] = await Promise.all([
+        buildQuery(),
+        buildQuery('NEW'),
+        buildQuery('REVIEWING'),
+        buildQuery('RESOLVED'),
+      ]);
+
+      setGlobalStats({
+        total: total.count || 0,
+        new: newCount.count || 0,
+        reviewing: reviewing.count || 0,
+        resolved: resolved.count || 0,
+      });
+    } catch (err) {
+      console.error('加载全量统计失败:', err);
+    }
+  }, [supabase, filters]);
 
   // 加载错误日志
   const loadLogs = useCallback(async (reset = false) => {
@@ -163,6 +204,7 @@ const ErrorLogsPage: React.FC = () => {
 
   useEffect(() => {
     loadLogs(true);
+    loadGlobalStats();
   }, [filters]);
 
   // page变化时加载更多数据（非reset）
@@ -238,23 +280,23 @@ const ErrorLogsPage: React.FC = () => {
         <p className="text-gray-500 mt-1">监控和管理前端错误日志</p>
       </div>
 
-      {/* 统计卡片 */}
+      {/* 统计卡片 - 数据来自全量查询，不受分页影响 */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">总错误数</div>
-          <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+          <div className="text-2xl font-bold text-gray-900">{globalStats.total}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">待处理</div>
-          <div className="text-2xl font-bold text-red-600">{stats.new}</div>
+          <div className="text-2xl font-bold text-red-600">{globalStats.new}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">处理中</div>
-          <div className="text-2xl font-bold text-yellow-600">{stats.reviewing}</div>
+          <div className="text-2xl font-bold text-yellow-600">{globalStats.reviewing}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">已解决</div>
-          <div className="text-2xl font-bold text-green-600">{stats.resolved}</div>
+          <div className="text-2xl font-bold text-green-600">{globalStats.resolved}</div>
         </div>
       </div>
 
