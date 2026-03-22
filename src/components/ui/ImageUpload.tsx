@@ -53,6 +53,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
           const ctx = canvas.getContext('2d')!;
           ctx.drawImage(img, 0, 0, width, height);
 
+          // 【性能优化】优先使用 WebP 格式（比 JPEG 小 25-35%）
           canvas.toBlob(
             (blob) => {
               if (blob) {
@@ -61,8 +62,8 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
                 reject(new Error('压缩失败'));
               }
             },
-            'image/jpeg',
-            0.8
+            'image/webp',
+            0.82
           );
         };
         img.onerror = reject;
@@ -76,11 +77,11 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   /**
    * 生成唯一文件名
    */
-  const generateFileName = (originalName: string): string => {
+  const generateFileName = (_originalName: string): string => {
     const timestamp = Date.now();
     const random = Math.random().toString(36).substring(2, 15);
-    const ext = originalName.split('.').pop() || 'jpg';
-    return `lottery_${timestamp}_${random}.${ext}`;
+    // 【优化】统一使用 webp 扩展名
+    return `lottery_${timestamp}_${random}.webp`;
   };
 
   /**
@@ -90,8 +91,9 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
     const { data, error } = await storageClient.storage
       .from(bucket)
       .upload(fileName, blob, {
-        contentType: 'image/jpeg',
-        cacheControl: '3600',
+        contentType: 'image/webp',
+        // 【性能优化】设置1年缓存（URL含时间戳hash，天然支持缓存破坏）
+        cacheControl: '31536000',
         upsert: false,
       });
 
@@ -126,13 +128,14 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
     let failCount = 0;
 
     try {
-      for (const file of files) {
+      // 【性能优化】并发上传所有图片
+      const uploadTasks = files.map(async (file) => {
         try {
           // 检查文件类型
           if (!file.type.startsWith('image/')) {
             toast.error(`${file.name} 不是图片文件`);
             failCount++;
-            continue;
+            return;
           }
 
           // 检查文件大小
@@ -163,7 +166,9 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
           toast.error(`${file.name} 上传失败: ${error.message}`);
           failCount++;
         }
-      }
+      });
+
+      await Promise.all(uploadTasks);
 
       if (successCount > 0) {
         onChange([...value, ...newUrls]);
