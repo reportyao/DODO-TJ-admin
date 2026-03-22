@@ -110,7 +110,7 @@ export default function ReferralManagementPage() {
         '一级邀请数': node.stats.level1_count,
         '二级邀请数': node.stats.level2_count,
         '三级邀请数': node.stats.level3_count,
-        '总返利': node.stats.total_commission,
+        '总返利(积分)': node.stats.total_commission,
         '注册时间': new Date(node.created_at).toLocaleString('zh-CN')
       }];
 
@@ -162,7 +162,7 @@ export default function ReferralManagementPage() {
             <div className="text-sm text-gray-600 mt-1">
               邀请码: {node.referral_code || node.invite_code || '暂无'} | 
               邀请: {node.stats.level1_count}人 (L1) / {node.stats.level2_count}人 (L2) / {node.stats.level3_count}人 (L3) |
-              返利: {node.stats.total_commission.toFixed(2)} TJS
+              返利: {node.stats.total_commission.toFixed(2)} 积分
             </div>
           </div>
         </div>
