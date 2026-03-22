@@ -433,6 +433,9 @@ export const DepositReviewPage: React.FC = () => {
       {/* 充值赠送配置对话框 */}
       <Dialog open={isConfigDialogOpen} onOpenChange={setIsConfigDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>充值赠送配置</DialogTitle>
+          </DialogHeader>
           <FirstDepositBonusConfig />
         </DialogContent>
       </Dialog>

@@ -135,12 +135,7 @@ export default function ShipmentBatchManagementPage() {
       params.append('page', page.toString());
       params.append('page_size', '20');
 
-      const { data, error } = await supabase.functions.invoke('get-batch-list', {
-        body: null,
-        method: 'GET',
-      });
-
-      // 由于Edge Function使用GET参数，这里直接查询数据库
+      // 直接查询数据库（移除多余的Edge Function调用，避免401错误）
       let query = supabase
         .from('shipment_batches')
         .select('*', { count: 'exact' })

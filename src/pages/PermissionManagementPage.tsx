@@ -191,24 +191,19 @@ export default function PermissionManagementPage() {
     setCustomPermissions(newPermissions);
   };
 
-  // ─── 保存权限到数据库（upsert） ───────────────────────────────────────────
+  // ─── 保存权限到数据库（通过 RPC 函数，绕过 RLS 写入限制） ────────────────────
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
       const permissionsArray = Array.from(customPermissions);
 
-      // 使用 upsert 避免先查再写的竞态条件
-      const { error } = await supabase
-        .from('role_permissions')
-        .upsert(
-          {
-            role: selectedRole,
-            permissions: permissionsArray,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'role' }
-        );
+      // 调用 SECURITY DEFINER RPC 函数，避免 RLS 写入限制
+      // 该函数内部会先删除旧记录再插入新记录，避免复合唯一约束冲突
+      const { error } = await supabase.rpc('save_role_permissions', {
+        p_role: selectedRole,
+        p_permissions: permissionsArray,
+      });
 
       if (error) throw error;
 
