@@ -42,6 +42,7 @@ interface PromoterProfile {
   hire_date: string | null;
   daily_base_salary: number;
   daily_deposit_limit: number;
+  daily_count_limit: number;
   created_at: string;
   // Joined fields
   user_name?: string;
@@ -127,6 +128,7 @@ export default function PromoterManagementPage() {
     point_id: '',
     daily_base_salary: 0,
     daily_deposit_limit: 5000,
+    daily_count_limit: 10,
     hire_date: new Date().toISOString().split('T')[0],
   });
 
@@ -396,6 +398,7 @@ export default function PromoterManagementPage() {
           point_id: promoterForm.point_id || null,
           daily_base_salary: promoterForm.daily_base_salary,
           daily_deposit_limit: promoterForm.daily_deposit_limit,
+          daily_count_limit: promoterForm.daily_count_limit,
           hire_date: promoterForm.hire_date,
           promoter_status: 'active',
         });
@@ -406,7 +409,7 @@ export default function PromoterManagementPage() {
       setShowAddPromoter(false);
       setNewPromoterSearch('');
       setSearchedUsers([]);
-      setPromoterForm({ user_id: '', team_id: '', point_id: '', daily_base_salary: 0, daily_deposit_limit: 5000, hire_date: new Date().toISOString().split('T')[0] });
+      setPromoterForm({ user_id: '', team_id: '', point_id: '', daily_base_salary: 0, daily_deposit_limit: 5000, daily_count_limit: 10, hire_date: new Date().toISOString().split('T')[0] });
       fetchPromoters();
     } catch (err: any) {
       toast.error('添加失败: ' + err.message);
@@ -424,6 +427,7 @@ export default function PromoterManagementPage() {
           point_id: promoterForm.point_id || null,
           daily_base_salary: promoterForm.daily_base_salary,
           daily_deposit_limit: promoterForm.daily_deposit_limit,
+          daily_count_limit: promoterForm.daily_count_limit,
           promoter_status: editingPromoter.promoter_status,
         })
         .eq('user_id', editingPromoter.user_id);
@@ -751,7 +755,7 @@ export default function PromoterManagementPage() {
   };
 
   const exportPromoters = () => {
-    const headers = ['姓名', '手机号', '邀请码', '团队', '点位', '状态', '日薪(TJS)', '充值额度(TJS)', '入职日期'];
+    const headers = ['姓名', '手机号', '邀请码', '团队', '点位', '状态', '日薪(TJS)', '充值额度(TJS)', '次数上限', '入职日期'];
     const rows = promoters.map(p => [
       p.user_name,
       p.phone_number,
@@ -761,6 +765,7 @@ export default function PromoterManagementPage() {
       p.promoter_status === 'active' ? '在岗' : p.promoter_status === 'paused' ? '暂停' : '已解除',
       p.daily_base_salary,
       p.daily_deposit_limit ?? 5000,
+      p.daily_count_limit ?? 10,
       p.hire_date || '--',
     ]);
     const csvContent = [headers.map(csvEscape).join(','), ...rows.map(r => r.map(csvEscape).join(','))].join('\n');
@@ -906,6 +911,7 @@ export default function PromoterManagementPage() {
                       <TableHead>点位</TableHead>
                       <TableHead>日薪</TableHead>
                       <TableHead>充值额度</TableHead>
+                      <TableHead>次数上限</TableHead>
                       <TableHead>状态</TableHead>
                       <TableHead>入职日期</TableHead>
                       <TableHead>操作</TableHead>
@@ -933,6 +939,7 @@ export default function PromoterManagementPage() {
                           <TableCell>{p.point_name || '--'}</TableCell>
                           <TableCell>{p.daily_base_salary > 0 ? `${p.daily_base_salary} TJS` : '--'}</TableCell>
                           <TableCell>{p.daily_deposit_limit > 0 ? `${p.daily_deposit_limit} TJS` : '5000 TJS'}</TableCell>
+                          <TableCell>{p.daily_count_limit ?? 10} 次</TableCell>
                           <TableCell>{getStatusBadge(p.promoter_status)}</TableCell>
                           <TableCell className="text-sm text-gray-600">{p.hire_date || '--'}</TableCell>
                           <TableCell>
@@ -954,6 +961,7 @@ export default function PromoterManagementPage() {
                                     point_id: p.point_id || '',
                                     daily_base_salary: p.daily_base_salary,
                                     daily_deposit_limit: p.daily_deposit_limit ?? 5000,
+                                    daily_count_limit: p.daily_count_limit ?? 10,
                                     hire_date: p.hire_date || '',
                                   });
                                 }}
@@ -1274,7 +1282,19 @@ export default function PromoterManagementPage() {
               />
               <p className="text-xs text-gray-500 mt-1">该地推人员每日可代客充值的最大总额，默认 5000 TJS</p>
             </div>
-
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">日充值次数上限</label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={promoterForm.daily_count_limit}
+                onChange={(e) => setPromoterForm(prev => ({ ...prev, daily_count_limit: parseInt(e.target.value) || 10 }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                placeholder="默认 10 次"
+              />
+              <p className="text-xs text-gray-500 mt-1">该地推人员每日可执行的最大充值次数，默认 10 次</p>
+            </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowAddPromoter(false)}>取消</Button>
               <Button
@@ -1347,6 +1367,19 @@ export default function PromoterManagementPage() {
                   placeholder="默认 5000 TJS"
                 />
                 <p className="text-xs text-gray-500 mt-1">每日可代客充值最大总额</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">日充值次数上限</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={promoterForm.daily_count_limit}
+                  onChange={(e) => setPromoterForm(prev => ({ ...prev, daily_count_limit: parseInt(e.target.value) || 10 }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                  placeholder="默认 10 次"
+                />
+                <p className="text-xs text-gray-500 mt-1">每日可执行的最大充值次数</p>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">

@@ -10,9 +10,9 @@ interface CommissionRecord {
   user_id: string;           // 受益人（上级）
   from_user_id: string;      // 来源用户（下级购买者）
   level: number;             // 1=一级, 2=二级, 3=三级
-  commission_rate: number;   // 佣金比例 0.03
-  order_amount: number;      // 触发佣金的订单金额
-  commission_amount: number; // 佣金金额
+  rate: number;              // 佣金比例 0.03
+  source_amount: number;     // 触发佣金的消费金额(TJS)
+  amount: number;            // 佣金金额(积分)
   order_id: string | null;
   status: string;            // 'settled' | 'pending'
   created_at: string;
@@ -198,9 +198,9 @@ export default function CommissionRecordsPage() {
       来源用户: getUserDisplayName(r.from_user),
       来源用户手机: r.from_user?.phone_number || '',
       层级: r.level,
-      佣金比例: `${(r.commission_rate * 100).toFixed(2)}%`,
-      订单金额: r.order_amount,
-      佣金金额: r.commission_amount,
+      佣金比例: `${((r.rate || 0) * 100).toFixed(2)}%`,
+      消费金额_TJS: r.source_amount,
+      佣金_积分: r.amount,
       状态: getStatusText(r.status),
       创建时间: new Date(r.created_at).toLocaleString('zh-CN'),
     }));
@@ -359,9 +359,9 @@ export default function CommissionRecordsPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">受益人</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">来源用户</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">层级</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">订单金额</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">消费金额(TJS)</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">佣金比例</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">佣金金额</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">佣金(积分)</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">创建时间</th>
                 </tr>
@@ -397,13 +397,13 @@ export default function CommissionRecordsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-sm text-gray-900">{Number(record.order_amount).toFixed(2)} TJS</span>
+                      <span className="text-sm text-gray-900">{Number(record.source_amount || 0).toFixed(2)} TJS</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-sm text-gray-900">{((record.commission_rate || 0) * 100).toFixed(2)}%</span>
+                      <span className="text-sm text-gray-900">{((record.rate || 0) * 100).toFixed(2)}%</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-sm font-medium text-green-700">{Number(record.commission_amount).toFixed(2)} TJS</span>
+                      <span className="text-sm font-medium text-green-700">🍀 {Number(record.amount || 0).toFixed(2)}</span>
                     </td>
                     <td className="px-4 py-3">
                       {getStatusBadge(record.status)}
