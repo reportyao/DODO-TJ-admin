@@ -13,13 +13,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5174,
       host: '0.0.0.0',
-      allowedHosts: [
-        'admin.seardao.org',
-        '47.243.83.253',
-        '47.82.73.79',
-        'tezbarakat.com',
-        'localhost'
-      ],
+      allowedHosts: true,
     },
     
     resolve: {

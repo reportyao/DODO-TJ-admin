@@ -266,6 +266,23 @@ export default function InventoryProductManagementPage() {
     try {
       let newStatus: 'ACTIVE' | 'INACTIVE' | 'OUT_OF_STOCK';
       if (product.status === 'ACTIVE') {
+        // 【防护检查】下架前检查是否有关联的 ACTIVE lottery
+        // 这是防止数据不一致的关键防护：如果强行下架，关联的 lottery 仍然是 ACTIVE
+        // 用户将无法完成全款购买（即使 lottery 显示可购买）
+        const { data: linkedLotteries, error: checkError } = await supabase
+          .from('lotteries')
+          .select('id, title')
+          .eq('inventory_product_id', product.id)
+          .eq('status', 'ACTIVE');
+
+        if (!checkError && linkedLotteries && linkedLotteries.length > 0) {
+          const lotteryNames = linkedLotteries.map((l: any) => l.title).join('、');
+          const confirmed = window.confirm(
+            `警告：该库存商品关联了 ${linkedLotteries.length} 个正在进行中的商城商品：\n${lotteryNames}\n\n下架库存商品不会影响这些商城商品的销售状态，但会导致全款购买流程中显示库存不足。\n\n建议先在商城商品管理中下架对应商品。\n\n是否仍然继续下架？`
+          );
+          if (!confirmed) return;
+        }
+
         newStatus = 'INACTIVE';
       } else {
         // 修复 A02-4: 库存为 0 时不允许上架为 ACTIVE，应设为 OUT_OF_STOCK
