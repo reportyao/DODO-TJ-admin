@@ -253,23 +253,56 @@ export default function ChannelAnalyticsPage() {
   // Data Fetching - Cost Config
   // ============================================================
 
+  // 【BUG修复】网络错误重试工具函数
+  const isNetworkError = (err: any): boolean => {
+    if (!err) return false;
+    const msg = (err.message || err.name || String(err)).toLowerCase();
+    return msg.includes('networkerror') ||
+      msg.includes('err_network') ||
+      msg.includes('failed to fetch') ||
+      msg.includes('fetch') ||
+      msg.includes('internet_disconnected') ||
+      msg.includes('network_changed') ||
+      msg.includes('failed to send a request') ||
+      err.name === 'FunctionsFetchError';
+  };
+
+  const withRetry = async <T,>(fn: () => Promise<T>, maxRetries = 3): Promise<T> => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        if (isNetworkError(err) && attempt < maxRetries) {
+          console.warn(`网络错误，第 ${attempt} 次重试...`);
+          await new Promise(r => setTimeout(r, 1000 * attempt));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('重试次数耗尽');
+  };
+
   const fetchCostConfig = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('system_config')
-        .select('value')
-        .eq('key', 'channel_cost_config')
-        .single();
+      const result = await withRetry(async () => {
+        const { data, error } = await supabase
+          .from('system_config')
+          .select('value')
+          .eq('key', 'channel_cost_config')
+          .single();
+        if (error && error.code !== 'PGRST116') throw error;
+        return data;
+      });
 
-      if (error && error.code !== 'PGRST116') {
-        console.error('Failed to fetch cost config:', error);
-      }
-
-      if (data?.value) {
-        setCostConfig(data.value as ChannelCostConfig);
+      if (result?.value) {
+        setCostConfig(result.value as ChannelCostConfig);
       }
     } catch (err: any) {
       console.error('Failed to fetch cost config:', err);
+      if (isNetworkError(err)) {
+        toast.error('网络不稳定，加载成本配置失败，请稍后重试');
+      }
     }
   }, [supabase]);
 
@@ -282,26 +315,37 @@ export default function ChannelAnalyticsPage() {
     try {
       const params = getTimeRangeParams(timeRange);
 
-      // Try RPC function first
-      const { data: rpcData, error: rpcError } = await supabase.rpc('get_channel_stats', {
-        p_range_start: params.range_start,
-        p_range_end: params.range_end,
-        p_prev_start: params.prev_start,
-        p_prev_end: params.prev_end,
-      });
+      // 【BUG修复】添加网络错误重试机制
+      // Try RPC function first with retry
+      try {
+        const rpcData = await withRetry(async () => {
+          const { data, error } = await supabase.rpc('get_channel_stats', {
+            p_range_start: params.range_start,
+            p_range_end: params.range_end,
+            p_prev_start: params.prev_start,
+            p_prev_end: params.prev_end,
+          });
+          if (error) throw error;
+          return data;
+        });
 
-      if (rpcError) {
-        console.warn('RPC get_channel_stats failed, falling back to manual query:', rpcError);
-        await fetchAnalyticsManual(params);
-        return;
+        if (rpcData) {
+          processRpcData(rpcData);
+          return;
+        }
+      } catch (rpcErr: any) {
+        console.warn('RPC get_channel_stats failed, falling back to manual query:', rpcErr);
       }
 
-      if (rpcData) {
-        processRpcData(rpcData);
-      }
+      // Fallback to manual query with retry
+      await fetchAnalyticsManual(params);
     } catch (err: any) {
       console.error('Failed to fetch analytics:', err);
-      toast.error('加载渠道分析数据失败: ' + err.message);
+      if (isNetworkError(err)) {
+        toast.error('网络不稳定，加载渠道分析数据失败，请稍后重试');
+      } else {
+        toast.error('加载渠道分析数据失败: ' + err.message);
+      }
     } finally {
       setLoading(false);
     }

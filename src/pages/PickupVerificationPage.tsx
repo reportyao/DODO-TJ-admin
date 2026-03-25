@@ -307,8 +307,9 @@ const PickupVerificationPage: React.FC = () => {
     if (!prizeInfo) {return;}
 
     // 检查状态 - 允许多种待提货状态
+    // 【BUG修复】允许 null/undefined 状态的核销（历史数据兼容）
     const allowedStatuses = ['PENDING_PICKUP', 'PENDING', 'READY_FOR_PICKUP', 'PENDING_CLAIM'];
-    if (!allowedStatuses.includes(prizeInfo.pickup_status)) {
+    if (prizeInfo.pickup_status && !allowedStatuses.includes(prizeInfo.pickup_status)) {
       toast.error('该奖品状态不允许核销: ' + prizeInfo.pickup_status);
       return;
     }
@@ -352,11 +353,12 @@ const PickupVerificationPage: React.FC = () => {
       
       // 使用原子性条件更新防止重复核销（TOCTOU 修复）
       // 只有当 pickup_status 仍为待核销状态时才更新，防止并发重复核销
+      // 【BUG修复】兼容 pickup_status 为 null 的历史数据（update-batch-status 未同步设置 pickup_status）
       const { data: updatedRows, error: updateError } = await supabase
         .from(tableName)
         .update(updateData)
         .eq('id', prizeInfo.id)
-        .in('pickup_status', ['PENDING_CLAIM', 'PENDING_PICKUP', 'PENDING', 'READY_FOR_PICKUP'])
+        .or('pickup_status.in.(PENDING_CLAIM,PENDING_PICKUP,PENDING,READY_FOR_PICKUP),pickup_status.is.null')
         .select('id');
 
       if (updateError) {throw updateError;}

@@ -76,6 +76,7 @@ export default function PendingPickupsPage() {
       const allPickups: PendingPickup[] = [];
 
       // 1. 加载积分商城中奖记录
+      // 【BUG修复】兼容 pickup_status 为 null 的历史数据
       const { data: prizes, error: prizesError } = await supabase
         .from('prizes')
         .select(`
@@ -85,6 +86,7 @@ export default function PendingPickupsPage() {
           prize_value,
           pickup_code,
           pickup_status,
+          logistics_status,
           expires_at,
           claimed_at,
           created_at,
@@ -92,7 +94,8 @@ export default function PendingPickupsPage() {
           lottery_id,
           pickup_point_id
         `)
-        .in('pickup_status', ['PENDING_CLAIM', 'PENDING_PICKUP', 'EXPIRED'])
+        .or('pickup_status.in.(PENDING_CLAIM,PENDING_PICKUP,EXPIRED),pickup_status.is.null')
+        .neq('pickup_status', 'PICKED_UP')
         .order('created_at', { ascending: false });
 
       if (prizesError) {
@@ -224,6 +227,7 @@ export default function PendingPickupsPage() {
       }
 
       // 3. 加载全款购买记录
+      // 【BUG修复】兼容 pickup_status 为 null 的历史数据
       const { data: fullPurchaseOrders, error: fullPurchaseError } = await supabase
         .from('full_purchase_orders')
         .select(`
@@ -233,13 +237,15 @@ export default function PendingPickupsPage() {
           lottery_id,
           pickup_code,
           pickup_status,
+          logistics_status,
           expires_at,
           claimed_at,
           created_at,
           pickup_point_id,
           metadata
         `)
-        .in('pickup_status', ['PENDING_CLAIM', 'PENDING_PICKUP', 'EXPIRED'])
+        .or('pickup_status.in.(PENDING_CLAIM,PENDING_PICKUP,EXPIRED),pickup_status.is.null')
+        .neq('pickup_status', 'PICKED_UP')
         .order('created_at', { ascending: false });
 
       if (fullPurchaseError) {
@@ -410,7 +416,8 @@ export default function PendingPickupsPage() {
   // 打开核销模态框
   const openVerifyModal = (pickup: PendingPickup) => {
     const allowedStatuses = ['PENDING_CLAIM', 'PENDING_PICKUP', 'PENDING', 'READY_FOR_PICKUP'];
-    if (!allowedStatuses.includes(pickup.pickup_status)) {
+    // 【BUG修复】允许 null/undefined 状态的核销（历史数据兼容）
+    if (pickup.pickup_status && !allowedStatuses.includes(pickup.pickup_status)) {
       toast.error('只能核销待提货状态的奖品');
       return;
     }
@@ -448,11 +455,12 @@ export default function PendingPickupsPage() {
       }
 
       // 使用原子性条件更新防止重复核销（TOCTOU 修复）
+      // 【BUG修复】兼容 pickup_status 为 null 的历史数据
       const { data: updatedRows, error: updateError } = await supabase
         .from(tableName)
         .update(updateData)
         .eq('id', selectedPickup.id)
-        .in('pickup_status', ['PENDING_CLAIM', 'PENDING_PICKUP', 'PENDING', 'READY_FOR_PICKUP'])
+        .or('pickup_status.in.(PENDING_CLAIM,PENDING_PICKUP,PENDING,READY_FOR_PICKUP),pickup_status.is.null')
         .select('id');
 
       if (updateError) {throw updateError;}
