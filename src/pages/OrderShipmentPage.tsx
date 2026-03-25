@@ -340,6 +340,14 @@ export default function OrderShipmentPage() {
       return;
     }
 
+    const MAX_RETRIES = 3;
+    const isNetworkError = (err: any) =>
+      err?.name === 'FunctionsFetchError' ||
+      err?.message?.includes('ERR_NETWORK') ||
+      err?.message?.includes('Failed to send a request') ||
+      err?.message?.includes('NetworkError') ||
+      err?.message?.includes('fetch');
+
     try {
       setAdding(true);
 
@@ -348,27 +356,56 @@ export default function OrderShipmentPage() {
         return { order_type, order_id };
       });
 
-      const { data, error } = await supabase.functions.invoke('add-orders-to-batch', {
-        body: {
-          batch_id: selectedBatchId,
-          orders,
-          admin_id: adminUser.id,
-          send_notification: sendNotification,
-        },
-      });
+      let lastError: any = null;
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          if (attempt > 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            toast.loading(`网络不稳定，正在重试 (${attempt}/${MAX_RETRIES})...`, { id: 'retry-toast' });
+          }
 
-      if (error) {throw error;}
-      if (!data.success) {throw new Error(data.error);}
+          const { data, error } = await supabase.functions.invoke('add-orders-to-batch', {
+            body: {
+              batch_id: selectedBatchId,
+              orders,
+              admin_id: adminUser.id,
+              send_notification: sendNotification,
+            },
+          });
 
-      toast.success(data.message || '订单已加入批次');
-      setShowAddToBatchModal(false);
-      setSelectedOrders(new Set());
-      setSelectedBatchId('');
-      fetchPendingOrders();
-      fetchActiveBatches();
+          if (error) {
+            if (isNetworkError(error) && attempt < MAX_RETRIES) {
+              lastError = error;
+              continue;
+            }
+            throw error;
+          }
+          if (!data.success) {throw new Error(data.error);}
+
+          toast.dismiss('retry-toast');
+          toast.success(data.message || '订单已加入批次');
+          setShowAddToBatchModal(false);
+          setSelectedOrders(new Set());
+          setSelectedBatchId('');
+          fetchPendingOrders();
+          fetchActiveBatches();
+          return;
+        } catch (err: any) {
+          if (isNetworkError(err) && attempt < MAX_RETRIES) {
+            lastError = err;
+            continue;
+          }
+          throw err;
+        }
+      }
+      throw lastError || new Error('网络请求失败，请检查网络连接后重试');
     } catch (error: any) {
+      toast.dismiss('retry-toast');
       console.error('Failed to add orders to batch:', error);
-      toast.error(error.message || '加入批次失败');
+      const isNet = error?.name === 'FunctionsFetchError' ||
+        error?.message?.includes('ERR_NETWORK') ||
+        error?.message?.includes('Failed to send a request');
+      toast.error(isNet ? '网络连接失败，请检查网络后重试' : (error.message || '加入批次失败'));
     } finally {
       setAdding(false);
     }
