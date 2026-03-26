@@ -23,6 +23,7 @@ interface PendingPickup {
   prize_value: number;
   pickup_code: string | null;
   pickup_status: string;
+  logistics_status: string | null;
   expires_at: string | null;
   claimed_at: string | null;
   created_at: string;
@@ -144,6 +145,7 @@ export default function PendingPickupsPage() {
             prize_value: prize.prize_value || 0,
             pickup_code: prize.pickup_code,
             pickup_status: prize.pickup_status || 'PENDING_CLAIM',
+            logistics_status: prize.logistics_status || null,
             expires_at: prize.expires_at,
             claimed_at: prize.claimed_at,
             created_at: prize.created_at,
@@ -163,6 +165,7 @@ export default function PendingPickupsPage() {
           product_id,
           pickup_code,
           pickup_status,
+          logistics_status,
           expires_at,
           claimed_at,
           created_at,
@@ -216,6 +219,7 @@ export default function PendingPickupsPage() {
             prize_value: product?.original_price || 0,
             pickup_code: result.pickup_code,
             pickup_status: result.pickup_status || 'PENDING_CLAIM',
+            logistics_status: result.logistics_status || null,
             expires_at: result.expires_at,
             claimed_at: result.claimed_at,
             created_at: result.created_at,
@@ -299,6 +303,7 @@ export default function PendingPickupsPage() {
             prize_value: productPrice,
             pickup_code: order.pickup_code,
             pickup_status: order.pickup_status || 'PENDING_CLAIM',
+            logistics_status: order.logistics_status || null,
             expires_at: order.expires_at,
             claimed_at: order.claimed_at,
             created_at: order.created_at,
@@ -362,6 +367,26 @@ export default function PendingPickupsPage() {
       'EXPIRED': { text: '已过期', color: 'bg-red-100 text-red-800' },
       'PICKED_UP': { text: '已提货', color: 'bg-green-100 text-green-800' },
     };
+    const badge = statusMap[status] || { text: status, color: 'bg-gray-100 text-gray-800' };
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${badge.color}`}>
+        {badge.text}
+      </span>
+    );
+  };
+
+  // 获取物流状态标签
+  const getLogisticsStatusBadge = (status: string | null) => {
+    const statusMap: Record<string, { text: string; color: string }> = {
+      'PENDING_SHIPMENT': { text: '待发货', color: 'bg-gray-100 text-gray-800' },
+      'IN_TRANSIT_CHINA': { text: '国内运输中', color: 'bg-blue-100 text-blue-800' },
+      'IN_TRANSIT_TAJIKISTAN': { text: '塔国运输中', color: 'bg-indigo-100 text-indigo-800' },
+      'READY_FOR_PICKUP': { text: '已到货', color: 'bg-green-100 text-green-800' },
+      'PICKED_UP': { text: '已提货', color: 'bg-green-100 text-green-800' },
+    };
+    if (!status) {
+      return <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500">未发货</span>;
+    }
     const badge = statusMap[status] || { text: status, color: 'bg-gray-100 text-gray-800' };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${badge.color}`}>
@@ -616,7 +641,10 @@ export default function PendingPickupsPage() {
                   自提点
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  状态
+                  物流状态
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  提货状态
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   有效期
@@ -683,7 +711,7 @@ export default function PendingPickupsPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {pickup.pickup_code ? (
+                      {pickup.pickup_code && pickup.logistics_status === 'READY_FOR_PICKUP' ? (
                         <div className="flex items-center space-x-2">
                           <span className="font-mono text-lg font-bold text-purple-600">
                             {pickup.pickup_code}
@@ -696,6 +724,8 @@ export default function PendingPickupsPage() {
                             <ClipboardDocumentIcon className="w-4 h-4 text-gray-400" />
                           </button>
                         </div>
+                      ) : pickup.pickup_code ? (
+                        <span className="text-gray-400 text-sm" title={`提货码已生成但货物未到达（物流状态: ${pickup.logistics_status || '未发货'}）`}>货物未到达</span>
                       ) : (
                         <span className="text-gray-400">未生成</span>
                       )}
@@ -711,6 +741,9 @@ export default function PendingPickupsPage() {
                       ) : (
                         <span className="text-gray-400">未选择</span>
                       )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {getLogisticsStatusBadge(pickup.logistics_status)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {getStatusBadge(pickup.pickup_status)}

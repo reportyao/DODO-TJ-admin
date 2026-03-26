@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Download, Eye, Calendar, RefreshCw } from 'lucide-react';
 import { useSupabase } from '../contexts/SupabaseContext';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 interface LotteryResult {
@@ -31,6 +32,8 @@ interface LotteryResult {
 
 export default function DrawLogsPage() {
   const { supabase } = useSupabase();
+  const [searchParams] = useSearchParams();
+  const filterLotteryId = searchParams.get('lottery_id');
   const [results, setResults] = useState<LotteryResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedResult, setSelectedResult] = useState<LotteryResult | null>(null);
@@ -41,16 +44,23 @@ export default function DrawLogsPage() {
 
   useEffect(() => {
     loadResults();
-  }, [currentPage]);
+  }, [currentPage, filterLotteryId]);
 
   const loadResults = async () => {
     setLoading(true);
     try {
       // 从 lottery_results 表查询开奖记录
-      const { data: resultsData, error, count } = await supabase
+      let query = supabase
         .from('lottery_results')
         .select('*', { count: 'exact' })
-        .order('draw_time', { ascending: false })
+        .order('draw_time', { ascending: false });
+      
+      // 如果有 lottery_id 参数，过滤特定活动的开奖记录
+      if (filterLotteryId) {
+        query = query.eq('lottery_id', filterLotteryId);
+      }
+      
+      const { data: resultsData, error, count } = await query
         .range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
 
       if (error) {throw error;}

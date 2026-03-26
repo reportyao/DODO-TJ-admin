@@ -104,8 +104,8 @@ export const LotteryListPage: React.FC = () => {
   };
 
   const handleViewResult = (id: string) => {
-    // 在管理后台，我们跳转到编辑页面，并在编辑页面显示结果
-    navigate(`/lotteries/${id}`);
+    // 跳转到开奖记录页面，查看该活动的开奖结果和验证数据
+    navigate(`/draw-logs?lottery_id=${id}`);
   };
 
   // 生成期号：使用复杂算法避免规律被发现
