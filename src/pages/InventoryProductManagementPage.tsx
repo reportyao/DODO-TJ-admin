@@ -224,15 +224,55 @@ export default function InventoryProductManagementPage() {
     if (!confirm('确定要删除这个库存商品吗？删除后无法恢复。')) {return;}
 
     try {
-      // 修复 A02-2: 检查关联的积分商城商品
+      // 检查关联的积分商城商品
       const { data: linkedLotteries } = await supabase
         .from('lotteries')
-        .select('id')
+        .select('id, title, title_i18n, status')
         .eq('inventory_product_id', id);
 
       if (linkedLotteries && linkedLotteries.length > 0) {
-        toast.error('该库存商品已关联积分商城商品，无法删除。请先解除关联。');
-        return;
+        // 检查是否有进行中的商城商品
+        const activeLotteries = linkedLotteries.filter((l: any) => l.status === 'ACTIVE' || l.status === 'PENDING');
+        if (activeLotteries.length > 0) {
+          const lotteryNames = activeLotteries.map((l: any) => {
+            const i18n = l.title_i18n;
+            if (i18n && typeof i18n === 'object') {
+              return (i18n as any).zh || (i18n as any).ru || (i18n as any).tg || l.title || '未命名';
+            }
+            return typeof l.title === 'string' ? l.title : '未命名';
+          }).join('、');
+          const confirmed = window.confirm(
+            `该库存商品关联了 ${activeLotteries.length} 个进行中的商城商品：\n${lotteryNames}\n\n删除库存商品将同时自动取消这些商城商品。\n\n确定要继续删除吗？`
+          );
+          if (!confirmed) return;
+
+          // 自动联动取消关联的积分商城商品
+          const lotteryIds = activeLotteries.map((l: any) => l.id);
+          const { error: cancelError } = await supabase
+            .from('lotteries')
+            .update({ status: 'CANCELLED', updated_at: new Date().toISOString() })
+            .in('id', lotteryIds);
+
+          if (cancelError) {
+            console.error('Failed to cancel linked lotteries:', cancelError);
+            toast.error('联动取消商城商品失败：' + cancelError.message);
+            return;
+          }
+          toast.success(`已自动取消 ${activeLotteries.length} 个关联的商城商品`);
+        }
+
+        // 解除所有关联商城商品的 inventory_product_id 关联，以便删除库存商品
+        const allLotteryIds = linkedLotteries.map((l: any) => l.id);
+        const { error: unlinkError } = await supabase
+          .from('lotteries')
+          .update({ inventory_product_id: null })
+          .in('id', allLotteryIds);
+
+        if (unlinkError) {
+          console.error('Failed to unlink lotteries:', unlinkError);
+          toast.error('解除商城商品关联失败：' + unlinkError.message);
+          return;
+        }
       }
 
       // 修复 A02-2: 检查是否有未完成的全款购买订单
@@ -266,21 +306,39 @@ export default function InventoryProductManagementPage() {
     try {
       let newStatus: 'ACTIVE' | 'INACTIVE' | 'OUT_OF_STOCK';
       if (product.status === 'ACTIVE') {
-        // 【防护检查】下架前检查是否有关联的 ACTIVE lottery
-        // 这是防止数据不一致的关键防护：如果强行下架，关联的 lottery 仍然是 ACTIVE
-        // 用户将无法完成全款购买（即使 lottery 显示可购买）
+        // 【联动检查】下架前检查是否有关联的 ACTIVE 积分商城商品
         const { data: linkedLotteries, error: checkError } = await supabase
           .from('lotteries')
-          .select('id, title')
+          .select('id, title, title_i18n')
           .eq('inventory_product_id', product.id)
-          .eq('status', 'ACTIVE');
+          .in('status', ['ACTIVE', 'PENDING']);
 
         if (!checkError && linkedLotteries && linkedLotteries.length > 0) {
-          const lotteryNames = linkedLotteries.map((l: any) => l.title).join('、');
+          const lotteryNames = linkedLotteries.map((l: any) => {
+            const i18n = l.title_i18n;
+            if (i18n && typeof i18n === 'object') {
+              return (i18n as any).zh || (i18n as any).ru || (i18n as any).tg || l.title || '未命名';
+            }
+            return typeof l.title === 'string' ? l.title : '未命名';
+          }).join('、');
           const confirmed = window.confirm(
-            `警告：该库存商品关联了 ${linkedLotteries.length} 个正在进行中的商城商品：\n${lotteryNames}\n\n下架库存商品不会影响这些商城商品的销售状态，但会导致全款购买流程中显示库存不足。\n\n建议先在商城商品管理中下架对应商品。\n\n是否仍然继续下架？`
+            `该库存商品关联了 ${linkedLotteries.length} 个积分商城商品：\n${lotteryNames}\n\n下架库存商品将同时自动下架这些商城商品（状态改为 CANCELLED）。\n\n确定要继续下架吗？`
           );
           if (!confirmed) return;
+
+          // 【自动联动】将关联的积分商城商品状态改为 CANCELLED
+          const lotteryIds = linkedLotteries.map((l: any) => l.id);
+          const { error: updateLotteryError } = await supabase
+            .from('lotteries')
+            .update({ status: 'CANCELLED', updated_at: new Date().toISOString() })
+            .in('id', lotteryIds);
+
+          if (updateLotteryError) {
+            console.error('Failed to cancel linked lotteries:', updateLotteryError);
+            toast.error('联动下架商城商品失败：' + updateLotteryError.message);
+            return;
+          }
+          toast.success(`已自动下架 ${linkedLotteries.length} 个关联的商城商品`);
         }
 
         newStatus = 'INACTIVE';
@@ -298,7 +356,7 @@ export default function InventoryProductManagementPage() {
         .eq('id', product.id);
 
       if (error) {throw error;}
-      toast.success('状态切换成功');
+      toast.success(newStatus === 'INACTIVE' ? '库存商品已下架' : '库存商品已上架');
       fetchProducts();
     } catch (error) {
       console.error('Failed to toggle status:', error);
