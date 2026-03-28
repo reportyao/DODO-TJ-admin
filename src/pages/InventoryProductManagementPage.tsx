@@ -85,13 +85,21 @@ export default function InventoryProductManagementPage() {
     status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE' | 'OUT_OF_STOCK',
   });
 
+  // 切换 Tab 时重置到第1页；currentPage 变化时直接 fetch
+  // 合并为单一 effect 避免竞态导致 HTTP 416
   useEffect(() => {
-    setCurrentPage(1);
+    if (currentPage !== 1) {
+      setCurrentPage(1); // 这会再次触发本 effect，届时 currentPage===1 时执行 fetch
+    } else {
+      fetchProducts();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 
   useEffect(() => {
     fetchProducts();
-  }, [statusFilter, currentPage]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage]);
 
   const fetchProducts = async () => {
     try {
