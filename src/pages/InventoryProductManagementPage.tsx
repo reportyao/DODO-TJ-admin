@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown } from 'lucide-react';
 import { MultiImageUpload } from '@/components/MultiImageUpload';
 import toast from 'react-hot-toast';
@@ -44,6 +44,12 @@ export default function InventoryProductManagementPage() {
   const { supabase } = useSupabase();
   const [products, setProducts] = useState<InventoryProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  // 筛选 Tab：'ACTIVE' | 'INACTIVE' | 'OUT_OF_STOCK' | 'ALL'
+  const [statusFilter, setStatusFilter] = useState<'ACTIVE' | 'INACTIVE' | 'OUT_OF_STOCK' | 'ALL'>('ACTIVE');
+  // 分页
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const PAGE_SIZE = 10;
   const [showModal, setShowModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
@@ -80,19 +86,33 @@ export default function InventoryProductManagementPage() {
   });
 
   useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter]);
+
+  useEffect(() => {
     fetchProducts();
-  }, []);
+  }, [statusFilter, currentPage]);
 
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('inventory_products')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const from = (currentPage - 1) * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
 
-      if (error) {throw error;}
+      let query = supabase
+        .from('inventory_products')
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      if (statusFilter !== 'ALL') {
+        query = query.eq('status', statusFilter);
+      }
+
+      const { data, error, count } = await query;
+      if (error) { throw error; }
       setProducts(data || []);
+      setTotalCount(count || 0);
     } catch (error) {
       console.error('Failed to fetch products:', error);
       toast.error('获取库存商品列表失败');
@@ -183,6 +203,7 @@ export default function InventoryProductManagementPage() {
       setShowModal(false);
       setEditingProduct(null);
       resetForm();
+      setCurrentPage(1);
       fetchProducts();
     } catch (error: any) {
       console.error('Failed to save product:', error);
@@ -295,6 +316,7 @@ export default function InventoryProductManagementPage() {
 
       if (error) {throw error;}
       toast.success('库存商品删除成功');
+      setCurrentPage(1);
       fetchProducts();
     } catch (error) {
       console.error('Failed to delete product:', error);
@@ -517,15 +539,38 @@ export default function InventoryProductManagementPage() {
         </button>
       </div>
 
+      {/* 筛选 Tab */}
+      <div className="flex gap-1 mb-4 bg-gray-100 p-1 rounded-lg w-fit">
+        {([
+          { key: 'ACTIVE', label: '上架', color: 'text-green-700' },
+          { key: 'INACTIVE', label: '下架', color: 'text-gray-600' },
+          { key: 'OUT_OF_STOCK', label: '缺货', color: 'text-red-600' },
+          { key: 'ALL', label: '全部', color: 'text-blue-600' },
+        ] as const).map(({ key, label, color }) => (
+          <button
+            key={key}
+            onClick={() => setStatusFilter(key)}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              statusFilter === key
+                ? 'bg-white shadow text-gray-900'
+                : `${color} hover:bg-white/60`
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
         <div className="text-center py-12">加载中...</div>
       ) : products.length === 0 ? (
         <div className="text-center py-12 text-gray-500">
           <Package className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-          <p>暂无库存商品</p>
-          <p className="text-sm mt-2">点击"添加库存商品"按钮创建第一个库存商品</p>
+          <p>{statusFilter === 'ALL' ? '暂无库存商品' : `暂无${statusFilter === 'ACTIVE' ? '上架' : statusFilter === 'INACTIVE' ? '下架' : '缺货'}商品`}</p>
+          {statusFilter === 'ALL' && <p className="text-sm mt-2">点击“添加库存商品”按鈕创建第一个库存商品</p>}
         </div>
       ) : (
+        <>
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -623,6 +668,53 @@ export default function InventoryProductManagementPage() {
             </tbody>
           </table>
         </div>
+
+        {/* 分页器 */}
+        {totalCount > PAGE_SIZE && (
+          <div className="flex items-center justify-between mt-4 px-2">
+            <span className="text-sm text-gray-500">
+              共 {totalCount} 个商品，第 {currentPage} / {Math.ceil(totalCount / PAGE_SIZE)} 页
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1 text-sm border rounded-md disabled:opacity-40 hover:bg-gray-50"
+              >
+                上一页
+              </button>
+              {Array.from({ length: Math.min(5, Math.ceil(totalCount / PAGE_SIZE)) }, (_, i) => {
+                const total = Math.ceil(totalCount / PAGE_SIZE);
+                let start = Math.max(1, currentPage - 2);
+                const end = Math.min(total, start + 4);
+                if (end - start < 4) start = Math.max(1, end - 4);
+                const page = start + i;
+                if (page > total) return null;
+                return (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`px-3 py-1 text-sm border rounded-md ${
+                      currentPage === page
+                        ? 'bg-blue-500 text-white border-blue-500'
+                        : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setCurrentPage(p => Math.min(Math.ceil(totalCount / PAGE_SIZE), p + 1))}
+                disabled={currentPage >= Math.ceil(totalCount / PAGE_SIZE)}
+                className="px-3 py-1 text-sm border rounded-md disabled:opacity-40 hover:bg-gray-50"
+              >
+                下一页
+              </button>
+            </div>
+          </div>
+        )}
+        </>
       )}
 
       {/* 创建/编辑商品 Modal */}
