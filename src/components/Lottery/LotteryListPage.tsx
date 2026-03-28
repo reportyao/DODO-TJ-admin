@@ -177,36 +177,63 @@ export const LotteryListPage: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('确定要删除这个商城吗？此操作不可恢复。')) {return;}
+    if (!window.confirm('确定要删除这个商城活动吗？将同时删除对应图片，此操作不可恢复。')) { return; }
 
     try {
-      // 修复 A03-1: 检查是否有已售票数，防止删除有用户购票的活跃彩票
+      // 1. 获取活动详情（含图片 URL 和已售票数）
       const { data: lottery, error: fetchError } = await supabase
         .from('lotteries')
-        .select('sold_tickets, status')
+        .select('sold_tickets, status, image_url, image_urls')
         .eq('id', id)
         .single();
 
       if (fetchError) throw fetchError;
 
+      // 有已购票数时仍阻止删除，防止数据损坏
       if (lottery.sold_tickets > 0) {
-        toast.error(`无法删除：该期已有 ${lottery.sold_tickets} 张票被购买。请先完成开奖或退款处理后再删除。`);
+        toast.error(`无法删除：该期已有 ${lottery.sold_tickets} 张票被购买，请先完成开奖或退款处理。`);
         return;
       }
 
+      // 2. 若为活跃/售罄状态，先自动取消
       if (lottery.status === 'ACTIVE' || lottery.status === 'SOLD_OUT') {
-        toast.error(`无法删除：该期状态为活跃状态，请先将其取消后再删除。`);
-        return;
+        const { error: cancelError } = await supabase
+          .from('lotteries')
+          .update({ status: 'CANCELLED' })
+          .eq('id', id);
+        if (cancelError) throw cancelError;
       }
 
-      const { error } = await supabase
+      // 3. 删除 Supabase Storage 中对应的图片
+      const BUCKET = 'lottery-images';
+      const allUrls: string[] = [];
+      if (lottery.image_url) allUrls.push(lottery.image_url);
+      if (Array.isArray(lottery.image_urls)) {
+        lottery.image_urls.forEach((u: string) => { if (u && !allUrls.includes(u)) allUrls.push(u); });
+      }
+      if (allUrls.length > 0) {
+        const filePaths = allUrls
+          .map((url: string) => {
+            try {
+              const urlObj = new URL(url);
+              const match = urlObj.pathname.match(new RegExp(`\/storage\/v1\/object\/public\/${BUCKET}\/(.+)$`));
+              return match ? match[1] : null;
+            } catch { return null; }
+          })
+          .filter(Boolean) as string[];
+        if (filePaths.length > 0) {
+          await supabase.storage.from(BUCKET).remove(filePaths);
+        }
+      }
+
+      // 4. 删除数据库记录
+      const { error: deleteError } = await supabase
         .from('lotteries')
         .delete()
         .eq('id', id);
+      if (deleteError) throw deleteError;
 
-      if (error) {throw error;}
-
-      toast.success('商城删除成功!');
+      toast.success('商城活动及图片已删除！');
       fetchLotteries();
     } catch (error: any) {
       toast.error(`删除失败: ${error.message}`);
