@@ -36,6 +36,7 @@ import PickupVerificationPage from './pages/PickupVerificationPage';
 import PickupPointsPage from './pages/PickupPointsPage';
 import PickupStatsPage from './pages/PickupStatsPage';
 import PendingPickupsPage from './pages/PendingPickupsPage';
+import PickupStaffManagementPage from './pages/PickupStaffManagementPage';
 import InventoryProductManagementPage from './pages/InventoryProductManagementPage';
 import ShipmentBatchManagementPage from './pages/ShipmentBatchManagementPage';
 import OrderShipmentPage from './pages/OrderShipmentPage';
@@ -127,6 +128,7 @@ function App(): JSX.Element {
             <NavLink to="/pickup-points" label="自提点管理" icon="📍" />
             <NavLink to="/pickup-stats" label="核销统计" icon="📈" />
             <NavLink to="/pending-pickups" label="待核销列表" icon="📋" />
+            <NavLink to="/pickup-staff" label="核销员管理" icon="🛡️" />
             <NavLink to="/showoff-review" label="晒单审核" icon="📸" />
             <NavLink to="/showoff-create" label="创建运营晒单" icon="✨" />
             <NavLink to="/showoff-management" label="运营晒单管理" icon="📋" />
@@ -193,6 +195,7 @@ function App(): JSX.Element {
               <Route path="/pickup-points" element={<ProtectedRoute element={<PickupPointsPage />} requiredRole="admin" />} />
               <Route path="/pickup-stats" element={<ProtectedRoute element={<PickupStatsPage />} requiredRole="admin" />} />
               <Route path="/pending-pickups" element={<ProtectedRoute element={<PendingPickupsPage />} requiredRole="admin" />} />
+              <Route path="/pickup-staff" element={<ProtectedRoute element={<PickupStaffManagementPage />} requiredRole="admin" />} />
               <Route path="/showoff-review" element={<ProtectedRoute element={<ShowoffReviewPage />} requiredRole="admin" />} />
               <Route path="/showoff-create" element={<ProtectedRoute element={<OperationalShowoffCreatePage />} requiredRole="admin" />} />
               <Route path="/showoff-management" element={<ProtectedRoute element={<OperationalShowoffManagementPage />} requiredRole="admin" />} />

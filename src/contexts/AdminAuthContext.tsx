@@ -72,6 +72,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       '/pickup-points',
       '/pickup-stats',
       '/pending-pickups',
+      '/pickup-staff',
     ],
     'shipping.edit': [
       '/shipping-management',

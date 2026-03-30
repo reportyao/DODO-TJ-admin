@@ -371,6 +371,22 @@ const PickupVerificationPage: React.FC = () => {
         return;
       }
 
+      // 写入核销日志（补充：原来缺少此步骤）
+      try {
+        await supabase.from('pickup_logs').insert({
+          prize_id: prizeInfo.id,
+          pickup_code: prizeInfo.pickup_code,
+          pickup_point_id: prizeInfo.pickup_point?.id || null,
+          operator_id: adminId,
+          operation_type: 'ADMIN_VERIFY',
+          order_type: prizeInfo.source_type,
+          source: 'admin',
+          notes: '管理后台核销',
+        });
+      } catch (logErr) {
+        console.warn('[PickupVerification] 写入核销日志失败（不影响核销结果）:', logErr);
+      }
+
       toast.success('核销成功！');
       setPickupCode('');
       setPrizeInfo(null);
