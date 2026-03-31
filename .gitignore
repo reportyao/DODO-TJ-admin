@@ -31,6 +31,7 @@ dist-ssr
 .env.production
 .env.production.local
 .env.backup
+.env.test
 
 # Build artifacts and archives
 *.tar.gz

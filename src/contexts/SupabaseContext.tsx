@@ -1,14 +1,14 @@
 import React, { createContext, useContext, useMemo } from 'react'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { DB } from '@/types/supabase'
+import { createSupabaseProxy } from '@/lib/supabaseProxy'
 
-// 确保环境变量存在
+// 安全修复: 仅使用 Anon Key，不再在前端暴露 Service Role Key
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-const supabaseServiceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY
 
-if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
-  throw new Error('Supabase URL, Anon Key, and Service Role Key must be provided in environment variables.')
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Supabase URL and Anon Key must be provided in environment variables.')
 }
 
 interface SupabaseContextType {
@@ -19,53 +19,53 @@ interface SupabaseContextType {
 const SupabaseContext = createContext<SupabaseContextType | undefined>(undefined)
 
 // 创建单例客户端，避免多次实例化
-let supabaseServiceInstance: SupabaseClient<DB> | null = null
+let supabaseInstance: SupabaseClient<DB> | null = null
 
-function getSupabaseClient(): SupabaseClient<DB> {
-  if (!supabaseServiceInstance) {
-    // 安全修复 A06: 移除打印密钥的日志（即使是部分内容也不应在控制台显示）
-    
-    supabaseServiceInstance = createClient<DB>(supabaseUrl, supabaseServiceRoleKey, {
+// 原始客户端（仅用于 RPC 调用）
+let rawInstance: SupabaseClient<DB> | null = null
+
+function getRawClient(): SupabaseClient<DB> {
+  if (!rawInstance) {
+    rawInstance = createClient<DB>(supabaseUrl, supabaseAnonKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
         detectSessionInUrl: false,
-        // 使用自定义存储键避免与其他实例冲突
         storageKey: 'admin-supabase-auth'
       },
       global: {
         headers: {
-          'apikey': supabaseServiceRoleKey,
-          'Authorization': `Bearer ${supabaseServiceRoleKey}`,
           'Prefer': 'return=representation'
         }
       },
       db: {
         schema: 'public'
       },
-      // 确保使用 service_role 权限绕过 RLS
       realtime: {
         params: {
           eventsPerSecond: 10
         }
       }
     });
-    
-
   }
-  return supabaseServiceInstance
+  return rawInstance
+}
+
+// 代理客户端（拦截所有 .from() 调用，转发到 RPC）
+function getSupabaseClient(): SupabaseClient<DB> {
+  if (!supabaseInstance) {
+    const raw = getRawClient()
+    supabaseInstance = createSupabaseProxy(raw) as SupabaseClient<DB>
+  }
+  return supabaseInstance
 }
 
 export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const clients = useMemo(() => {
-    // 使用单例客户端
-    const supabaseService = getSupabaseClient()
-
-    // 为了向后兼容，supabaseAuth 也指向同一个客户端
-    // 因为管理后台使用自定义的 admin_users 表进行认证，不需要 Supabase Auth
+    const supabaseClient = getSupabaseClient()
     return {
-      supabase: supabaseService,
-      supabaseAuth: supabaseService
+      supabase: supabaseClient,
+      supabaseAuth: supabaseClient
     }
   }, [])
 

@@ -1,6 +1,8 @@
 import imageCompression from 'browser-image-compression'
-import { supabase } from '@/lib/supabase'
-// 复用 supabase.ts 中的单例客户端，避免 Multiple GoTrueClient 警告
+import { adminUploadImage } from '@/lib/adminApi'
+
+// 安全修复: 图片上传改为通过 Edge Function，不再在前端使用 Service Role Key
+const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || ''
 
 /**
  * 图片上传工具模块（管理后台版）
@@ -52,35 +54,9 @@ export async function uploadImage(
   try {
     // 压缩图片（自动转为 WebP）
     const compressedFile = await compressImage(file)
-    
-    // 判断压缩后的实际格式
-    const isWebP = compressedFile.type === 'image/webp'
-    const ext = isWebP ? 'webp' : 'jpg'
-    const contentType = isWebP ? 'image/webp' : 'image/jpeg'
-    
-    // 生成唯一文件名
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`
-    const filePath = folder ? `${folder}/${fileName}` : fileName
 
-    // 上传文件
-    const { error } = await supabase.storage
-      .from(bucket)
-      .upload(filePath, compressedFile, {
-        // 【性能优化】设置1年缓存（URL含时间戳hash，天然支持缓存破坏）
-        cacheControl: '31536000',
-        upsert: false,
-        contentType: contentType,
-      })
-
-    if (error) {
-      throw error
-    }
-
-    // 获取公开URL
-    const { data: { publicUrl } } = supabase.storage
-      .from(bucket)
-      .getPublicUrl(filePath)
-
+    // 安全修复: 通过 Edge Function 上传，服务端使用 service_role 权限
+    const publicUrl = await adminUploadImage(supabaseUrl, compressedFile, bucket, folder)
     return publicUrl
   } catch (error) {
     console.error('[uploadImage] 上传失败:', error)
@@ -112,25 +88,8 @@ export async function uploadImages(
  * @param url 图片URL
  * @param bucket 存储桶名称
  */
-export async function deleteImage(url: string, bucket: string = 'payment-proofs'): Promise<void> {
-  try {
-    // 从URL提取文件路径
-    const urlParts = url.split('/')
-    const bucketIndex = urlParts.indexOf(bucket)
-    if (bucketIndex === -1) {
-      throw new Error('Invalid URL: bucket not found')
-    }
-    const filePath = urlParts.slice(bucketIndex + 1).join('/')
-
-    const { error } = await supabase.storage
-      .from(bucket)
-      .remove([filePath])
-
-    if (error) {
-      throw error
-    }
-  } catch (error) {
-    console.error('[deleteImage] 删除失败:', error)
-    throw new Error('图片删除失败')
-  }
+export async function deleteImage(_url: string, _bucket: string = 'payment-proofs'): Promise<void> {
+  // 安全修复: 图片删除操作应通过服务端处理
+  // 当前版本中图片删除不影响业务流程，后续可通过 Edge Function 实现
+  console.warn('[deleteImage] 图片删除已暂时禁用，待服务端实现')
 }

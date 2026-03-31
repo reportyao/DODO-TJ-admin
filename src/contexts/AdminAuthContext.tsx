@@ -1,6 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useSupabase } from './SupabaseContext';
 import { sha256 } from '../utils/sha256';
+import {
+  adminLogin as apiLogin,
+  adminLogout as apiLogout,
+  adminGetPermissions,
+  getSessionToken,
+  clearSessionToken,
+} from '../lib/adminApi';
 
 interface AdminUser {
   id: string;
@@ -25,23 +32,32 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   const [admin, setAdmin] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // 从localStorage恢复登录状态
-  // 从localStorage恢复登录状态
+  // 从localStorage恢复登录状态，并通过RPC验证session有效性
   useEffect(() => {
     const initAuth = async () => {
       const storedAdmin = localStorage.getItem('admin_user');
-      if (storedAdmin) {
+      const sessionToken = getSessionToken();
+
+      if (storedAdmin && sessionToken) {
         try {
           const adminData = JSON.parse(storedAdmin);
-          await loadAdminPermissions(adminData); // 等待权限加载完成
+          // 通过 RPC 验证 session 是否仍然有效，并加载最新权限
+          const permData = await adminGetPermissions(supabase);
+          setAdmin({
+            ...adminData,
+            role: permData.role,
+            permissions: permData.permissions || [],
+          });
         } catch (error) {
           console.error('Failed to restore admin session:', error);
+          // session 无效，清理本地状态
           localStorage.removeItem('admin_user');
+          clearSessionToken();
         }
       }
-      setLoading(false); // 在所有异步操作完成后再结束加载状态
+      setLoading(false);
     };
-    
+
     initAuth();
   }, []);
 
@@ -120,127 +136,33 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     'permission.manage': ['/permission-management'],
   };
 
-  // 加载管理员权限
-  const loadAdminPermissions = async (adminData: any) => {
-    try {
-      const { data: rolePermData, error } = await supabase
-        .from('role_permissions')
-        .select('permissions')
-        .eq('role', adminData.role)
-        .maybeSingle();
-
-      // maybeSingle() 返回 null 而不是 406 错误，当记录不存在时不抛出异常
-      if (error) {throw error;}
-
-      // permissions是JSONB数组，如 ["users.view", "lotteries.view"]
-      const permissionIds = rolePermData?.permissions || [];
-      
-      setAdmin({
-        ...adminData,
-        permissions: permissionIds
-      });
-    } catch (error) {
-      console.error('Failed to load permissions:', error);
-      setAdmin({
-        ...adminData,
-        permissions: []
-      });
-    }
-  };
-
-  // 登录
+  // 登录 - 通过 Security Definer RPC 函数执行
   const login = async (username: string, password: string) => {
-    const MAX_ATTEMPTS = 5;
-    const LOCKOUT_MINUTES = 15;
-
     try {
-      // 查询管理员账户（含密码哈希、失败计数、锁定时间）
-      const { data: adminUser, error } = await supabase
-        .from('admin_users')
-        .select('id, username, display_name, role, status, password_hash, failed_login_attempts, locked_until')
-        .eq('username', username)
-        .single();
+      // 对密码做 SHA-256 哈希
+      const passwordHash = sha256(password);
 
-      if (error || !adminUser) {
-        throw new Error('用户名或密码错误');
-      }
+      // 调用 RPC 函数进行登录验证
+      const result = await apiLogin(supabase, username, passwordHash);
 
-      if (adminUser.status !== 'active') {
-        throw new Error('账户已被禁用');
-      }
-
-      // 检查账户是否被锁定
-      if (adminUser.locked_until && new Date(adminUser.locked_until) > new Date()) {
-        const remainingMinutes = Math.ceil(
-          (new Date(adminUser.locked_until).getTime() - Date.now()) / 60000
-        );
-        throw new Error(`账户已被临时锁定，请 ${remainingMinutes} 分钟后再试`);
-      }
-
-      // 校验密码：对输入密码做 SHA-256 哈希后与数据库中的哈希比对
-      const inputHash = sha256(password);
-      if (adminUser.password_hash && inputHash !== adminUser.password_hash) {
-        // 密码错误：增加失败计数
-        const newAttempts = (adminUser.failed_login_attempts || 0) + 1;
-        const updateData: Record<string, unknown> = { failed_login_attempts: newAttempts };
-
-        if (newAttempts >= MAX_ATTEMPTS) {
-          // 达到最大失败次数，锁定账户
-          updateData.locked_until = new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000).toISOString();
-          updateData.failed_login_attempts = 0; // 重置计数器
-        }
-
-        await supabase.from('admin_users').update(updateData).eq('id', adminUser.id);
-
-        if (newAttempts >= MAX_ATTEMPTS) {
-          throw new Error(`密码错误次数过多，账户已被锁定 ${LOCKOUT_MINUTES} 分钟`);
-        }
-        const remaining = MAX_ATTEMPTS - newAttempts;
-        throw new Error(`用户名或密码错误，还剩 ${remaining} 次尝试机会`);
-      }
-
-      // 登录成功：重置失败计数和锁定状态
-      await supabase
-        .from('admin_users')
-        .update({
-          last_login_at: new Date().toISOString(),
-          failed_login_attempts: 0,
-          locked_until: null
-        })
-        .eq('id', adminUser.id);
-
-      // 记录登录日志
-      await supabase
-        .from('admin_audit_logs')
-        .insert({
-          admin_id: adminUser.id,
-          action: 'login'
-        });
-
-      // 保存到localStorage（不保存密码哈希）
-      const { password_hash: _, failed_login_attempts: __, locked_until: ___, ...adminUserSafe } = adminUser;
-      localStorage.setItem('admin_user', JSON.stringify(adminUserSafe));
+      // 保存管理员信息到 localStorage
+      localStorage.setItem('admin_user', JSON.stringify(result.admin));
 
       // 加载权限
-      await loadAdminPermissions(adminUserSafe);
+      const permData = await adminGetPermissions(supabase);
+
+      setAdmin({
+        ...result.admin,
+        permissions: permData.permissions || [],
+      });
     } catch (error: any) {
       throw new Error(error.message || '登录失败');
     }
   };
 
-  // 登出
+  // 登出 - 通过 RPC 函数使 session 失效
   const logout = () => {
-    if (admin) {
-      // 记录登出日志
-      supabase
-        .from('admin_audit_logs')
-        .insert({
-          admin_id: admin.id,
-          action: 'logout'
-        });
-    }
-
-    localStorage.removeItem('admin_user');
+    apiLogout(supabase);
     setAdmin(null);
   };
 
@@ -248,10 +170,10 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   const hasPermission = (pagePath: string): boolean => {
     if (!admin) {return false;}
     if (admin.role === 'super_admin') {return true;}
-    
+
     // 根目录总是允许访问
     if (pagePath === '/') {return true;}
-    
+
     // 查找哪些权限ID对应这个页面路径
     for (const [permId, paths] of Object.entries(PERMISSION_TO_PATH_MAP)) {
       if (paths.some(p => pagePath.startsWith(p))) {
@@ -260,7 +182,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-    
+
     return false;
   };
 

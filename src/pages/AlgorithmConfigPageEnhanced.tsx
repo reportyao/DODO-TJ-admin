@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Plus, Edit, Trash2, Check, X, TestTube } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { adminQuery, adminUpdate } from '../lib/adminApi';
 import toast from 'react-hot-toast';
 
 interface DrawAlgorithm {
@@ -39,12 +40,11 @@ export default function AlgorithmConfigPageEnhanced() {
   const loadAlgorithms = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('draw_algorithms')
-        .select('*')
-        .order('created_at', { ascending: true });
-
-      if (error) {throw error;}
+      const data = await adminQuery<DrawAlgorithm>(supabase, 'draw_algorithms', {
+        select: '*',
+        orderBy: 'created_at',
+        orderAsc: true,
+      });
       setAlgorithms(data || []);
     } catch (error: any) {
       console.error('加载算法失败:', error);
@@ -58,25 +58,28 @@ export default function AlgorithmConfigPageEnhanced() {
     try {
       // 如果设置为默认，必须先取消其他算法的默认状态（防止多个默认算法并存）
       if (algorithm.is_default) {
-        const { error: clearError } = await supabase
-          .from('draw_algorithms')
-          .update({ is_default: false, updated_at: new Date().toISOString() })
-          .neq('id', algorithm.id);
-        if (clearError) {throw clearError;}
+        // 取消其他算法的默认状态（通过查询+更新）
+        const allAlgos = await adminQuery<DrawAlgorithm>(supabase, 'draw_algorithms', { select: '*' });
+        for (const algo of allAlgos) {
+          if (algo.id !== algorithm.id && algo.is_default) {
+            await adminUpdate(supabase, 'draw_algorithms', 
+              { is_default: 'false', updated_at: new Date().toISOString() },
+              [{ col: 'id', op: 'eq', val: algo.id }]
+            );
+          }
+        }
       }
 
-      const { error } = await supabase
-        .from('draw_algorithms')
-        .update({
-          display_name_i18n: algorithm.display_name_i18n,
-          description_i18n: algorithm.description_i18n,
-          formula_i18n: algorithm.formula_i18n,
-          is_active: algorithm.is_active,
-          is_default: algorithm.is_default,
-          config: algorithm.config,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', algorithm.id);
+      await adminUpdate(supabase, 'draw_algorithms', {
+        display_name_i18n: JSON.stringify(algorithm.display_name_i18n),
+        description_i18n: JSON.stringify(algorithm.description_i18n),
+        formula_i18n: JSON.stringify(algorithm.formula_i18n),
+        is_active: String(algorithm.is_active),
+        is_default: String(algorithm.is_default),
+        config: JSON.stringify(algorithm.config),
+        updated_at: new Date().toISOString()
+      }, [{ col: 'id', op: 'eq', val: algorithm.id }]);
+      const error = null;
 
       if (error) {throw error;}
 

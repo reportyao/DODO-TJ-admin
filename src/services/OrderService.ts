@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { adminQuery, adminUpdate } from '@/lib/adminApi';
 
 export interface FullPurchaseOrderDetails {
   id: string;
@@ -43,23 +44,55 @@ export const OrderService = {
    * 获取全款购买订单详情（full_purchase_orders 表）
    */
   async getOrderDetails(orderId: string): Promise<FullPurchaseOrderDetails | null> {
-    const { data, error } = await supabase
-      .from('full_purchase_orders')
-      .select(`
-        *,
-        user:users(id, display_name, phone_number),
-        lottery:lotteries(id, title_i18n, image_urls, period),
-        pickup_point:pickup_points(id, name, address)
-      `)
-      .eq('id', orderId)
-      .single();
+    // 安全修复: 通过 RPC 查询，并手动关联用户、商品、取货点信息
+    const orders = await adminQuery<any>(supabase, 'full_purchase_orders', {
+      select: '*',
+      filters: [{ col: 'id', op: 'eq', val: orderId }],
+      limit: 1,
+    });
+    if (!orders || orders.length === 0) return null;
+    const order = orders[0];
 
-    if (error) {
-      if (error.code === 'PGRST116') return null;
-      throw error;
+    // 关联查询用户信息
+    let user = null;
+    if (order.user_id) {
+      const users = await adminQuery<any>(supabase, 'users', {
+        select: '*',
+        filters: [{ col: 'id', op: 'eq', val: order.user_id }],
+        limit: 1,
+      });
+      if (users.length > 0) {
+        user = { id: users[0].id, display_name: users[0].display_name, phone_number: users[0].phone_number };
+      }
     }
 
-    return data as FullPurchaseOrderDetails;
+    // 关联查询商品信息
+    let lottery = null;
+    if (order.lottery_id) {
+      const lotteries = await adminQuery<any>(supabase, 'lotteries', {
+        select: '*',
+        filters: [{ col: 'id', op: 'eq', val: order.lottery_id }],
+        limit: 1,
+      });
+      if (lotteries.length > 0) {
+        lottery = { id: lotteries[0].id, title_i18n: lotteries[0].title_i18n, image_urls: lotteries[0].image_urls, period: lotteries[0].period };
+      }
+    }
+
+    // 关联查询取货点信息
+    let pickup_point = null;
+    if (order.pickup_point_id) {
+      const points = await adminQuery<any>(supabase, 'pickup_points', {
+        select: '*',
+        filters: [{ col: 'id', op: 'eq', val: order.pickup_point_id }],
+        limit: 1,
+      });
+      if (points.length > 0) {
+        pickup_point = { id: points[0].id, name: points[0].name, address: points[0].address };
+      }
+    }
+
+    return { ...order, user, lottery, pickup_point } as FullPurchaseOrderDetails;
   },
 
   /**
@@ -78,33 +111,27 @@ export const OrderService = {
     };
     if (updates?.logistics_status) updateData.logistics_status = updates.logistics_status;
 
-    const { error } = await supabase
-      .from('full_purchase_orders')
-      .update(updateData)
-      .eq('id', orderId);
-
-    if (error) throw error;
+    await adminUpdate(supabase, 'full_purchase_orders', updateData, [
+      { col: 'id', op: 'eq', val: orderId }
+    ]);
   },
 
   /**
    * 更新物流信息（存入 metadata.tracking_info）
    */
   async updateTrackingInfo(orderId: string, trackingInfo: string): Promise<void> {
-    const { data: existing, error: fetchErr } = await supabase
-      .from('full_purchase_orders')
-      .select('metadata')
-      .eq('id', orderId)
-      .single();
-
-    if (fetchErr) throw fetchErr;
-
+    // 先查询现有 metadata
+    const orders = await adminQuery<any>(supabase, 'full_purchase_orders', {
+      select: '*',
+      filters: [{ col: 'id', op: 'eq', val: orderId }],
+      limit: 1,
+    });
+    const existing = orders[0];
     const newMetadata = { ...(existing?.metadata || {}), tracking_info: trackingInfo };
 
-    const { error } = await supabase
-      .from('full_purchase_orders')
-      .update({ metadata: newMetadata, updated_at: new Date().toISOString() })
-      .eq('id', orderId);
-
-    if (error) throw error;
+    await adminUpdate(supabase, 'full_purchase_orders', 
+      { metadata: JSON.stringify(newMetadata), updated_at: new Date().toISOString() },
+      [{ col: 'id', op: 'eq', val: orderId }]
+    );
   },
 };

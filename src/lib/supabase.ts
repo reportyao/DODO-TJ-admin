@@ -1,32 +1,40 @@
 /**
  * 全局 Supabase 客户端（供非 React 组件使用，如 Service 层、工具函数）
  *
- * 此文件使用模块级单例，与 SupabaseContext 共享同一个 storageKey，
- * 避免 "Multiple GoTrueClient instances" 警告。
+ * 安全修复: 仅使用 Anon Key，不再暴露 Service Role Key。
+ * 所有需要提权的操作通过 Security Definer RPC 函数执行。
  * React 组件应优先通过 useSupabase() hook 获取客户端。
  */
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { createSupabaseProxy } from './supabaseProxy'
 
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || ''
-const supabaseServiceRoleKey = (import.meta as any).env.VITE_SUPABASE_SERVICE_ROLE_KEY || ''
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || ''
 
 // 模块级单例：确保整个应用只有一个 GoTrueClient 实例
-let _instance: SupabaseClient | null = null
+let _rawInstance: SupabaseClient | null = null
+let _proxyInstance: SupabaseClient | null = null
 
-function getInstance(): SupabaseClient {
-  if (!_instance) {
-    _instance = createClient(supabaseUrl, supabaseServiceRoleKey || supabaseAnonKey, {
+function getRawInstance(): SupabaseClient {
+  if (!_rawInstance) {
+    _rawInstance = createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
         detectSessionInUrl: false,
-        // 与 SupabaseContext 使用相同的 storageKey，避免多实例冲突
         storageKey: 'admin-supabase-auth'
       }
     })
   }
-  return _instance
+  return _rawInstance
 }
 
-export const supabase = getInstance()
+function getProxyInstance(): SupabaseClient {
+  if (!_proxyInstance) {
+    _proxyInstance = createSupabaseProxy(getRawInstance())
+  }
+  return _proxyInstance
+}
+
+// 导出代理客户端，所有 .from() 调用自动转发到 RPC
+export const supabase = getProxyInstance()

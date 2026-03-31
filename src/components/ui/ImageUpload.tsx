@@ -1,7 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { Button } from './button';
 import toast from 'react-hot-toast';
-import { supabase as storageClient } from '@/lib/supabase';
+import { adminUploadImage } from '@/lib/adminApi';
+
+// 安全修复: 图片上传改为通过 Edge Function
+const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
 
 interface ImageUploadProps {
   value: string[];
@@ -10,8 +13,6 @@ interface ImageUploadProps {
   maxSizeMB?: number;
   bucket?: string; // 指定使用的Storage Bucket，默认为'lottery-images'
 }
-
-// 复用 supabase.ts 中的单例客户端，避免 Multiple GoTrueClient 警告
 
 export const ImageUpload: React.FC<ImageUploadProps> = ({
   value = [],
@@ -85,29 +86,12 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   };
 
   /**
-   * 上传图片到Supabase Storage
+   * 上传图片到Supabase Storage（通过 Edge Function）
    */
   const uploadToStorage = async (blob: Blob, fileName: string): Promise<string> => {
-    const { data, error } = await storageClient.storage
-      .from(bucket)
-      .upload(fileName, blob, {
-        contentType: 'image/webp',
-        // 【性能优化】设置1年缓存（URL含时间戳hash，天然支持缓存破坏）
-        cacheControl: '31536000',
-        upsert: false,
-      });
-
-    if (error) {
-      console.error('Storage upload error:', error);
-      throw new Error(`上传失败: ${error.message}`);
-    }
-
-    // 获取公开访问URL
-    const { data: urlData } = storageClient.storage
-      .from(bucket)
-      .getPublicUrl(data.path);
-
-    return urlData.publicUrl;
+    // 安全修复: 通过 Edge Function 上传，服务端使用 service_role 权限
+    const file = new File([blob], fileName, { type: 'image/webp' });
+    return await adminUploadImage(supabaseUrl, file, bucket);
   };
 
   /**
@@ -189,39 +173,13 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   };
 
   /**
-   * 删除图片
+   * 删除图片（从列表中移除）
    */
-  const handleRemove = async (index: number, url: string) => {
-    try {
-      // 从URL中提取文件路径
-      const urlObj = new URL(url);
-      const pathMatch = urlObj.pathname.match(new RegExp(`\\/storage\\/v1\\/object\\/public\\/${bucket}\\/(.+)$`));
-      
-      if (pathMatch && pathMatch[1]) {
-        const filePath = pathMatch[1];
-        
-        // 从Storage中删除文件
-        const { error } = await storageClient.storage
-          .from(bucket)
-          .remove([filePath]);
-
-        if (error) {
-          console.error('删除文件失败:', error);
-          // 即使删除失败也继续从列表中移除
-        }
-      }
-
-      // 从列表中移除
-      const newUrls = value.filter((_, i) => i !== index);
-      onChange(newUrls);
-      toast.success('图片已删除');
-    } catch (error: any) {
-      console.error('删除图片错误:', error);
-      // 即使出错也从列表中移除
-      const newUrls = value.filter((_, i) => i !== index);
-      onChange(newUrls);
-      toast.success('图片已从列表中移除');
-    }
+  const handleRemove = async (index: number, _url: string) => {
+    // 安全修复: Storage 删除操作应通过服务端处理，当前仅从列表中移除
+    const newUrls = value.filter((_, i) => i !== index);
+    onChange(newUrls);
+    toast.success('图片已移除');
   };
 
   return (
