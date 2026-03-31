@@ -50,3 +50,4 @@ test-results/
 # Scaffold remnants (not used by this project)
 server/
 shared/
+test_security_fix*.ts

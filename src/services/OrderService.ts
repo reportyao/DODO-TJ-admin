@@ -130,7 +130,7 @@ export const OrderService = {
     const newMetadata = { ...(existing?.metadata || {}), tracking_info: trackingInfo };
 
     await adminUpdate(supabase, 'full_purchase_orders', 
-      { metadata: JSON.stringify(newMetadata), updated_at: new Date().toISOString() },
+      { metadata: newMetadata, updated_at: new Date().toISOString() },
       [{ col: 'id', op: 'eq', val: orderId }]
     );
   },

@@ -5,6 +5,10 @@
  * 不再在前端使用 Service Role Key。
  * 
  * 管理员通过 session_token 认证，token 存储在 localStorage 中。
+ * 
+ * [v2 修复] 
+ *   - p_filters / p_data 直接传 JS 对象，不再 JSON.stringify（Supabase JS 客户端自动序列化）
+ *   - adminUploadImage 添加 Authorization header
  */
 import { SupabaseClient } from '@supabase/supabase-js'
 
@@ -93,7 +97,7 @@ export async function adminGetPermissions(
 
 export interface QueryFilter {
   col: string
-  op: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'ilike' | 'is_null' | 'is_not_null'
+  op: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'ilike' | 'is_null' | 'is_not_null' | 'in'
   val?: string
 }
 
@@ -107,6 +111,7 @@ export async function adminQuery<T = any>(
     orderAsc?: boolean
     limit?: number
     offset?: number
+    orFilters?: string
   } = {}
 ): Promise<T[]> {
   const token = requireSessionToken()
@@ -114,11 +119,13 @@ export async function adminQuery<T = any>(
     p_session_token: token,
     p_table: table,
     p_select: options.select || '*',
-    p_filters: JSON.stringify(options.filters || []),
+    p_filters: options.filters || [],  // [修复 A1] 直接传对象
     p_order_by: options.orderBy || null,
     p_order_asc: options.orderAsc ?? false,
     p_limit: options.limit ?? null,
     p_offset: options.offset ?? null,
+    p_or_filters: options.orFilters || null,
+    p_head: false,
   })
   if (error) {
     if (error.message?.includes('ADMIN_AUTH_FAILED')) {
@@ -136,13 +143,15 @@ export async function adminQuery<T = any>(
 export async function adminCount(
   supabase: SupabaseClient,
   table: string,
-  filters: QueryFilter[] = []
+  filters: QueryFilter[] = [],
+  orFilters?: string
 ): Promise<number> {
   const token = requireSessionToken()
   const { data, error } = await supabase.rpc('admin_count', {
     p_session_token: token,
     p_table: table,
-    p_filters: JSON.stringify(filters),
+    p_filters: filters,  // [修复 A1] 直接传对象
+    p_or_filters: orFilters || null,
   })
   if (error) {
     if (error.message?.includes('ADMIN_AUTH_FAILED')) {
@@ -171,8 +180,8 @@ export async function adminInsert<T = any>(
     p_session_token: token,
     p_action: 'insert',
     p_table: table,
-    p_data: JSON.stringify(data_obj),
-    p_filters: '[]',
+    p_data: data_obj,  // [修复 A2] 直接传对象
+    p_filters: [],
   })
   if (error) {
     if (error.message?.includes('ADMIN_AUTH_FAILED')) {
@@ -197,8 +206,8 @@ export async function adminUpdate<T = any>(
     p_session_token: token,
     p_action: 'update',
     p_table: table,
-    p_data: JSON.stringify(data_obj),
-    p_filters: JSON.stringify(filters),
+    p_data: data_obj,  // [修复 A2] 直接传对象
+    p_filters: filters,
   })
   if (error) {
     if (error.message?.includes('ADMIN_AUTH_FAILED')) {
@@ -222,7 +231,7 @@ export async function adminDelete(
     p_session_token: token,
     p_action: 'delete',
     p_table: table,
-    p_filters: JSON.stringify(filters),
+    p_filters: filters,  // [修复 A1] 直接传对象
   })
   if (error) {
     if (error.message?.includes('ADMIN_AUTH_FAILED')) {
@@ -263,6 +272,7 @@ export async function adminRpc<T = any>(
 
 // ============================================================
 // Storage 上传（通过 Edge Function）
+// [修复 A3] 添加 Authorization header
 // ============================================================
 
 export async function adminUploadImage(
@@ -272,6 +282,8 @@ export async function adminUploadImage(
   folder?: string
 ): Promise<string> {
   const token = requireSessionToken()
+  const anonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || ''
+
   const formData = new FormData()
   formData.append('file', file)
   formData.append('bucket', bucket)
@@ -281,6 +293,8 @@ export async function adminUploadImage(
     method: 'POST',
     headers: {
       'x-admin-session-token': token,
+      'Authorization': `Bearer ${anonKey}`,  // [修复 A3] Supabase 网关需要此 header
+      'apikey': anonKey,                      // [修复 A3] 备用认证 header
     },
     body: formData,
   })

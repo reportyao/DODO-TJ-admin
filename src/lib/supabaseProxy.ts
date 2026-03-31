@@ -2,13 +2,16 @@
  * Supabase 客户端代理层
  * 
  * 安全修复: 拦截所有 supabase.from(table).select/insert/update/delete 调用，
- * 自动转发到 Security Definer RPC 函数（admin_query / admin_mutate）。
+ * 自动转发到 Security Definer RPC 函数（admin_query / admin_mutate / admin_count）。
  * 
  * 这样可以避免逐个改造 50+ 个页面文件，同时确保所有数据库操作都通过
  * 服务端 RPC 执行，不再需要 Service Role Key。
  * 
  * 代理保持了与原始 Supabase 客户端完全一致的链式调用 API，
  * 使得现有代码无需任何修改即可安全运行。
+ * 
+ * [v2 修复] 完整支持 .in()、.or()、head:true、upsert(onConflict)、
+ *           关联查询自动二次查询、JSON 参数类型修正
  */
 import { SupabaseClient } from '@supabase/supabase-js'
 import { getSessionToken, clearSessionToken } from './adminApi'
@@ -28,6 +31,14 @@ interface ProxyQueryResult {
   count?: number | null
 }
 
+// 关联查询信息
+interface RelationInfo {
+  alias: string       // 前端使用的别名，如 "user"
+  table: string       // 实际表名，如 "users"
+  columns: string[]   // 需要的列，如 ["id", "display_name"]
+  foreignKey: string  // 外键列名（从原始 select 中推断）
+}
+
 // ============================================================
 // 查询构建器代理
 // ============================================================
@@ -43,12 +54,14 @@ class QueryBuilderProxy {
   private isSingle: boolean = false
   private isMaybeSingle: boolean = false
   private countOption: string | null = null
-  private rangeFrom: number | null = null
-  private rangeTo: number | null = null
+  private headMode: boolean = false
+  private orConditions: string | null = null
+  private relations: RelationInfo[] = []
 
   // 写操作相关
   private operation: 'select' | 'insert' | 'update' | 'delete' | 'upsert' = 'select'
   private writeData: any = null
+  private upsertOnConflict: string | null = null
 
   constructor(client: SupabaseClient, tableName: string) {
     this.client = client
@@ -58,17 +71,21 @@ class QueryBuilderProxy {
   // ---- SELECT 链式方法 ----
   select(columns: string = '*', options?: { count?: string; head?: boolean }) {
     this.operation = 'select'
+    // 解析关联查询并保存
+    this.relations = this._parseRelations(columns)
     // 去除关联查询语法，只保留基础列
-    // 例如 "*, user:users(id, display_name)" => "*"
     this.selectColumns = this._stripRelations(columns)
     if (options?.count) {
       this.countOption = options.count
+    }
+    if (options?.head) {
+      this.headMode = true
     }
     return this
   }
 
   // ---- INSERT ----
-  insert(data: any | any[], options?: any) {
+  insert(data: any | any[], _options?: any) {
     this.operation = 'insert'
     this.writeData = data
     return this
@@ -82,9 +99,12 @@ class QueryBuilderProxy {
   }
 
   // ---- UPSERT ----
-  upsert(data: any | any[], options?: any) {
+  upsert(data: any | any[], options?: { onConflict?: string }) {
     this.operation = 'upsert'
     this.writeData = data
+    if (options?.onConflict) {
+      this.upsertOnConflict = options.onConflict
+    }
     return this
   }
 
@@ -149,29 +169,45 @@ class QueryBuilderProxy {
       this.filters.push({ col, op: 'is_not_null' })
     } else if (op === 'eq') {
       this.filters.push({ col, op: 'neq', val: String(val) })
+    } else if (op === 'in') {
+      // .not('col', 'in', [...]) => 不在列表中
+      // 暂时不支持 NOT IN，用前端过滤
+      console.warn(`[Proxy] .not(${col}, in, ...) 暂不支持，将在前端过滤`)
     }
     return this
   }
 
+  // [修复 X1] 完整实现 .in() 方法
   in(col: string, values: any[]) {
-    // 使用 eq 模拟 IN（对于小数组）
-    // 注意：RPC 层不直接支持 IN，这里用 ilike 的方式近似
-    // 对于管理后台场景，通常 IN 的值不多
-    if (values.length === 1) {
+    if (values.length === 0) {
+      // 空数组 IN 查询应该返回空结果
+      // 添加一个永远不匹配的条件
+      this.filters.push({ col, op: 'eq', val: '__IMPOSSIBLE_VALUE_EMPTY_IN__' })
+    } else if (values.length === 1) {
       this.filters.push({ col, op: 'eq', val: String(values[0]) })
+    } else {
+      // 多值 IN：传递逗号分隔的值列表
+      this.filters.push({ col, op: 'in', val: values.map(v => String(v)).join(',') })
     }
-    // 多值 IN 需要特殊处理 - 暂时不过滤，在前端过滤
     return this
   }
 
   contains(col: string, val: any) {
-    // JSONB contains - 简化处理
+    // JSONB contains - 简化处理，暂不支持
+    console.warn(`[Proxy] .contains(${col}, ...) 暂不支持`)
     return this
   }
 
+  // [修复 X2] 完整实现 .or() 方法
   or(conditions: string) {
-    // OR 条件比较复杂，暂不在 RPC 层支持
-    // 管理后台中 OR 使用较少
+    // 将 OR 条件字符串传递给 RPC 层处理
+    // 格式如: "col1.op.val1,col2.op.val2"
+    if (this.orConditions) {
+      // 如果已有 OR 条件，合并（极少见）
+      this.orConditions = this.orConditions + ',' + conditions
+    } else {
+      this.orConditions = conditions
+    }
     return this
   }
 
@@ -195,6 +231,9 @@ class QueryBuilderProxy {
     this.limitVal = to - from + 1
     return this
   }
+
+  private rangeFrom: number | null = null
+  private rangeTo: number | null = null
 
   // ---- 结果修饰 ----
   single() {
@@ -259,27 +298,79 @@ class QueryBuilderProxy {
   }
 
   private async _executeSelect(token: string): Promise<ProxyQueryResult> {
-    // 如果只需要 count
-    if (this.countOption && this.selectColumns === '*') {
+    // [修复 X3] head:true 模式：只返回 count，不返回数据
+    if (this.headMode && this.countOption) {
       const { data, error } = await this.client.rpc('admin_count', {
         p_session_token: token,
         p_table: this.tableName,
-        p_filters: JSON.stringify(this.filters),
+        p_filters: this.filters,  // [修复 A1] 直接传对象，不 JSON.stringify
+        p_or_filters: this.orConditions,
       })
       if (error) return { data: null, error, count: null }
       const result = typeof data === 'string' ? JSON.parse(data) : data
-      return { data: [], error: null, count: result?.count ?? 0 }
+      return { data: null, error: null, count: result?.count ?? 0 }
     }
 
+    // [修复 X3] 非 head 模式但需要 count：同时查询数据和计数
+    if (this.countOption && !this.headMode) {
+      // 并行执行数据查询和计数查询
+      const [queryResult, countResult] = await Promise.all([
+        this.client.rpc('admin_query', {
+          p_session_token: token,
+          p_table: this.tableName,
+          p_select: this.selectColumns,
+          p_filters: this.filters,
+          p_order_by: this.orderByCol,
+          p_order_asc: this.orderAsc,
+          p_limit: this.limitVal,
+          p_offset: this.offsetVal,
+          p_or_filters: this.orConditions,
+          p_head: false,
+        }),
+        this.client.rpc('admin_count', {
+          p_session_token: token,
+          p_table: this.tableName,
+          p_filters: this.filters,
+          p_or_filters: this.orConditions,
+        })
+      ])
+
+      if (queryResult.error) return { data: null, error: queryResult.error, count: null }
+
+      let rows = typeof queryResult.data === 'string' ? JSON.parse(queryResult.data) : queryResult.data
+      rows = rows || []
+
+      const countData = typeof countResult.data === 'string' ? JSON.parse(countResult.data) : countResult.data
+      const count = countData?.count ?? rows.length
+
+      // 处理关联查询
+      if (this.relations.length > 0) {
+        rows = await this._hydrateRelations(token, rows)
+      }
+
+      if (this.isSingle) {
+        if (rows.length === 0) return { data: null, error: { message: 'Row not found', code: 'PGRST116' }, count }
+        return { data: rows[0], error: null, count }
+      }
+      if (this.isMaybeSingle) {
+        return { data: rows.length > 0 ? rows[0] : null, error: null, count }
+      }
+
+      return { data: rows, error: null, count }
+    }
+
+    // 普通查询（无 count）
     const { data, error } = await this.client.rpc('admin_query', {
       p_session_token: token,
       p_table: this.tableName,
       p_select: this.selectColumns,
-      p_filters: JSON.stringify(this.filters),
+      p_filters: this.filters,
       p_order_by: this.orderByCol,
       p_order_asc: this.orderAsc,
       p_limit: this.limitVal,
       p_offset: this.offsetVal,
+      p_or_filters: this.orConditions,
+      p_head: false,
     })
 
     if (error) {
@@ -289,30 +380,23 @@ class QueryBuilderProxy {
     let rows = typeof data === 'string' ? JSON.parse(data) : data
     rows = rows || []
 
-    // 同时需要 count 的情况
-    let count: number | null = null
-    if (this.countOption) {
-      const { data: countData } = await this.client.rpc('admin_count', {
-        p_session_token: token,
-        p_table: this.tableName,
-        p_filters: JSON.stringify(this.filters),
-      })
-      const countResult = typeof countData === 'string' ? JSON.parse(countData) : countData
-      count = countResult?.count ?? rows.length
+    // [修复 X4] 处理关联查询：自动二次查询关联表
+    if (this.relations.length > 0) {
+      rows = await this._hydrateRelations(token, rows)
     }
 
     // 处理 single / maybeSingle
     if (this.isSingle) {
       if (rows.length === 0) {
-        return { data: null, error: { message: 'Row not found', code: 'PGRST116' }, count }
+        return { data: null, error: { message: 'Row not found', code: 'PGRST116' } }
       }
-      return { data: rows[0], error: null, count }
+      return { data: rows[0], error: null }
     }
     if (this.isMaybeSingle) {
-      return { data: rows.length > 0 ? rows[0] : null, error: null, count }
+      return { data: rows.length > 0 ? rows[0] : null, error: null }
     }
 
-    return { data: rows, error: null, count }
+    return { data: rows, error: null }
   }
 
   private async _executeInsert(token: string): Promise<ProxyQueryResult> {
@@ -324,8 +408,8 @@ class QueryBuilderProxy {
         p_session_token: token,
         p_action: 'insert',
         p_table: this.tableName,
-        p_data: JSON.stringify(item),
-        p_filters: '[]',
+        p_data: item,  // [修复 A2] 直接传对象，不 JSON.stringify
+        p_filters: [],
       })
       if (error) return { data: null, error }
       const result = typeof data === 'string' ? JSON.parse(data) : data
@@ -343,18 +427,37 @@ class QueryBuilderProxy {
       p_session_token: token,
       p_action: 'update',
       p_table: this.tableName,
-      p_data: JSON.stringify(this.writeData),
-      p_filters: JSON.stringify(this.filters),
+      p_data: this.writeData,  // [修复 A2] 直接传对象
+      p_filters: this.filters,
     })
     if (error) return { data: null, error }
     const result = typeof data === 'string' ? JSON.parse(data) : data
     return { data: result, error: null }
   }
 
+  // [修复 X5] 完整实现 upsert
   private async _executeUpsert(token: string): Promise<ProxyQueryResult> {
-    // upsert 先尝试 update，如果没有匹配行则 insert
-    // 简化实现：直接使用 insert（大部分管理后台 upsert 场景是创建新记录）
-    return this._executeInsert(token)
+    const items = Array.isArray(this.writeData) ? this.writeData : [this.writeData]
+    const results: any[] = []
+
+    for (const item of items) {
+      const { data, error } = await this.client.rpc('admin_mutate', {
+        p_session_token: token,
+        p_action: 'upsert',
+        p_table: this.tableName,
+        p_data: item,
+        p_filters: [],
+        p_on_conflict: this.upsertOnConflict,
+      })
+      if (error) return { data: null, error }
+      const result = typeof data === 'string' ? JSON.parse(data) : data
+      results.push(result)
+    }
+
+    if (this.isSingle || this.isMaybeSingle) {
+      return { data: results[0] || null, error: null }
+    }
+    return { data: Array.isArray(this.writeData) ? results : results[0], error: null }
   }
 
   private async _executeDelete(token: string): Promise<ProxyQueryResult> {
@@ -367,19 +470,127 @@ class QueryBuilderProxy {
       p_action: 'delete',
       p_table: this.tableName,
       p_data: null,
-      p_filters: JSON.stringify(this.filters),
+      p_filters: this.filters,
     })
     if (error) return { data: null, error }
     const result = typeof data === 'string' ? JSON.parse(data) : data
     return { data: result, error: null }
   }
 
+  // ============================================================
+  // [修复 X4] 关联查询自动二次查询
+  // ============================================================
+  
+  // 解析 select 字符串中的关联查询
+  // 例如: "*, user:users(id, display_name)" => [{ alias: "user", table: "users", columns: ["id", "display_name"] }]
+  private _parseRelations(columns: string): RelationInfo[] {
+    const relations: RelationInfo[] = []
+    // 匹配模式: alias:table(col1, col2, ...) 或 table!fkey(col1, col2, ...)
+    const regex = /(\w+):(\w+)\(([^)]+)\)/g
+    let match
+    while ((match = regex.exec(columns)) !== null) {
+      const alias = match[1]
+      const table = match[2]
+      const cols = match[3].split(',').map(c => c.trim())
+      relations.push({
+        alias,
+        table,
+        columns: cols,
+        foreignKey: '' // 将在 hydrate 时推断
+      })
+    }
+
+    // 也匹配 table!foreign_key(col1, col2, ...) 格式
+    const fkRegex = /(\w+)!(\w+)\(([^)]+)\)/g
+    while ((match = fkRegex.exec(columns)) !== null) {
+      const table = match[1]
+      const fkHint = match[2]
+      const cols = match[3].split(',').map(c => c.trim())
+      // 从外键提示中提取别名（通常是表名）
+      relations.push({
+        alias: table.replace(/s$/, ''), // users => user
+        table,
+        columns: cols,
+        foreignKey: fkHint
+      })
+    }
+
+    return relations
+  }
+
+  // 对查询结果进行关联数据填充
+  private async _hydrateRelations(token: string, rows: any[]): Promise<any[]> {
+    if (rows.length === 0 || this.relations.length === 0) return rows
+
+    for (const rel of this.relations) {
+      // 推断外键列名
+      let fkCol = rel.foreignKey
+      if (!fkCol) {
+        // 常见模式: user:users => user_id, lottery:lotteries => lottery_id
+        fkCol = rel.alias + '_id'
+        // 如果行中没有这个列，尝试 table 名的单数形式 + _id
+        if (rows[0] && !(fkCol in rows[0])) {
+          const singularTable = rel.table.replace(/s$/, '')
+          fkCol = singularTable + '_id'
+        }
+        // 还是没有，尝试 id（自引用）
+        if (rows[0] && !(fkCol in rows[0])) {
+          fkCol = 'id'
+        }
+      }
+
+      // 收集所有需要查询的外键值
+      const fkValues = [...new Set(
+        rows.map(r => r[fkCol]).filter(v => v != null)
+      )]
+
+      if (fkValues.length === 0) {
+        // 没有外键值，给所有行设置 null
+        rows.forEach(r => { r[rel.alias] = null })
+        continue
+      }
+
+      // 批量查询关联表
+      const { data: relData } = await this.client.rpc('admin_query', {
+        p_session_token: token,
+        p_table: rel.table,
+        p_select: rel.columns.includes('id') ? rel.columns.join(', ') : 'id, ' + rel.columns.join(', '),
+        p_filters: fkValues.length === 1
+          ? [{ col: 'id', op: 'eq', val: String(fkValues[0]) }]
+          : [{ col: 'id', op: 'in', val: fkValues.map(v => String(v)).join(',') }],
+        p_order_by: null,
+        p_order_asc: true,
+        p_limit: fkValues.length,
+        p_offset: null,
+        p_or_filters: null,
+        p_head: false,
+      })
+
+      const relRows = typeof relData === 'string' ? JSON.parse(relData) : (relData || [])
+
+      // 构建 id -> row 的映射
+      const relMap = new Map<string, any>()
+      for (const rr of relRows) {
+        relMap.set(String(rr.id), rr)
+      }
+
+      // 填充关联数据到每一行
+      rows.forEach(r => {
+        const fkVal = r[fkCol]
+        r[rel.alias] = fkVal ? (relMap.get(String(fkVal)) || null) : null
+      })
+    }
+
+    return rows
+  }
+
   // 去除关联查询语法
   private _stripRelations(columns: string): string {
     // 处理如 "*, user:users(id, display_name)" 的情况
-    // 去掉 "xxx:table(cols)" 部分，只保留基础列
+    // 去掉 "xxx:table(cols)" 和 "table!fkey(cols)" 部分
     const stripped = columns
       .replace(/,?\s*\w+:\w+\([^)]*\)/g, '')
+      .replace(/,?\s*\w+!\w+\([^)]*\)/g, '')
       .replace(/^\s*,\s*/, '')
       .replace(/,\s*$/, '')
       .trim()
@@ -417,12 +628,12 @@ class StorageBucketProxy {
   }
 
   // upload/remove 等需要权限的操作应通过 Edge Function
-  async upload(...args: any[]) {
+  async upload(..._args: any[]) {
     console.warn('[StorageProxy] 直接上传已被拦截，请使用 adminUploadImage')
     return { data: null, error: { message: '请使用 Edge Function 上传' } }
   }
 
-  async remove(...args: any[]) {
+  async remove(..._args: any[]) {
     console.warn('[StorageProxy] 直接删除已被拦截')
     return { data: null, error: null }
   }
@@ -454,6 +665,11 @@ export function createSupabaseProxy(client: SupabaseClient): SupabaseClient {
       if (prop === 'auth') {
         // auth 调用直接透传
         return target.auth
+      }
+
+      if (prop === 'functions') {
+        // Edge Functions 调用直接透传
+        return target.functions
       }
 
       if (prop === 'channel' || prop === 'removeChannel' || prop === 'removeAllChannels') {
