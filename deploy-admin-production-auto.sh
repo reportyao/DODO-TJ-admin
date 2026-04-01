@@ -1,8 +1,8 @@
 #!/bin/bash
 # 管理后台生产环境自动化部署脚本
 # 用途：从GitHub拉取最新代码，构建并部署到生产环境
-# 作者：Manus AI
-# 日期：2026-01-21
+# 安全修复: 已移除 Service Role Key，管理后台仅使用 Anon Key + RPC 代理
+# 日期：2026-04-01 (安全架构更新)
 
 set -e  # 遇到错误立即退出
 
@@ -32,11 +32,11 @@ fi
 cd "$PROJECT_DIR"
 
 # 1. 检查Git状态
-echo -e "${YELLOW}[1/8] 检查Git状态...${NC}"
+echo -e "${YELLOW}[1/9] 检查Git状态...${NC}"
 git status
 
 # 2. 拉取最新代码
-echo -e "${YELLOW}[2/8] 拉取最新代码...${NC}"
+echo -e "${YELLOW}[2/9] 拉取最新代码...${NC}"
 git fetch origin
 git checkout "$BRANCH"
 git pull origin "$BRANCH"
@@ -45,7 +45,7 @@ CURRENT_COMMIT=$(git rev-parse --short HEAD)
 echo -e "${GREEN}当前提交: $CURRENT_COMMIT${NC}"
 
 # 3. 使用生产环境变量
-echo -e "${YELLOW}[3/8] 配置生产环境变量...${NC}"
+echo -e "${YELLOW}[3/9] 配置生产环境变量...${NC}"
 if [ ! -f ".env.production" ]; then
     echo -e "${RED}错误: .env.production 文件不存在${NC}"
     exit 1
@@ -54,7 +54,7 @@ cp .env.production .env
 echo -e "${GREEN}已复制 .env.production 到 .env${NC}"
 
 # 4. 安装依赖（如果需要）
-echo -e "${YELLOW}[4/8] 检查依赖...${NC}"
+echo -e "${YELLOW}[4/9] 检查依赖...${NC}"
 if [ ! -d "node_modules" ] || [ "package.json" -nt "node_modules" ]; then
     echo "安装依赖..."
     npm install
@@ -63,7 +63,7 @@ else
 fi
 
 # 5. 构建项目
-echo -e "${YELLOW}[5/8] 构建项目...${NC}"
+echo -e "${YELLOW}[5/9] 构建项目...${NC}"
 npm run build
 
 # 检查构建是否成功
@@ -72,8 +72,19 @@ if [ ! -d "dist" ]; then
     exit 1
 fi
 
-# 6. 备份当前部署
-echo -e "${YELLOW}[6/8] 备份当前部署...${NC}"
+# 6. 安全检查：确保构建产物中不包含 service_role 密钥
+echo -e "${YELLOW}[6/9] 安全检查...${NC}"
+if grep -rq "service_role" dist/assets/*.js 2>/dev/null; then
+    echo -e "${RED}✗ 安全检查失败 - 构建产物中检测到 service_role 密钥！${NC}"
+    echo -e "${RED}  构建产物不应包含 service_role 凭证。${NC}"
+    echo -e "${RED}  请检查源代码和环境变量配置。${NC}"
+    exit 1
+else
+    echo -e "${GREEN}✓ 安全检查通过 - 构建产物中未发现 service_role 密钥${NC}"
+fi
+
+# 7. 备份当前部署
+echo -e "${YELLOW}[7/9] 备份当前部署...${NC}"
 if [ -d "$DEPLOY_DIR" ]; then
     mkdir -p "$BACKUP_DIR"
     BACKUP_NAME="admin.backup.$(date +%Y%m%d%H%M%S)"
@@ -86,13 +97,13 @@ if [ -d "$DEPLOY_DIR" ]; then
     cd "$PROJECT_DIR"
 fi
 
-# 7. 部署新构建
-echo -e "${YELLOW}[7/8] 部署新构建...${NC}"
+# 8. 部署新构建
+echo -e "${YELLOW}[8/9] 部署新构建...${NC}"
 mkdir -p "$DEPLOY_DIR"
 cp -r dist/* "$DEPLOY_DIR/"
 
-# 8. 设置权限
-echo -e "${YELLOW}[8/8] 设置文件权限...${NC}"
+# 9. 设置权限
+echo -e "${YELLOW}[9/9] 设置文件权限...${NC}"
 chown -R www-data:www-data "$DEPLOY_DIR"
 chmod -R 755 "$DEPLOY_DIR"
 
@@ -122,10 +133,12 @@ else
     echo -e "${RED}✗ Supabase URL 错误${NC}"
 fi
 
-if grep -q "service_role" "$DEPLOY_DIR/assets/"*.js 2>/dev/null; then
-    echo -e "${GREEN}✓ Service Role Key 已包含${NC}"
+# 安全验证：确认部署产物中不包含 service_role 密钥
+if grep -rq "service_role" "$DEPLOY_DIR/assets/"*.js 2>/dev/null; then
+    echo -e "${RED}✗ 安全警告：部署产物中检测到 service_role 密钥！${NC}"
+    echo -e "${RED}  请立即检查并重新部署！${NC}"
 else
-    echo -e "${YELLOW}⚠ Service Role Key 未找到（可能已被混淆）${NC}"
+    echo -e "${GREEN}✓ 安全验证通过 - 部署产物中未包含 service_role 密钥${NC}"
 fi
 
 echo ""

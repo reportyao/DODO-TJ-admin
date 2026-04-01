@@ -1,5 +1,6 @@
 #!/bin/bash
 # Complete deployment commands to run on production server
+# 安全修复: 已移除 Service Role Key，管理后台仅使用 Anon Key + RPC 代理
 
 set -e
 
@@ -32,11 +33,11 @@ pnpm install
 echo "Dependencies installed"
 
 # Step 5: Create .env.production
+# 安全修复: 仅包含 Anon Key，Service Role Key 已通过 RPC 代理架构移除
 echo "Step 5: Creating .env.production..."
 cat > .env.production << 'ENVEOF'
 VITE_SUPABASE_URL=https://qcrcgpwlfouqslokwbzl.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjcmNncHdsZm91cXNsb2t3YnpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MzMzMzcsImV4cCI6MjA4OTUwOTMzN30.KFR8C1O0BnGWvR6GSCCq8opP2EljMwwOQrtn8snXqM0
-VITE_SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjcmNncHdsZm91cXNsb2t3YnpsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzkzMzMzNywiZXhwIjoyMDg5NTA5MzM3fQ.CB4qQc2gXjZA_LEJG3J2GgMsd0Z1Cr5speVpV3IhRrM
 ENVEOF
 echo ".env.production created"
 
@@ -45,13 +46,15 @@ echo "Step 6: Building production bundle..."
 pnpm build
 echo "Build completed"
 
-# Step 7: Verify build contains service_role_key
-echo "Step 7: Verifying build..."
-if grep -q "service_role" dist/assets/*.js; then
-    echo "✓ Build verification passed - service_role_key found"
-else
-    echo "✗ Build verification failed - service_role_key not found"
+# Step 7: Security verification - ensure service_role_key is NOT in the build
+echo "Step 7: Security verification..."
+if grep -rq "service_role" dist/assets/*.js 2>/dev/null; then
+    echo "✗ SECURITY CHECK FAILED - service_role key detected in build output!"
+    echo "  The build contains service_role credentials which should NOT be exposed."
+    echo "  Please check the source code and environment variables."
     exit 1
+else
+    echo "✓ Security check passed - no service_role key in build output"
 fi
 
 # Step 8: Deploy
@@ -73,8 +76,6 @@ echo "✓ Deployment completed successfully!"
 echo "========================================="
 echo ""
 echo "Admin URL: https://tezbarakat.com/admin/"
-echo "Username: admin"
-echo "Password: admin123"
 echo ""
 echo "IMPORTANT: Clear your browser cache before testing!"
 echo ""

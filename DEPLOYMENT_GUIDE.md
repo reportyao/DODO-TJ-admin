@@ -4,6 +4,8 @@
 
 本文档描述了管理后台的部署流程、环境配置和常见问题解决方案。
 
+> **安全架构说明**：管理后台已完成安全重构，前端仅使用 Anon Key，所有需要提权的数据库操作通过 Security Definer RPC 函数（`admin_query`、`admin_mutate`、`admin_count` 等）在服务端执行。Service Role Key 不再暴露在前端代码中。
+
 ## 环境配置
 
 ### 服务器信息
@@ -44,15 +46,16 @@ cp .env.test .env
 ### 环境变量说明
 
 ```bash
-# Supabase配置
+# Supabase配置（仅需 Anon Key）
 VITE_SUPABASE_URL=https://qcrcgpwlfouqslokwbzl.supabase.co
 VITE_SUPABASE_ANON_KEY=<匿名密钥>
-VITE_SUPABASE_SERVICE_ROLE_KEY=<服务角色密钥>
 
 # 管理后台配置
 VITE_ADMIN_API_URL=https://tezbarakat.com/admin/api
-VITE_APP_TITLE=LuckyMart Admin Dashboard
+VITE_APP_TITLE=DODO Admin Dashboard
 ```
+
+> **注意**：环境变量中不应包含 `VITE_SUPABASE_SERVICE_ROLE_KEY`。管理后台通过 RPC 代理架构（`supabaseProxy.ts`）实现提权操作，前端无需也不应持有 Service Role Key。
 
 ## 部署流程
 
@@ -79,10 +82,11 @@ chmod +x /root/scripts/deploy-admin-production-auto.sh
 2. 配置环境变量
 3. 安装依赖
 4. 构建项目
-5. 备份当前部署
-6. 部署新构建
-7. 设置文件权限
-8. 验证部署
+5. **安全检查**（确保构建产物中不包含 service_role 密钥）
+6. 备份当前部署
+7. 部署新构建
+8. 设置文件权限
+9. 验证部署
 
 ### 方式二：手动部署
 
@@ -124,28 +128,40 @@ npm install
 npm run build
 ```
 
-#### 7. 备份当前部署
+#### 7. 安全检查
+
+```bash
+# 确保构建产物中不包含 service_role 密钥
+if grep -rq "service_role" dist/assets/*.js 2>/dev/null; then
+    echo "✗ 安全检查失败 - 检测到 service_role 密钥！"
+    exit 1
+else
+    echo "✓ 安全检查通过"
+fi
+```
+
+#### 8. 备份当前部署
 
 ```bash
 mkdir -p /var/www/tezbarakat.com/admin.backups
 mv /var/www/tezbarakat.com/admin /var/www/tezbarakat.com/admin.backups/admin.backup.$(date +%Y%m%d%H%M%S)
 ```
 
-#### 8. 部署新构建
+#### 9. 部署新构建
 
 ```bash
 mkdir -p /var/www/tezbarakat.com/admin
 cp -r dist/* /var/www/tezbarakat.com/admin/
 ```
 
-#### 9. 设置权限
+#### 10. 设置权限
 
 ```bash
 chown -R www-data:www-data /var/www/tezbarakat.com/admin
 chmod -R 755 /var/www/tezbarakat.com/admin
 ```
 
-#### 10. 验证部署
+#### 11. 验证部署
 
 ```bash
 ls -lh /var/www/tezbarakat.com/admin
@@ -157,10 +173,14 @@ ls -lh /var/www/tezbarakat.com/admin
 
 ```bash
 # 检查Supabase URL
-grep -q "qcrcgpwlfouqslokwbzl" /var/www/tezbarakat.com/admin/assets/*.js && echo "✓ Correct Supabase URL" || echo "✗ Wrong Supabase URL"
+grep -q "qcrcgpwlfouqslokwbzl" /var/www/tezbarakat.com/admin/assets/*.js && echo "✓ Supabase URL 正确" || echo "✗ Supabase URL 错误"
 
-# 检查Service Role Key
-grep -q "service_role" /var/www/tezbarakat.com/admin/assets/*.js && echo "✓ Service role key included" || echo "✗ Service role key missing"
+# 安全检查：确保 service_role 密钥未被包含在构建产物中
+if grep -rq "service_role" /var/www/tezbarakat.com/admin/assets/*.js 2>/dev/null; then
+    echo "✗ 安全警告：检测到 service_role 密钥！请立即重新部署！"
+else
+    echo "✓ 安全检查通过 - 未包含 service_role 密钥"
+fi
 ```
 
 ## 回滚操作
@@ -188,13 +208,15 @@ chmod -R 755 /var/www/tezbarakat.com/admin
 
 **原因**：
 - 构建时使用了错误的环境变量
-- Service Role Key未正确注入到构建文件中
+- Anon Key 未正确注入到构建文件中
+- 管理员会话已过期，需要重新登录
 - 浏览器缓存了旧版本
 
 **解决方案**：
 1. 确认使用了正确的环境变量文件（`.env.production`）
 2. 重新构建和部署
-3. 清除浏览器缓存（Ctrl+Shift+R）
+3. 在管理后台重新登录
+4. 清除浏览器缓存（Ctrl+Shift+R）
 
 ### 2. 构建失败
 
@@ -282,33 +304,27 @@ tail -f /var/log/nginx/error.log
 - Console标签：JavaScript错误
 - Network标签：API请求状态
 
-## 安全性注意事项
+## 安全架构
 
-### 当前架构的安全风险
+### 当前架构（RPC 代理模式）
 
-管理后台在前端直接使用`service_role_key`，存在以下风险：
+管理后台已完成安全重构，采用以下架构：
 
-1. **密钥暴露**：任何人都可以通过查看源代码获取密钥
-2. **权限过大**：service_role_key拥有数据库完全访问权限
-3. **无法撤销**：密钥泄露后需要重新生成
+1. **前端仅使用 Anon Key**：前端代码中不包含任何高权限密钥
+2. **RPC 代理层**：通过 `supabaseProxy.ts` 拦截所有数据库操作，自动转发到 Security Definer RPC 函数
+3. **服务端会话认证**：管理员通过 `admin_login` RPC 函数登录，获取 `session_token`，后续所有操作通过 session_token 验证身份和权限
+4. **Security Definer 函数**：`admin_query`、`admin_mutate`、`admin_count` 等函数以 postgres 权限执行，但在函数内部验证会话有效性和权限
 
-### 缓解措施
+### 安全保障措施
 
-1. **限制IP访问**：在Nginx配置中限制管理后台只能从特定IP访问
-2. **定期轮换密钥**：定期在Supabase控制台重新生成密钥
-3. **监控异常访问**：配置日志监控，及时发现异常访问
-
-### 推荐的改进方案
-
-1. **使用Supabase Auth + RLS**：为管理员创建Auth账户，配置RLS策略
-2. **后端API代理**：创建后端服务，前端通过API访问数据
-3. **Edge Functions**：将敏感操作封装为Edge Functions
+1. **构建时安全检查**：部署脚本会自动检查构建产物，如果检测到 `service_role` 字符串则中止部署
+2. **会话过期机制**：管理员会话有有效期限制，过期后需要重新登录
+3. **登录失败锁定**：连续多次登录失败后，账户会被临时锁定
+4. **审计日志**：所有管理操作都会记录到 `admin_audit_logs` 表中
 
 ## 性能优化
 
 ### 构建优化
-
-当前构建产物较大（916KB），建议优化：
 
 ```javascript
 // vite.config.ts
@@ -340,6 +356,12 @@ export default defineConfig({
 - 技术支持：[联系方式]
 
 ## 更新日志
+
+### 2026-04-01
+- **安全架构重构**：移除前端 Service Role Key 依赖
+- 引入 RPC 代理层（supabaseProxy.ts）
+- 部署脚本增加安全检查（检测 service_role 密钥泄露）
+- 更新部署文档，反映新安全架构
 
 ### 2026-01-21
 - 修复401未授权错误
