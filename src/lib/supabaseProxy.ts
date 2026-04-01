@@ -485,30 +485,68 @@ class QueryBuilderProxy {
   // 例如: "*, user:users(id, display_name)" => [{ alias: "user", table: "users", columns: ["id", "display_name"] }]
   private _parseRelations(columns: string): RelationInfo[] {
     const relations: RelationInfo[] = []
-    // 匹配模式: alias:table(col1, col2, ...) 或 table!fkey(col1, col2, ...)
-    const regex = /(\w+):(\w+)\(([^)]+)\)/g
+    const seen = new Set<string>() // 防止重复添加
+
+    // 清理列名的辅助函数：过滤掉嵌套关联残留（包含 : 或 ! 或 ( 的条目）
+    const cleanColumns = (cols: string[]): string[] => {
+      return cols.filter(c => /^[a-zA-Z0-9_*]+$/.test(c))
+    }
+
+    // 匹配 alias:table!fkey(cols) 格式（最完整的格式，优先匹配）
+    const fullRegex = /(\w+):(\w+)!(\w+)\s*\(([^)]+)\)/g
     let match
-    while ((match = regex.exec(columns)) !== null) {
-      const alias = match[1]
-      const table = match[2]
-      const cols = match[3].split(',').map(c => c.trim())
+    while ((match = fullRegex.exec(columns)) !== null) {
+      const key = `${match.index}`
+      if (seen.has(key)) continue
+      seen.add(key)
       relations.push({
-        alias,
-        table,
-        columns: cols,
-        foreignKey: '' // 将在 hydrate 时推断
+        alias: match[1],
+        table: match[2],
+        columns: cleanColumns(match[4].split(',').map(c => c.trim())),
+        foreignKey: match[3]
       })
     }
 
-    // 也匹配 table!foreign_key(col1, col2, ...) 格式
-    const fkRegex = /(\w+)!(\w+)\(([^)]+)\)/g
+    // 匹配 alias:table_or_fk(cols) 格式（不含感叹号）
+    // 启发式规则：如果第二个词以 _id 结尾，则是 table:fk_column 格式
+    //              否则是 alias:table 格式
+    const colonRegex = /(\w+):(\w+)\s*\(([^)]+)\)/g
+    while ((match = colonRegex.exec(columns)) !== null) {
+      // 跳过已被 fullRegex 匹配的（包含感叹号的）
+      if (columns.substring(match.index, match.index + match[0].length + 10).includes('!')) continue
+      const word1 = match[1]
+      const word2 = match[2]
+      const cols = cleanColumns(match[3].split(',').map(c => c.trim()))
+      if (word2.endsWith('_id')) {
+        // table:fk_column 格式：第一个词是表名，第二个词是外键列名
+        relations.push({
+          alias: word1,
+          table: word1,
+          columns: cols,
+          foreignKey: word2
+        })
+      } else {
+        // alias:table 格式：第一个词是别名，第二个词是表名
+        relations.push({
+          alias: word1,
+          table: word2,
+          columns: cols,
+          foreignKey: ''
+        })
+      }
+    }
+
+    // 匹配 table!fkey(cols) 格式（无 alias）
+    const fkRegex = /(\w+)!(\w+)\s*\(([^)]+)\)/g
     while ((match = fkRegex.exec(columns)) !== null) {
+      // 跳过已被 fullRegex 匹配的（包含冒号前缀的）
+      const before = columns.substring(Math.max(0, match.index - 30), match.index)
+      if (before.match(/\w+:$/)) continue
       const table = match[1]
       const fkHint = match[2]
-      const cols = match[3].split(',').map(c => c.trim())
-      // 从外键提示中提取别名（通常是表名）
+      const cols = cleanColumns(match[3].split(',').map(c => c.trim()))
       relations.push({
-        alias: table.replace(/s$/, ''), // users => user
+        alias: table.replace(/s$/, ''),
         table,
         columns: cols,
         foreignKey: fkHint
@@ -591,24 +629,29 @@ class QueryBuilderProxy {
     //   alias:table(cols)                      - 别名关联
     //   alias:table!fkey(cols)                  - 别名 + 外键提示
     //   table!fkey(cols, nested:t2(cols))        - 嵌套关联
+    // 注意：必须要求包含冒号或感叹号，否则会误匹配 count(*) 等普通表达式
     const stripBalancedRelation = (str: string): string => {
-      // 匹配关联表达式的开头：可选前缀逗号 + alias:table!fkey( 或 alias:table( 或 table!fkey(
-      const pattern = /,?\s*(?:\w+:)?\w+[!:]\w+\(/
+      const patterns = [
+        /,?\s*\w+:\w+(?:!\w+)?\s*\(/,  // alias:table 或 alias:table!fkey
+        /,?\s*\w+!\w+\s*\(/,            // table!fkey (无 alias)
+      ]
       let result = str
-      let match = pattern.exec(result)
-      while (match) {
-        const start = match.index
-        const parenStart = start + match[0].length - 1 // 左括号位置
-        let depth = 1
-        let i = parenStart + 1
-        while (i < result.length && depth > 0) {
-          if (result[i] === '(') depth++
-          if (result[i] === ')') depth--
-          i++
+      for (const pattern of patterns) {
+        let match = pattern.exec(result)
+        while (match) {
+          const start = match.index
+          const parenStart = start + match[0].length - 1 // 左括号位置
+          let depth = 1
+          let i = parenStart + 1
+          while (i < result.length && depth > 0) {
+            if (result[i] === '(') depth++
+            if (result[i] === ')') depth--
+            i++
+          }
+          // 移除从 start 到 i（包含右括号）的整个关联表达式
+          result = result.substring(0, start) + result.substring(i)
+          match = pattern.exec(result)
         }
-        // 移除从 start 到 i（包含右括号）的整个关联表达式
-        result = result.substring(0, start) + result.substring(i)
-        match = pattern.exec(result)
       }
       return result
         .replace(/^\s*,\s*/, '')
