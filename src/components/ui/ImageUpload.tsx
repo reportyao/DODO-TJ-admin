@@ -144,7 +144,6 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
           newUrls.push(publicUrl);
           successCount++;
 
-          console.log(`✅ ${file.name} 上传成功 (${compressedSizeMB.toFixed(2)}MB)`);
         } catch (error: any) {
           console.error(`❌ ${file.name} 上传失败:`, error);
           toast.error(`${file.name} 上传失败: ${error.message}`);

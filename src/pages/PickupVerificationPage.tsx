@@ -69,7 +69,6 @@ const PickupVerificationPage: React.FC = () => {
     setPrizeInfo(null);
 
     try {
-      console.log('Searching for pickup code:', pickupCode);
 
       // 1. 首先查询 prizes 表（积分商城）
       const { data: prizes, error: prizeError } = await supabase
@@ -91,7 +90,6 @@ const PickupVerificationPage: React.FC = () => {
 
       if (!prizeError && prizes && prizes.length > 0) {
         const prize = prizes[0];
-        console.log('Found in prizes:', prize);
         
         // 获取用户信息
         let userInfo = null;
@@ -162,7 +160,6 @@ const PickupVerificationPage: React.FC = () => {
 
       if (!groupBuyError && groupBuyResults && groupBuyResults.length > 0) {
         const groupBuyPrize = groupBuyResults[0];
-        console.log('Found in group_buy_results:', groupBuyPrize);
 
         // 获取商品信息
         let productInfo = null;
@@ -234,7 +231,6 @@ const PickupVerificationPage: React.FC = () => {
 
       if (!fullPurchaseError && fullPurchaseOrders && fullPurchaseOrders.length > 0) {
         const fullPurchaseOrder = fullPurchaseOrders[0];
-        console.log('Found in full_purchase_orders:', fullPurchaseOrder);
 
         // 获取用户信息
         let userInfo = null;

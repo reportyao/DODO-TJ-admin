@@ -28,10 +28,6 @@ async function compressImage(file: File): Promise<File> {
   
   try {
     const compressedFile = await imageCompression(file, options)
-    console.log(
-      `[uploadImage] 压缩: ${(file.size / 1024).toFixed(0)}KB -> ${(compressedFile.size / 1024).toFixed(0)}KB ` +
-      `(${((1 - compressedFile.size / file.size) * 100).toFixed(0)}% 减少)`
-    )
     return compressedFile
   } catch (error) {
     console.warn('[uploadImage] 压缩失败，使用原图:', error)

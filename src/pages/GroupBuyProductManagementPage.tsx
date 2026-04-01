@@ -246,7 +246,6 @@ export default function GroupBuyProductManagementPage() {
     } else if (product.image_url) {
       imageUrls = [product.image_url];
     }
-    console.log('Edit product image_urls:', product.image_urls, '=> parsed:', imageUrls);
     
     setFormData({
       name_zh: product.name_i18n?.zh || product.name || '',
@@ -286,7 +285,6 @@ export default function GroupBuyProductManagementPage() {
     } else if (product.image_url) {
       imageUrls = [product.image_url];
     }
-    console.log('Duplicate product image_urls:', product.image_urls, '=> parsed:', imageUrls);
     
     setFormData({
       name_zh: (product.name_i18n?.zh || product.name || '') + ' (复制)',
