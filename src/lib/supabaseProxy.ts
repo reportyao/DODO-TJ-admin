@@ -584,17 +584,38 @@ class QueryBuilderProxy {
     return rows
   }
 
-  // 去除关联查询语法
+  // 去除关联查询语法（支持嵌套括号）
   private _stripRelations(columns: string): string {
-    // 处理如 "*, user:users(id, display_name)" 的情况
-    // 去掉 "xxx:table(cols)" 和 "table!fkey(cols)" 部分
-    const stripped = columns
-      .replace(/,?\s*\w+:\w+\([^)]*\)/g, '')
-      .replace(/,?\s*\w+!\w+\([^)]*\)/g, '')
-      .replace(/^\s*,\s*/, '')
-      .replace(/,\s*$/, '')
-      .trim()
-    return stripped || '*'
+    // 处理如 "*, user:users(id, display_name)" 和嵌套关联的情况
+    // 支持格式:
+    //   alias:table(cols)                      - 别名关联
+    //   alias:table!fkey(cols)                  - 别名 + 外键提示
+    //   table!fkey(cols, nested:t2(cols))        - 嵌套关联
+    const stripBalancedRelation = (str: string): string => {
+      // 匹配关联表达式的开头：可选前缀逗号 + alias:table!fkey( 或 alias:table( 或 table!fkey(
+      const pattern = /,?\s*(?:\w+:)?\w+[!:]\w+\(/
+      let result = str
+      let match = pattern.exec(result)
+      while (match) {
+        const start = match.index
+        const parenStart = start + match[0].length - 1 // 左括号位置
+        let depth = 1
+        let i = parenStart + 1
+        while (i < result.length && depth > 0) {
+          if (result[i] === '(') depth++
+          if (result[i] === ')') depth--
+          i++
+        }
+        // 移除从 start 到 i（包含右括号）的整个关联表达式
+        result = result.substring(0, start) + result.substring(i)
+        match = pattern.exec(result)
+      }
+      return result
+        .replace(/^\s*,\s*/, '')
+        .replace(/,\s*$/, '')
+        .trim() || '*'
+    }
+    return stripBalancedRelation(columns)
   }
 }
 
