@@ -44,6 +44,7 @@ import BatchArrivalConfirmPage from './pages/BatchArrivalConfirmPage';
 import BatchStatisticsPage from './pages/BatchStatisticsPage';
 import ErrorLogsPage from './pages/ErrorLogsPage';
 import AuditLogsPage from './pages/AuditLogsPage';
+import AIListingPage from './pages/AIListingPage';
 
 // ==================== 地推管理模块 ====================
 import PromoterDashboardPage from './pages/PromoterDashboardPage';
@@ -112,6 +113,7 @@ function App(): JSX.Element {
             <NavLink to="/user-management" label="用户管理" icon="👤" />
             <NavLink to="/referral-management" label="推荐管理" icon="🌳" />
             <NavLink to="/inventory-products" label="库存商品" icon="📦" />
+            <NavLink to="/ai-listing" label="AI上架助手" icon="✨" />
             <NavLink to="/lotteries" label="商城活动" icon="🎰" />
             {/* 拼团功能已隐藏 - 保留路由以兼容历史数据 */}
             {/* <NavLink to="/group-buy-products" label="拼团商品" icon="🛒" /> */}
@@ -177,6 +179,7 @@ function App(): JSX.Element {
               <Route path="/user-management" element={<ProtectedRoute element={<UserManagementPage />} requiredRole="admin" />} />
               <Route path="/referral-management" element={<ProtectedRoute element={<ReferralManagementPage />} requiredRole="admin" />} />
               <Route path="/inventory-products" element={<ProtectedRoute element={<InventoryProductManagementPage />} requiredRole="admin" />} />
+              <Route path="/ai-listing" element={<ProtectedRoute element={<AIListingPage />} requiredRole="admin" />} />
               <Route path="/lotteries" element={<ProtectedRoute element={<LotteryListPage />} requiredRole="admin" />} />
               <Route path="/lotteries/new" element={<ProtectedRoute element={<LotteryForm />} requiredRole="admin" />} />
               <Route path="/lotteries/:id/detail" element={<ProtectedRoute element={<LotteryDetailPage />} requiredRole="admin" />} />

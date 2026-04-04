@@ -72,6 +72,7 @@ const ACTION_LABELS: Record<string, string> = {
   approve_showoff: '审批晒单（通过）',
   reject_showoff: '审批晒单（拒绝）',
   promoter_deposit: '地推充值',
+  AI_CREATE_PRODUCT: 'AI上架商品',
 };
 
 // 操作类型的颜色映射
@@ -93,6 +94,7 @@ const ACTION_COLORS: Record<string, string> = {
   approve_showoff: 'bg-green-100 text-green-800',
   reject_showoff: 'bg-red-100 text-red-800',
   promoter_deposit: 'bg-purple-100 text-purple-800',
+  AI_CREATE_PRODUCT: 'bg-violet-100 text-violet-800',
 };
 
 // 目标类型的中文映射
@@ -103,6 +105,7 @@ const TARGET_TYPE_LABELS: Record<string, string> = {
   promoter_deposit: '地推充值',
   user: '用户',
   product: '商品',
+  inventory_product: '库存商品',
 };
 
 // 来源标签

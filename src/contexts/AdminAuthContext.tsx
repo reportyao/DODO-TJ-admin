@@ -122,8 +122,8 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     'referral.view': ['/referral-management'],
     'referral.edit': ['/referral-management'],
     // 商品库存管理
-    'inventory.view': ['/inventory-products', '/group-buy-products', '/group-buy-sessions'],
-    'inventory.edit': ['/inventory-products', '/group-buy-products', '/group-buy-sessions'],
+    'inventory.view': ['/inventory-products', '/group-buy-products', '/group-buy-sessions', '/ai-listing'],
+    'inventory.edit': ['/inventory-products', '/group-buy-products', '/group-buy-sessions', '/ai-listing'],
     // 系统管理
     'admin.view': ['/admin-management'],
     'admin.create': ['/admin-management'],
