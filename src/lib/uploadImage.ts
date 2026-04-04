@@ -11,19 +11,27 @@ const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || ''
  * - 压缩格式从 JPEG 改为 WebP（更小的文件体积，更好的质量）
  * - 缓存时间从 1小时 改为 1年（URL含时间戳hash，天然支持缓存破坏）
  * - 多图上传使用 Promise.all 并发处理
+ * 
+ * 【v3 新增】
+ * - 支持 outputFormat 参数，可指定压缩输出格式（默认 WebP）
+ * - AI 商品上架场景需要 JPEG 格式（阿里云 SegmentCommodity 不支持 WebP）
  */
 
 /**
  * 压缩图片
  * @param file 原始图片文件
+ * @param outputFormat 输出格式 MIME 类型，默认 'image/webp'
  * @returns 压缩后的图片文件
  */
-async function compressImage(file: File): Promise<File> {
+async function compressImage(
+  file: File,
+  outputFormat: string = 'image/webp'
+): Promise<File> {
   const options = {
     maxSizeMB: 1,              // 最大文件大小1MB
     maxWidthOrHeight: 1920,    // 最大宽度或高度
     useWebWorker: true,
-    fileType: 'image/webp' as const,  // 【优化】改为 WebP 格式，比 JPEG 小 25-35%
+    fileType: outputFormat as any,  // 使用传入的格式（默认 WebP，AI 场景传 'image/jpeg'）
   }
   
   try {
@@ -40,16 +48,18 @@ async function compressImage(file: File): Promise<File> {
  * @param file 图片文件
  * @param bucket 存储桶名称
  * @param folder 文件夹路径 (可选)
+ * @param outputFormat 压缩输出格式 (可选，默认 'image/webp'，AI 场景传 'image/jpeg')
  * @returns 图片的公开URL
  */
 export async function uploadImage(
   file: File,
   bucket: string = 'payment-proofs',
-  folder?: string
+  folder?: string,
+  outputFormat?: string
 ): Promise<string> {
   try {
-    // 压缩图片（自动转为 WebP）
-    const compressedFile = await compressImage(file)
+    // 压缩图片（默认转为 WebP，可通过 outputFormat 指定其他格式）
+    const compressedFile = await compressImage(file, outputFormat)
 
     // 安全修复: 通过 Edge Function 上传，服务端使用 service_role 权限
     const publicUrl = await adminUploadImage(supabaseUrl, compressedFile, bucket, folder)
@@ -68,14 +78,16 @@ export async function uploadImage(
  * @param files 图片文件数组
  * @param bucket 存储桶名称
  * @param folder 文件夹路径 (可选)
+ * @param outputFormat 压缩输出格式 (可选，默认 'image/webp'，AI 场景传 'image/jpeg')
  * @returns 图片URL数组（顺序与输入一致）
  */
 export async function uploadImages(
   files: File[],
   bucket: string = 'payment-proofs',
-  folder?: string
+  folder?: string,
+  outputFormat?: string
 ): Promise<string[]> {
-  const uploadPromises = files.map(file => uploadImage(file, bucket, folder))
+  const uploadPromises = files.map(file => uploadImage(file, bucket, folder, outputFormat))
   return Promise.all(uploadPromises)
 }
 

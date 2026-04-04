@@ -9,6 +9,9 @@
  * [v2 修复] 
  *   - p_filters / p_data 直接传 JS 对象，不再 JSON.stringify（Supabase JS 客户端自动序列化）
  *   - adminUploadImage 添加 Authorization header
+ * 
+ * [v3 新增]
+ *   - adminSSEFetch: 带管理员认证的 SSE 流式请求方法（AI 商品上架等场景）
  */
 import { SupabaseClient } from '@supabase/supabase-js'
 
@@ -268,6 +271,100 @@ export async function adminRpc<T = any>(
   }
   const result = typeof data === 'string' ? JSON.parse(data) : data
   return result
+}
+
+// ============================================================
+// SSE 流式请求（AI 商品上架等场景）
+// [v3 新增]
+// ============================================================
+
+/**
+ * 发起带管理员认证的 SSE 请求
+ * 
+ * 用于 AI 商品上架等需要流式响应的场景。
+ * 自动注入 session token、Supabase 网关认证 headers，
+ * 并统一处理 ADMIN_AUTH_FAILED 错误（自动登出跳转）。
+ *
+ * @param url Edge Function 完整 URL
+ * @param body 请求体
+ * @param onEvent SSE 事件回调（每收到一个 data: 行触发一次）
+ * @param onError 错误回调
+ * @returns AbortController（调用方可用于取消请求）
+ */
+export function adminSSEFetch(
+  url: string,
+  body: Record<string, any>,
+  onEvent: (data: any) => void,
+  onError: (error: Error) => void
+): AbortController {
+  const controller = new AbortController()
+  const sessionToken = getSessionToken()
+
+  if (!sessionToken) {
+    // 异步触发错误回调，避免调用方在同步上下文中无法捕获
+    Promise.resolve().then(() => onError(new Error('ADMIN_AUTH_REQUIRED: 请先登录')))
+    return controller
+  }
+
+  const anonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || ''
+
+  fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-session-token': sessionToken,
+      'Authorization': `Bearer ${anonKey}`,  // Supabase 网关必需
+      'apikey': anonKey,                      // 备用认证 header
+    },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        const text = await response.text()
+        if (text.includes('ADMIN_AUTH_FAILED')) {
+          // 与现有 adminQuery 等方法的登出逻辑保持一致
+          clearSessionToken()
+          localStorage.removeItem('admin_user')
+          window.location.href = '/admin/login'
+          return
+        }
+        throw new Error(`HTTP ${response.status}: ${text}`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('No response body')
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              onEvent(data)
+            } catch {
+              // 忽略非 JSON 行（如 SSE 注释行 `: heartbeat`）
+            }
+          }
+        }
+      }
+    })
+    .catch((error) => {
+      if (error.name !== 'AbortError') {
+        onError(error)
+      }
+    })
+
+  return controller
 }
 
 // ============================================================
