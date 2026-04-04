@@ -340,7 +340,11 @@ export function adminSSEFetch(
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          // 流结束时 flush decoder（处理可能被截断的多字节字符）
+          buffer += decoder.decode()
+          break
+        }
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
@@ -354,6 +358,19 @@ export function adminSSEFetch(
             } catch {
               // 忽略非 JSON 行（如 SSE 注释行 `: heartbeat`）
             }
+          }
+        }
+      }
+
+      // 处理缓冲区中可能残留的最后一行数据
+      if (buffer.trim()) {
+        const remaining = buffer.trim()
+        if (remaining.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(remaining.slice(6))
+            onEvent(data)
+          } catch {
+            // 忽略非 JSON 行
           }
         }
       }
