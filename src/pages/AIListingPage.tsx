@@ -38,7 +38,7 @@ import {
 import { Sparkles, ListTodo, Trash2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-import { adminSSEFetch } from '@/lib/adminApi';
+import { adminSSEFetch, adminInsert } from '@/lib/adminApi';
 import { auditLog } from '@/lib/auditLogger';
 import { TaskCreationForm } from '@/components/AIListing/TaskCreationForm';
 import { TaskProgressCard } from '@/components/AIListing/TaskProgressCard';
@@ -390,13 +390,9 @@ export default function AIListingPage() {
         status: 'ACTIVE',
       };
 
-      const { data, error } = await supabase
-        .from('inventory_products')
-        .insert([productData])
-        .select('id')
-        .single();
-
-      if (error) throw error;
+      // [修复] 使用 adminInsert RPC 绕过 RLS 限制（anon key 无 INSERT 权限）
+      const insertResult = await adminInsert(supabase, 'inventory_products', productData);
+      const insertedId = insertResult?.id || (Array.isArray(insertResult) ? insertResult[0]?.id : null) || 'unknown';
 
       const duration = Date.now() - startTime;
 
@@ -405,7 +401,7 @@ export default function AIListingPage() {
         adminId: admin.id,
         action: 'AI_CREATE_PRODUCT',
         targetType: 'inventory_product',
-        targetId: data.id,
+        targetId: insertedId,
         newData: productData,
         details: {
           source: 'ai_listing',
@@ -423,7 +419,7 @@ export default function AIListingPage() {
         durationMs: duration,
       });
 
-      return data.id;
+      return insertedId;
     },
     [supabase, admin]
   );
