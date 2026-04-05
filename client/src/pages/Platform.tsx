@@ -66,8 +66,8 @@ export default function Platform() {
 
   // Referral levels
   const referralLevels = [
-    { level: 1, percent: '5%', color: 'bg-[#0D7C66]', desc: t('platform.level1') },
-    { level: 2, percent: '3%', color: 'bg-[#0D7C66]/80', desc: t('platform.level2') },
+    { level: 1, percent: '10%', color: 'bg-[#0D7C66]', desc: t('platform.level1') },
+    { level: 2, percent: '4%', color: 'bg-[#0D7C66]/80', desc: t('platform.level2') },
     { level: 3, percent: '1%', color: 'bg-[#0D7C66]/60', desc: t('platform.level3') },
   ];
 

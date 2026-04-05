@@ -133,8 +133,8 @@ function EarningsCalculator() {
   const [invites, setInvites] = useState(10);
   const [avgPurchase, setAvgPurchase] = useState(100);
 
-  const level1 = invites * avgPurchase * 0.05;
-  const level2 = invites * 5 * avgPurchase * 0.03;
+  const level1 = invites * avgPurchase * 0.10;
+  const level2 = invites * 5 * avgPurchase * 0.04;
   const level3 = invites * 5 * 5 * avgPurchase * 0.01;
   const total = level1 + level2 + level3;
 
