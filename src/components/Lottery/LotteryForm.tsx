@@ -13,6 +13,7 @@ import { ImageUpload } from '../ui/ImageUpload';
 import { PriceComparisonInput } from '../PriceComparisonInput';
 import toast from 'react-hot-toast';
 import { formatDateTime } from '@/lib/utils';
+import { adminInsert, adminUpdate } from '@/lib/adminApi';
 
 type LotteryStatus = Enums<'LotteryStatus'>;
 type Currency = Enums<'Currency'>;
@@ -397,21 +398,11 @@ export const LotteryForm: React.FC = () => {
         original_price: formData.full_purchase_price ? Number(formData.full_purchase_price) : 0,
       };
 
-      let result;
       if (isEdit) {
-        result = await supabase
-          .from('lotteries')
-          .update(payload)
-          .eq('id', id)
-          .select();
+        await adminUpdate(supabase, 'lotteries', payload, [{ column: 'id', operator: 'eq', value: id }]);
       } else {
-        result = await supabase
-          .from('lotteries')
-          .insert([payload])
-          .select();
+        await adminInsert(supabase, 'lotteries', payload);
       }
-
-      if (result.error) {throw result.error;}
 
       toast.success(isEdit ? '商城信息更新成功!' : '商城创建成功!');
       navigate('/lotteries');

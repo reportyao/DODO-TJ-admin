@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { formatDateTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import { EmptyState } from '../EmptyState';
+import { adminInsert, adminUpdate, adminDelete } from '@/lib/adminApi';
 
 
 type LotteryStatus = Enums<'LotteryStatus'>;
@@ -162,11 +163,7 @@ export const LotteryListPage: React.FC = () => {
         updated_at: undefined
       };
 
-      const { error: insertError } = await supabase
-        .from('lotteries')
-        .insert(newLottery);
-
-      if (insertError) {throw insertError;}
+      await adminInsert(supabase, 'lotteries', newLottery);
 
       toast.success(`商城复制成功! 新期号: ${newPeriod}（状态为待开始，请编辑后发布）`);
       fetchLotteries();
@@ -197,11 +194,7 @@ export const LotteryListPage: React.FC = () => {
 
       // 2. 若为活跃/售罄状态，先自动取消
       if (lottery.status === 'ACTIVE' || lottery.status === 'SOLD_OUT') {
-        const { error: cancelError } = await supabase
-          .from('lotteries')
-          .update({ status: 'CANCELLED' })
-          .eq('id', id);
-        if (cancelError) throw cancelError;
+        await adminUpdate(supabase, 'lotteries', { status: 'CANCELLED' }, [{ column: 'id', operator: 'eq', value: id }]);
       }
 
       // 3. 删除 Supabase Storage 中对应的图片
@@ -227,11 +220,7 @@ export const LotteryListPage: React.FC = () => {
       }
 
       // 4. 删除数据库记录
-      const { error: deleteError } = await supabase
-        .from('lotteries')
-        .delete()
-        .eq('id', id);
-      if (deleteError) throw deleteError;
+      await adminDelete(supabase, 'lotteries', [{ column: 'id', operator: 'eq', value: id }]);
 
       toast.success('商城活动及图片已删除！');
       fetchLotteries();
