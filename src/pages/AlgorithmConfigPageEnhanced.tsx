@@ -63,7 +63,7 @@ export default function AlgorithmConfigPageEnhanced() {
         for (const algo of allAlgos) {
           if (algo.id !== algorithm.id && algo.is_default) {
             await adminUpdate(supabase, 'draw_algorithms', 
-              { is_default: 'false', updated_at: new Date().toISOString() },
+              { is_default: false, updated_at: new Date().toISOString() },
               [{ col: 'id', op: 'eq', val: algo.id }]
             );
           }
@@ -71,12 +71,12 @@ export default function AlgorithmConfigPageEnhanced() {
       }
 
       await adminUpdate(supabase, 'draw_algorithms', {
-        display_name_i18n: JSON.stringify(algorithm.display_name_i18n),
-        description_i18n: JSON.stringify(algorithm.description_i18n),
-        formula_i18n: JSON.stringify(algorithm.formula_i18n),
-        is_active: String(algorithm.is_active),
-        is_default: String(algorithm.is_default),
-        config: JSON.stringify(algorithm.config),
+        display_name_i18n: algorithm.display_name_i18n,
+        description_i18n: algorithm.description_i18n,
+        formula_i18n: algorithm.formula_i18n,
+        is_active: algorithm.is_active,
+        is_default: algorithm.is_default,
+        config: algorithm.config,
         updated_at: new Date().toISOString()
       }, [{ col: 'id', op: 'eq', val: algorithm.id }]);
       const error = null;
