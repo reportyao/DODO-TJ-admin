@@ -69,12 +69,20 @@ class QueryBuilderProxy {
   }
 
   // ---- SELECT 链式方法 ----
+  // [修复 P1] 区分"初始查询 select"和"写操作后的返回修饰 select"
+  // Supabase 原生 API 中 .update(data).eq('id',x).select('id') 是标准用法
+  // 等价 SQL: UPDATE ... SET ... WHERE ... RETURNING id
+  // select() 在写操作后仅作为返回修饰符，不应覆盖 operation
   select(columns: string = '*', options?: { count?: string; head?: boolean }) {
-    this.operation = 'select'
-    // 解析关联查询并保存
-    this.relations = this._parseRelations(columns)
-    // 去除关联查询语法，只保留基础列
-    this.selectColumns = this._stripRelations(columns)
+    if (this.operation === 'select') {
+      // 初始查询：正常设置
+      this.relations = this._parseRelations(columns)
+      this.selectColumns = this._stripRelations(columns)
+    } else {
+      // 写操作后的 .select()：仅记录返回列，不覆盖 operation
+      // 写操作的 RETURNING 由 admin_mutate RPC 自动处理（row_to_json）
+      this.selectColumns = this._stripRelations(columns)
+    }
     if (options?.count) {
       this.countOption = options.count
     }
@@ -422,17 +430,27 @@ class QueryBuilderProxy {
     return { data: Array.isArray(this.writeData) ? results : results[0], error: null }
   }
 
+  // [修复 P2] 传递 orConditions + 返回值包装为数组（兼容 Supabase 原生 API）
   private async _executeUpdate(token: string): Promise<ProxyQueryResult> {
     const { data, error } = await this.client.rpc('admin_mutate', {
       p_session_token: token,
       p_action: 'update',
       p_table: this.tableName,
-      p_data: this.writeData,  // [修复 A2] 直接传对象
+      p_data: this.writeData,
       p_filters: this.filters,
+      p_or_filters: this.orConditions,  // [修复 P2] 传递 OR 条件
     })
     if (error) return { data: null, error }
     const result = typeof data === 'string' ? JSON.parse(data) : data
-    return { data: result, error: null }
+    // [修复 P3] Supabase 原生 .update().select() 返回数组
+    // admin_mutate RETURNING row_to_json 只返回单对象，需包装为数组
+    // 空对象 {} 表示未匹配任何行，返回空数组
+    if (result && typeof result === 'object' && !Array.isArray(result)) {
+      // 检查是否为空对象（无匹配行）
+      const isEmpty = Object.keys(result).length === 0
+      return { data: isEmpty ? [] : [result], error: null }
+    }
+    return { data: result ? (Array.isArray(result) ? result : [result]) : [], error: null }
   }
 
   // [修复 X5] 完整实现 upsert
@@ -460,8 +478,9 @@ class QueryBuilderProxy {
     return { data: Array.isArray(this.writeData) ? results : results[0], error: null }
   }
 
+  // [修复 P2] 同步传递 orConditions
   private async _executeDelete(token: string): Promise<ProxyQueryResult> {
-    if (this.filters.length === 0) {
+    if (this.filters.length === 0 && !this.orConditions) {
       return { data: null, error: { message: 'DELETE 操作必须指定过滤条件' } }
     }
 
@@ -471,10 +490,16 @@ class QueryBuilderProxy {
       p_table: this.tableName,
       p_data: null,
       p_filters: this.filters,
+      p_or_filters: this.orConditions,  // [修复 P2]
     })
     if (error) return { data: null, error }
     const result = typeof data === 'string' ? JSON.parse(data) : data
-    return { data: result, error: null }
+    // [修复 P3] 包装为数组
+    if (result && typeof result === 'object' && !Array.isArray(result)) {
+      const isEmpty = Object.keys(result).length === 0
+      return { data: isEmpty ? [] : [result], error: null }
+    }
+    return { data: result ? (Array.isArray(result) ? result : [result]) : [], error: null }
   }
 
   // ============================================================

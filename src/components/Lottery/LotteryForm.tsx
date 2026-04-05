@@ -399,7 +399,7 @@ export const LotteryForm: React.FC = () => {
       };
 
       if (isEdit) {
-        await adminUpdate(supabase, 'lotteries', payload, [{ column: 'id', operator: 'eq', value: id }]);
+        await adminUpdate(supabase, 'lotteries', payload, [{ col: 'id', op: 'eq', val: id as string }]);
       } else {
         await adminInsert(supabase, 'lotteries', payload);
       }

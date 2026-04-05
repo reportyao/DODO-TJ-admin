@@ -194,7 +194,7 @@ export const LotteryListPage: React.FC = () => {
 
       // 2. 若为活跃/售罄状态，先自动取消
       if (lottery.status === 'ACTIVE' || lottery.status === 'SOLD_OUT') {
-        await adminUpdate(supabase, 'lotteries', { status: 'CANCELLED' }, [{ column: 'id', operator: 'eq', value: id }]);
+        await adminUpdate(supabase, 'lotteries', { status: 'CANCELLED' }, [{ col: 'id', op: 'eq', val: id }]);
       }
 
       // 3. 删除 Supabase Storage 中对应的图片
@@ -220,7 +220,7 @@ export const LotteryListPage: React.FC = () => {
       }
 
       // 4. 删除数据库记录
-      await adminDelete(supabase, 'lotteries', [{ column: 'id', operator: 'eq', value: id }]);
+      await adminDelete(supabase, 'lotteries', [{ col: 'id', op: 'eq', val: id }]);
 
       toast.success('商城活动及图片已删除！');
       fetchLotteries();
