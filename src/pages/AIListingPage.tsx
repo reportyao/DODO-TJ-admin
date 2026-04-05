@@ -380,7 +380,9 @@ export default function AIListingPage() {
           tg: editedResult.description_tg || '',
         },
         image_url: allImages[0] || '',
-        image_urls: allImages,
+        // [修复] 将 image_urls 转为 PostgreSQL text[] 字面量字符串
+        // admin_mutate RPC 对 JSON array 会加 ::JSONB 转型，但此列是 text[] 类型
+        image_urls: `{${allImages.map(u => `"${u.replace(/"/g, '\\"')}"`).join(',')}}`,
         original_price: task.price,
         currency: 'TJS',
         stock: task.stock,
