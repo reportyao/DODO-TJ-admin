@@ -16,7 +16,12 @@
  *   - abortControllers: Map<string, AbortController> — SSE 连接管理
  *
  * 并发控制：
- *   - 最多同时执行 1 个 SSE 请求（串行处理队列中的任务）
+ *   - 最多同时执行 2 个 SSE 请求（考虑万相 API 的 2QPS 限制）
+ *   - 超出的任务处于排队状态，前面的任务完成后自动触发
+ *
+ * 状态持久化：
+ *   - sessionStorage 保存任务列表
+ *   - beforeunload 事件拦截，提示"有未保存的生成结果"
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
@@ -44,6 +49,7 @@ import type { AITask, AIListingResult, SSEEventData } from '@/types/aiListing';
 const SUPABASE_URL = (import.meta as any).env.VITE_SUPABASE_URL || '';
 const EDGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/ai-listing-generate`;
 const SESSION_STORAGE_KEY = 'ai_listing_tasks';
+const MAX_CONCURRENT = 2; // 最多同时处理 2 个任务
 
 // ============================================================
 // 主组件
@@ -82,8 +88,8 @@ export default function AIListingPage() {
 
   // SSE 连接管理
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
-  // 标记当前是否有正在执行的任务
-  const isProcessingRef = useRef(false);
+  // 当前正在处理的任务数量
+  const processingCountRef = useRef(0);
 
   // ─── 持久化到 sessionStorage ──────────────────────────────
   useEffect(() => {
@@ -92,6 +98,25 @@ export default function AIListingPage() {
     } catch {
       // 存储满时忽略
     }
+  }, [tasks]);
+
+  // ─── beforeunload 事件拦截 ────────────────────────────────
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const hasUnsaved = tasks.some(
+        (t) => (t.status === 'done' || t.status === 'partial') && !t.savedToInventory
+      );
+      const hasProcessing = tasks.some(
+        (t) => t.status === 'processing' || t.status === 'queued'
+      );
+      if (hasUnsaved || hasProcessing) {
+        e.preventDefault();
+        e.returnValue = '有未保存的生成结果或正在处理的任务，确定要离开吗？';
+        return e.returnValue;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [tasks]);
 
   // ─── 组件卸载时中止所有 SSE 连接 ─────────────────────────
@@ -150,7 +175,12 @@ export default function AIListingPage() {
               description_tg: data.result?.description_tg || '',
               background_images: data.result?.background_images || [],
               analysis: {
-                material_guess: data.result?.material_guess || null,
+                product_type: data.result?.analysis?.product_type,
+                main_color: data.result?.analysis?.main_color,
+                material_guess: data.result?.material_guess || data.result?.analysis?.material_guess || null,
+                key_features: data.result?.analysis?.key_features,
+                use_scenes: data.result?.analysis?.use_scenes,
+                target_audience: data.result?.analysis?.target_audience,
               },
             };
 
@@ -162,9 +192,9 @@ export default function AIListingPage() {
               completedAt: new Date(),
             });
 
-            // 清理 controller
+            // 清理 controller，减少计数
             abortControllersRef.current.delete(task.id);
-            isProcessingRef.current = false;
+            processingCountRef.current = Math.max(0, processingCountRef.current - 1);
 
             // 触发下一个任务
             processNextTask();
@@ -177,7 +207,7 @@ export default function AIListingPage() {
             });
 
             abortControllersRef.current.delete(task.id);
-            isProcessingRef.current = false;
+            processingCountRef.current = Math.max(0, processingCountRef.current - 1);
             processNextTask();
           }
         },
@@ -187,11 +217,11 @@ export default function AIListingPage() {
             status: 'error',
             progress: 0,
             stage: '连接失败',
-            errorMessage: error.message,
+            errorMessage: error.message || '网络连接中断，请重试',
           });
 
           abortControllersRef.current.delete(task.id);
-          isProcessingRef.current = false;
+          processingCountRef.current = Math.max(0, processingCountRef.current - 1);
           processNextTask();
         }
       );
@@ -201,16 +231,21 @@ export default function AIListingPage() {
     [updateTask]
   );
 
-  // ─── 处理队列中的下一个任务 ────────────────────────────────
+  // ─── 处理队列中的下一个任务（支持 2 并发） ─────────────────
   const processNextTask = useCallback(() => {
-    if (isProcessingRef.current) return;
+    // 如果已达到最大并发数，不启动新任务
+    if (processingCountRef.current >= MAX_CONCURRENT) return;
 
     setTasks((prev) => {
-      const nextTask = prev.find((t) => t.status === 'queued');
-      if (nextTask) {
-        isProcessingRef.current = true;
+      const queuedTasks = prev.filter((t) => t.status === 'queued');
+      // 可以启动的任务数量
+      const slotsAvailable = MAX_CONCURRENT - processingCountRef.current;
+      const tasksToStart = queuedTasks.slice(0, slotsAvailable);
+
+      for (const task of tasksToStart) {
+        processingCountRef.current++;
         // 使用 setTimeout 避免在 setState 回调中触发副作用
-        setTimeout(() => executeTask(nextTask), 0);
+        setTimeout(() => executeTask(task), 0);
       }
       return prev;
     });
@@ -218,7 +253,7 @@ export default function AIListingPage() {
 
   // ─── 当 tasks 变化时检查是否有待处理任务 ──────────────────
   useEffect(() => {
-    if (!isProcessingRef.current) {
+    if (processingCountRef.current < MAX_CONCURRENT) {
       const hasQueued = tasks.some((t) => t.status === 'queued');
       if (hasQueued) {
         processNextTask();
@@ -229,6 +264,7 @@ export default function AIListingPage() {
   // ─── 添加新任务 ────────────────────────────────────────────
   const handleAddTask = useCallback((task: AITask) => {
     setTasks((prev) => [...prev, task]);
+    toast.success(`"${task.productName}" 已添加到生成队列`);
   }, []);
 
   // ─── 重试失败任务 ──────────────────────────────────────────
@@ -276,16 +312,44 @@ export default function AIListingPage() {
     }
   }, [allSelected, completedUnsavedTasks]);
 
-  // ─── 单个任务入库 ──────────────────────────────────────────
+  // ─── 单个任务入库（严格按照开发文档字段映射） ──────────────
   const saveTaskToInventory = useCallback(
     async (task: AITask, editedResult: AIListingResult, selectedImages: string[]) => {
       if (!admin) throw new Error('未登录');
 
+      const startTime = Date.now();
+
       // 合并图片：选中的背景图 + 原始商品图
       const allImages = [...selectedImages, ...task.imageUrls];
 
+      // 材质推测
+      const materialGuess = editedResult.analysis?.material_guess || '';
+
+      /**
+       * 字段映射严格按照开发文档第五章 3.6 节：
+       *
+       * name          → 用户输入的商品名称
+       * name_i18n     → {zh: title_zh, ru: title_ru, tg: title_tg}
+       * description   → AI 生成的中文描述
+       * description_i18n → {zh: description_zh, ru: description_ru, tg: description_tg}
+       * specifications → 用户输入的规格
+       * specifications_i18n → {zh: specs, ru: specs, tg: specs}
+       * material      → AI 提取的 material_guess 或留空
+       * material_i18n → {zh: material, ru: material, tg: material}
+       * details       → AI 生成的中文描述（与 description 相同）
+       * details_i18n  → {zh: description_zh, ru: description_ru, tg: description_tg}
+       * image_url     → 主图 URL（第一张图）
+       * image_urls    → 所有选中图片的 URL 数组
+       * original_price → 用户输入的售价
+       * currency      → 'TJS'
+       * stock         → 用户输入的库存
+       * reserved_stock → 0
+       * sku           → null
+       * barcode       → null
+       * status        → 'ACTIVE'
+       */
       const productData = {
-        name: editedResult.title_zh || task.productName,
+        name: task.productName,
         name_i18n: {
           zh: editedResult.title_zh || task.productName,
           ru: editedResult.title_ru || '',
@@ -300,26 +364,29 @@ export default function AIListingPage() {
         specifications: task.specs || '',
         specifications_i18n: {
           zh: task.specs || '',
-          ru: '',
-          tg: '',
+          ru: task.specs || '',
+          tg: task.specs || '',
         },
-        material: editedResult.analysis?.material_guess || '',
+        material: materialGuess,
         material_i18n: {
-          zh: editedResult.analysis?.material_guess || '',
-          ru: '',
-          tg: '',
+          zh: materialGuess,
+          ru: materialGuess,
+          tg: materialGuess,
         },
-        details: editedResult.bullets_zh?.join('；') || '',
+        details: editedResult.description_zh || '',
         details_i18n: {
-          zh: editedResult.bullets_zh?.join('；') || '',
-          ru: editedResult.bullets_ru?.join('; ') || '',
-          tg: editedResult.bullets_tg?.join('; ') || '',
+          zh: editedResult.description_zh || '',
+          ru: editedResult.description_ru || '',
+          tg: editedResult.description_tg || '',
         },
         image_url: allImages[0] || '',
         image_urls: allImages,
         original_price: task.price,
         currency: 'TJS',
         stock: task.stock,
+        reserved_stock: 0,
+        sku: null,
+        barcode: null,
         status: 'ACTIVE',
       };
 
@@ -331,7 +398,9 @@ export default function AIListingPage() {
 
       if (error) throw error;
 
-      // 审计日志
+      const duration = Date.now() - startTime;
+
+      // 审计日志（使用 AI_CREATE_PRODUCT 与 AuditLogsPage 中已有的标签一致）
       await auditLog(supabase, {
         adminId: admin.id,
         action: 'AI_CREATE_PRODUCT',
@@ -341,9 +410,17 @@ export default function AIListingPage() {
         details: {
           source: 'ai_listing',
           category: task.category,
-          background_images_count: selectedImages.length,
+          product_name: task.productName,
+          ai_images_count: selectedImages.length,
           original_images_count: task.imageUrls.length,
+          ai_model_used: 'qwen-vl-max + qwen-plus + wanx-background-generation-v2',
+          generation_duration_ms: task.completedAt
+            ? task.completedAt.getTime() - task.createdAt.getTime()
+            : undefined,
         },
+        source: 'admin_ui',
+        status: 'success',
+        durationMs: duration,
       });
 
       return data.id;
@@ -364,7 +441,7 @@ export default function AIListingPage() {
         await saveTaskToInventory(task, editedResult, selectedImages);
         updateTask(viewingTaskId, { savedToInventory: true });
         setViewingTaskId(null);
-        toast.success('商品已成功入库！');
+        toast.success(`"${task.productName}" 已成功入库！`);
       } catch (error: any) {
         console.error('[AIListing] 入库失败:', error);
         toast.error('入库失败: ' + (error.message || '未知错误'));
@@ -377,28 +454,35 @@ export default function AIListingPage() {
 
   // ─── 批量入库 ──────────────────────────────────────────────
   const handleBatchSave = useCallback(async () => {
-    const selectedTasks = tasks.filter((t) => selectedIds.has(t.id) && t.result && !t.savedToInventory);
+    const selectedTasks = tasks.filter(
+      (t) => selectedIds.has(t.id) && t.result && !t.savedToInventory
+    );
     if (selectedTasks.length === 0) return;
 
+    // 构建确认信息，展示即将入库的商品名称列表
+    const nameList = selectedTasks.map((t) => `  · ${t.productName}`).join('\n');
     const confirmed = window.confirm(
-      `确定要将 ${selectedTasks.length} 个商品批量入库吗？\n\n注意：批量入库将使用 AI 生成的默认文案和全部背景图，不会逐个编辑。`
+      `确定要将以下 ${selectedTasks.length} 个商品批量入库吗？\n\n${nameList}\n\n注意：批量入库将使用 AI 生成的默认文案和全部背景图，不会逐个编辑。`
     );
     if (!confirmed) return;
 
     setBatchSaving(true);
     let successCount = 0;
     let failCount = 0;
+    const failedNames: string[] = [];
 
     for (const task of selectedTasks) {
       try {
         const result = task.result!;
-        const selectedImages = result.background_images; // 批量入库默认选择全部背景图
+        // 批量入库默认选择全部背景图
+        const selectedImages = result.background_images;
         await saveTaskToInventory(task, result, selectedImages);
         updateTask(task.id, { savedToInventory: true });
         successCount++;
       } catch (error: any) {
         console.error(`[AIListing] 批量入库失败 (${task.productName}):`, error);
         failCount++;
+        failedNames.push(task.productName);
       }
     }
 
@@ -408,15 +492,39 @@ export default function AIListingPage() {
     if (failCount === 0) {
       toast.success(`${successCount} 个商品全部入库成功！`);
     } else {
-      toast.error(`入库完成：${successCount} 成功，${failCount} 失败`);
+      toast.error(
+        `入库完成：${successCount} 成功，${failCount} 失败\n失败商品：${failedNames.join('、')}`
+      );
     }
   }, [tasks, selectedIds, saveTaskToInventory, updateTask]);
 
   // ─── 清除已完成且已入库的任务 ──────────────────────────────
   const handleClearSaved = useCallback(() => {
+    const savedCount = tasks.filter((t) => t.savedToInventory).length;
+    if (savedCount === 0) return;
     setTasks((prev) => prev.filter((t) => !t.savedToInventory));
-    toast.success('已清除已入库的任务');
-  }, []);
+    toast.success(`已清除 ${savedCount} 个已入库的任务`);
+  }, [tasks]);
+
+  // ─── 删除单个任务 ──────────────────────────────────────────
+  const handleDeleteTask = useCallback((taskId: string) => {
+    // 如果任务正在处理中，先中止 SSE 连接
+    const controller = abortControllersRef.current.get(taskId);
+    if (controller) {
+      controller.abort();
+      abortControllersRef.current.delete(taskId);
+      processingCountRef.current = Math.max(0, processingCountRef.current - 1);
+    }
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(taskId);
+      return next;
+    });
+    if (viewingTaskId === taskId) {
+      setViewingTaskId(null);
+    }
+  }, [viewingTaskId]);
 
   // ─── 当前查看的任务 ────────────────────────────────────────
   const viewingTask = viewingTaskId ? tasks.find((t) => t.id === viewingTaskId) : null;
@@ -472,7 +580,10 @@ export default function AIListingPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* 左侧：任务创建表单 */}
         <div>
-          <TaskCreationForm onSubmit={handleAddTask} />
+          <TaskCreationForm
+            onSubmit={handleAddTask}
+            disabled={batchSaving}
+          />
         </div>
 
         {/* 右侧：任务队列 */}
@@ -484,21 +595,34 @@ export default function AIListingPage() {
                   <ListTodo className="w-5 h-5" />
                   任务队列 ({stats.total})
                 </span>
-                {stats.error > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      tasks
-                        .filter((t) => t.status === 'error')
-                        .forEach((t) => handleRetry(t.id));
-                    }}
-                    className="text-xs text-orange-600"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5 mr-1" />
-                    全部重试
-                  </Button>
-                )}
+                <div className="flex items-center gap-2">
+                  {stats.error > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        tasks
+                          .filter((t) => t.status === 'error')
+                          .forEach((t) => handleRetry(t.id));
+                      }}
+                      className="text-xs text-orange-600"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                      全部重试
+                    </Button>
+                  )}
+                  {stats.total > 0 && stats.total === stats.saved && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleClearSaved}
+                      className="text-xs text-gray-500"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 mr-1" />
+                      清空
+                    </Button>
+                  )}
+                </div>
               </CardTitle>
             </CardHeader>
             <CardContent>
