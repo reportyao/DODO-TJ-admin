@@ -28,14 +28,17 @@ async function compressImage(
   outputFormat: string = 'image/webp'
 ): Promise<File> {
   const options = {
-    maxSizeMB: 1,              // 最大文件大小1MB
-    maxWidthOrHeight: 1920,    // 最大宽度或高度
+    maxSizeMB: 0.5,            // 最大文件大小 500KB（更激进的压缩）
+    maxWidthOrHeight: 1800,    // 最大宽度或高度（留余量给阿里云 2000px 限制）
     useWebWorker: true,
     fileType: outputFormat as any,  // 使用传入的格式（默认 WebP，AI 场景传 'image/jpeg'）
+    initialQuality: 0.85,      // 初始压缩质量 85%（近无损，肉眼几乎无差别）
   }
   
   try {
     const compressedFile = await imageCompression(file, options)
+    const ratio = ((1 - compressedFile.size / file.size) * 100).toFixed(1)
+    console.log(`[uploadImage] 压缩完成: ${(file.size / 1024).toFixed(0)}KB → ${(compressedFile.size / 1024).toFixed(0)}KB (压缩率: ${ratio}%)`)
     return compressedFile
   } catch (error) {
     console.warn('[uploadImage] 压缩失败，使用原图:', error)

@@ -369,7 +369,7 @@ export const TaskCreationForm: React.FC<TaskCreationFormProps> = ({
           )}
 
           <p className="text-xs text-gray-500">
-            图片将自动压缩为 JPEG 格式 (最大 1MB, 1920px)。拖动图片可排序，第一张为主图（用于 AI 分析和抠图）。
+            图片将自动压缩为 JPEG 格式 (最大 500KB, 1800px, 质量 85%)。拖动图片可排序，第一张为主图（用于 AI 分析和抠图）。
           </p>
         </div>
 
