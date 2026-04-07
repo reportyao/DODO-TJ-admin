@@ -66,7 +66,8 @@ export const OperationalShowoffManagementPage: React.FC = () => {
         .from('showoffs')
         .select('*')
         .eq('source', 'ADMIN')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(200);
 
       if (error) throw error;
       setShowoffs(data || []);

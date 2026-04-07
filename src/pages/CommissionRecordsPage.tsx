@@ -124,7 +124,8 @@ export default function CommissionRecordsPage() {
         .from('commissions')
         .select('*')
         .or(`user_id.in.(${userIds.join(',')}),from_user_id.in.(${userIds.join(',')})`)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(200);
 
       if (error) { throw error; }
 

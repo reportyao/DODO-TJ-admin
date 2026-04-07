@@ -381,6 +381,9 @@ export default function PendingPickupsPage() {
       'PENDING_SHIPMENT': { text: '待发货', color: 'bg-gray-100 text-gray-800' },
       'IN_TRANSIT_CHINA': { text: '国内运输中', color: 'bg-blue-100 text-blue-800' },
       'IN_TRANSIT_TAJIKISTAN': { text: '塔国运输中', color: 'bg-indigo-100 text-indigo-800' },
+      'IN_TRANSIT_TJ': { text: '塔国运输中', color: 'bg-indigo-100 text-indigo-800' },
+      'ARRIVED': { text: '已到达', color: 'bg-green-100 text-green-800' },
+      'ARRIVED_TJ': { text: '已到达', color: 'bg-green-100 text-green-800' },
       'READY_FOR_PICKUP': { text: '已到货', color: 'bg-green-100 text-green-800' },
       'PICKED_UP': { text: '已提货', color: 'bg-green-100 text-green-800' },
     };

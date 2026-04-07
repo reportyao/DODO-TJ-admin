@@ -10,21 +10,25 @@ import { OrderService, FullPurchaseOrderDetails } from '@/services/OrderService'
 import { ArrowLeftIcon, Loader2, RefreshCw, Truck, Package, CheckCircle, XCircle } from 'lucide-react';
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  PENDING:   { label: '待支付',   color: 'bg-yellow-100 text-yellow-800' },
-  PAID:      { label: '已支付',   color: 'bg-green-100 text-green-800' },
-  SHIPPED:   { label: '已发货',   color: 'bg-blue-100 text-blue-800' },
-  DELIVERED: { label: '已送达',   color: 'bg-purple-100 text-purple-800' },
-  CANCELLED: { label: '已取消',   color: 'bg-red-100 text-red-800' },
+  PENDING:        { label: '待支付',     color: 'bg-yellow-100 text-yellow-800' },
+  PAID:           { label: '已支付',     color: 'bg-green-100 text-green-800' },
+  COMPLETED:      { label: '已完成',     color: 'bg-green-100 text-green-800' },
+  SHIPPED:        { label: '已发货',     color: 'bg-blue-100 text-blue-800' },
+  DELIVERED:      { label: '已送达',     color: 'bg-purple-100 text-purple-800' },
+  CANCELLED:      { label: '已取消',     color: 'bg-red-100 text-red-800' },
+  REFUND_PENDING: { label: '待退款',     color: 'bg-orange-100 text-orange-800' },
 };
 
 const LOGISTICS_LABELS: Record<string, string> = {
-  PENDING_SHIPMENT:     '待发货',
-  IN_TRANSIT:           '运输中',
-  IN_TRANSIT_CHINA:     '运输中（中国段）',
+  PENDING_SHIPMENT:      '待发货',
+  IN_TRANSIT:            '运输中',
+  IN_TRANSIT_CHINA:      '运输中（中国段）',
   IN_TRANSIT_TAJIKISTAN: '运输中（塔国段）',
-  ARRIVED:              '已到达',
-  READY_FOR_PICKUP:     '待提货',
-  PICKED_UP:            '已取货',
+  IN_TRANSIT_TJ:         '运输中（塔国段）',
+  ARRIVED:               '已到达',
+  ARRIVED_TJ:            '已到达',
+  READY_FOR_PICKUP:      '待提货',
+  PICKED_UP:             '已取货',
 };
 
 const PICKUP_STATUS_LABELS: Record<string, string> = {
@@ -264,7 +268,7 @@ export const OrderDetailPage: React.FC = () => {
                   标记为已支付
                 </Button>
               )}
-              {order.status === 'PAID' && (
+              {(order.status === 'PAID' || order.status === 'COMPLETED') && (
                 <Button
                   variant="default"
                   onClick={() => handleStatusChange('SHIPPED', 'IN_TRANSIT_CHINA')}
@@ -286,7 +290,12 @@ export const OrderDetailPage: React.FC = () => {
                   标记为已送达
                 </Button>
               )}
-              {(order.status === 'PENDING' || order.status === 'PAID') && !showCancelConfirm && (
+              {order.status === 'REFUND_PENDING' && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg px-4 py-2">
+                  <span className="text-sm text-orange-700 font-medium">该订单待退款，请在财务系统中处理</span>
+                </div>
+              )}
+              {(order.status === 'PENDING' || order.status === 'PAID' || order.status === 'COMPLETED') && !showCancelConfirm && (
                 <Button
                   variant="outline"
                   onClick={() => setShowCancelConfirm(true)}

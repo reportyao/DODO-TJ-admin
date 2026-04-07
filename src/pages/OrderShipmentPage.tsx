@@ -282,7 +282,7 @@ export default function OrderShipmentPage() {
       const { data, error } = await supabase
         .from('shipment_batches')
         .select('id, batch_no, status, total_orders, shipped_at')
-        .in('status', ['IN_TRANSIT_CHINA', 'ARRIVED'])
+        .in('status', ['IN_TRANSIT_CHINA', 'IN_TRANSIT_TAJIKISTAN', 'ARRIVED'])
         .order('created_at', { ascending: false });
 
       if (error) {throw error;}
@@ -627,7 +627,7 @@ export default function OrderShipmentPage() {
                   ) : (
                     activeBatches.map((batch) => (
                       <SelectItem key={batch.id} value={batch.id}>
-                        {batch.batch_no} ({batch.total_orders} 个订单) {batch.status === 'ARRIVED' ? '✅ 已到达' : '🚚 运输中'}
+                        {batch.batch_no} ({batch.total_orders} 个订单) {batch.status === 'ARRIVED' ? '✅ 已到达' : batch.status === 'IN_TRANSIT_TAJIKISTAN' ? '🚚 运输中（塔国段）' : '🚚 运输中（中国段）'}
                       </SelectItem>
                     ))
                   )}
