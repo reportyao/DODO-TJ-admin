@@ -242,7 +242,7 @@ export const ShippingManagementPage: React.FC = () => {
                               发货
                             </Button>
                           )}
-                          {shipping.status === 'SHIPPED' || shipping.status === 'IN_TRANSIT' ? (
+                          {['SHIPPED', 'IN_TRANSIT', 'IN_TRANSIT_CHINA', 'IN_TRANSIT_TAJIKISTAN'].includes(shipping.status) ? (
                             <Button size="sm" variant="outline" onClick={() => handleDeliver(shipping.id)} className="border-green-300 text-green-700 hover:bg-green-50">
                               <CheckCircle className="h-3 w-3 mr-1" />
                               已送达

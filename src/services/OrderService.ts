@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { adminQuery, adminUpdate } from '@/lib/adminApi';
+import { adminQuery, adminUpdate, adminDelete } from '@/lib/adminApi';
 
 export interface FullPurchaseOrderDetails {
   id: string;
@@ -116,17 +116,17 @@ export const OrderService = {
     ]);
 
     // 取消订单时，级联清理 batch_order_items 中的关联记录，防止产生孤儿数据
+    // 必须使用 adminDelete（通过 admin_mutate RPC）而非直接 supabase.from().delete()，
+    // 因为管理后台使用 Anon Key，直接操作受 RLS 策略限制可能无权删除
     if (status === 'CANCELLED') {
       try {
-        const { error: deleteError } = await supabase
-          .from('batch_order_items')
-          .delete()
-          .eq('order_id', orderId);
-        if (deleteError) {
-          console.error('[OrderService] 清理批次关联失败:', deleteError);
-        }
+        await adminDelete(supabase, 'batch_order_items', [
+          { col: 'order_id', op: 'eq', val: orderId }
+        ]);
       } catch (e) {
-        console.error('[OrderService] 级联清理异常:', e);
+        // 级联清理失败不应阻断订单取消操作
+        // 可能原因：该订单本身不在任何批次中（无关联记录），这是正常情况
+        console.error('[OrderService] 级联清理批次关联异常:', e);
       }
     }
   },
