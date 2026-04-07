@@ -18,10 +18,13 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 const LOGISTICS_LABELS: Record<string, string> = {
-  PENDING_SHIPMENT: '待发货',
-  IN_TRANSIT:       '运输中',
-  ARRIVED:          '已到达',
-  PICKED_UP:        '已取货',
+  PENDING_SHIPMENT:     '待发货',
+  IN_TRANSIT:           '运输中',
+  IN_TRANSIT_CHINA:     '运输中（中国段）',
+  IN_TRANSIT_TAJIKISTAN: '运输中（塔国段）',
+  ARRIVED:              '已到达',
+  READY_FOR_PICKUP:     '待提货',
+  PICKED_UP:            '已取货',
 };
 
 const PICKUP_STATUS_LABELS: Record<string, string> = {
@@ -264,7 +267,7 @@ export const OrderDetailPage: React.FC = () => {
               {order.status === 'PAID' && (
                 <Button
                   variant="default"
-                  onClick={() => handleStatusChange('SHIPPED', 'IN_TRANSIT')}
+                  onClick={() => handleStatusChange('SHIPPED', 'IN_TRANSIT_CHINA')}
                   disabled={isUpdatingStatus}
                   className="bg-blue-600 hover:bg-blue-700"
                 >

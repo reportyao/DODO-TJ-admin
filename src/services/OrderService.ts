@@ -114,6 +114,21 @@ export const OrderService = {
     await adminUpdate(supabase, 'full_purchase_orders', updateData, [
       { col: 'id', op: 'eq', val: orderId }
     ]);
+
+    // 取消订单时，级联清理 batch_order_items 中的关联记录，防止产生孤儿数据
+    if (status === 'CANCELLED') {
+      try {
+        const { error: deleteError } = await supabase
+          .from('batch_order_items')
+          .delete()
+          .eq('order_id', orderId);
+        if (deleteError) {
+          console.error('[OrderService] 清理批次关联失败:', deleteError);
+        }
+      } catch (e) {
+        console.error('[OrderService] 级联清理异常:', e);
+      }
+    }
   },
 
   /**

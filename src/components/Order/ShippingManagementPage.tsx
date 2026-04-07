@@ -35,6 +35,9 @@ const STATUS_OPTIONS = [
   { value: 'PROCESSING', label: '处理中', color: 'bg-orange-100 text-orange-800' },
   { value: 'SHIPPED', label: '已发货', color: 'bg-blue-100 text-blue-800' },
   { value: 'IN_TRANSIT', label: '运输中', color: 'bg-indigo-100 text-indigo-800' },
+  { value: 'IN_TRANSIT_CHINA', label: '运输中（中国段）', color: 'bg-indigo-100 text-indigo-800' },
+  { value: 'IN_TRANSIT_TAJIKISTAN', label: '运输中（塔国段）', color: 'bg-yellow-100 text-yellow-800' },
+  { value: 'READY_FOR_PICKUP', label: '待提货', color: 'bg-teal-100 text-teal-800' },
   { value: 'DELIVERED', label: '已送达', color: 'bg-green-100 text-green-800' },
   { value: 'FAILED', label: '发货失败', color: 'bg-red-100 text-red-800' },
 ];
