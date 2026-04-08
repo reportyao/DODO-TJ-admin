@@ -56,6 +56,15 @@ import ChannelAnalyticsPage from './pages/ChannelAnalyticsPage';
 import PromoterDepositManagementPage from './pages/PromoterDepositManagementPage';
 import PromoterSettlementPage from './pages/PromoterSettlementPage';
 
+// ==================== 首页场景化管理模块 ====================
+import HomepageCategoryManagementPage from './pages/HomepageCategoryManagementPage';
+import HomepageTagManagementPage from './pages/HomepageTagManagementPage';
+import HomepageTopicManagementPage from './pages/HomepageTopicManagementPage';
+import TopicPlacementManagementPage from './pages/TopicPlacementManagementPage';
+import LocalizationLexiconPage from './pages/LocalizationLexiconPage';
+import ProductTaxonomyManagementPage from './pages/ProductTaxonomyManagementPage';
+import BehaviorDashboardPage from './pages/BehaviorDashboardPage';
+
 import { AdminAuthProvider, useAdminAuth } from './contexts/AdminAuthContext';
 import LoginPage from './pages/LoginPage';
 import { AdminDebugPanel } from './components/Debug/AdminDebugPanel';
@@ -147,6 +156,16 @@ function App(): JSX.Element {
             <NavLink to="/promoter-deposits" label="充值对账" icon="💰" />
             <NavLink to="/promoter-settlement" label="缴款管理" icon="💳" />
 
+            {/* ==================== 首页场景化管理 ==================== */}
+            <NavSection label="首页场景化" />
+            <NavLink to="/homepage-categories" label="分类管理" icon="📂" />
+            <NavLink to="/homepage-tags" label="标签管理" icon="🏷️" />
+            <NavLink to="/homepage-topics" label="专题管理" icon="📰" />
+            <NavLink to="/topic-placements" label="投放管理" icon="📡" />
+            <NavLink to="/product-taxonomy" label="商品分类标签" icon="🔖" />
+            <NavLink to="/localization-lexicon" label="本地化词库" icon="🌍" />
+            <NavLink to="/behavior-dashboard" label="行为看板" icon="📊" />
+
             {/* ==================== 系统配置 ==================== */}
             <NavSection label="系统配置" />
             <NavLink to="/payment-config" label="支付配置" icon="⚙️" />
@@ -216,6 +235,15 @@ function App(): JSX.Element {
               <Route path="/ai-management" element={<ProtectedRoute element={<AIManagementPage />} requiredRole="admin" />} />
               <Route path="/error-logs" element={<ProtectedRoute element={<ErrorLogsPage />} requiredRole="admin" />} />
               <Route path="/audit-logs" element={<ProtectedRoute element={<AuditLogsPage />} requiredRole="admin" />} />
+
+              {/* ==================== 首页场景化管理路由 ==================== */}
+              <Route path="/homepage-categories" element={<ProtectedRoute element={<HomepageCategoryManagementPage />} requiredRole="admin" />} />
+              <Route path="/homepage-tags" element={<ProtectedRoute element={<HomepageTagManagementPage />} requiredRole="admin" />} />
+              <Route path="/homepage-topics" element={<ProtectedRoute element={<HomepageTopicManagementPage />} requiredRole="admin" />} />
+              <Route path="/topic-placements" element={<ProtectedRoute element={<TopicPlacementManagementPage />} requiredRole="admin" />} />
+              <Route path="/product-taxonomy" element={<ProtectedRoute element={<ProductTaxonomyManagementPage />} requiredRole="admin" />} />
+              <Route path="/localization-lexicon" element={<ProtectedRoute element={<LocalizationLexiconPage />} requiredRole="admin" />} />
+              <Route path="/behavior-dashboard" element={<ProtectedRoute element={<BehaviorDashboardPage />} requiredRole="admin" />} />
 
               {/* ==================== 地推管理模块路由 ==================== */}
               <Route path="/promoter-dashboard" element={<ProtectedRoute element={<PromoterDashboardPage />} requiredRole="admin" />} />
