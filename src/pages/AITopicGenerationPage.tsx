@@ -289,8 +289,8 @@ export default function AITopicGenerationPage() {
         // [RLS 修复] 使用 adminQuery
         const data = await adminQuery<any>(supabase, 'inventory_products', {
           select: 'id, name, name_i18n, description_i18n, image_url, original_price, status',
-          filters: [{ col: 'status', op: 'eq', val: 'active' }],
-          orFilters: `name_i18n->>zh.ilike.%${productSearch}%,name_i18n->>ru.ilike.%${productSearch}%,name.ilike.%${productSearch}%`,
+          filters: [{ col: 'status', op: 'eq', val: 'ACTIVE' }],
+          orFilters: `name_i18n->>zh.ilike.%${productSearch}%,name_i18n->>ru.ilike.%${productSearch}%,name_i18n->>tg.ilike.%${productSearch}%,name.ilike.%${productSearch}%`,
           limit: 20,
         });
         setSearchResults(data || []);

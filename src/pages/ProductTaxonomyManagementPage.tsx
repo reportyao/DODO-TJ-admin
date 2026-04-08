@@ -57,7 +57,7 @@ export default function ProductTaxonomyManagementPage() {
   const [loading, setLoading] = useState(true);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('active');
+  const [filterStatus, setFilterStatus] = useState<string>('ACTIVE');
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [editCategories, setEditCategories] = useState<string[]>([]);
   const [editTags, setEditTags] = useState<string[]>([]);
@@ -290,9 +290,8 @@ export default function ProductTaxonomyManagementPage() {
         </div>
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="border rounded px-3 py-2">
           <option value="all">全部状态</option>
-          <option value="active">上架中</option>
-          <option value="draft">草稿</option>
-          <option value="archived">已下架</option>
+          <option value="ACTIVE">上架中</option>
+          <option value="INACTIVE">已下架</option>
         </select>
         <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="border rounded px-3 py-2">
           <option value="all">全部分类</option>

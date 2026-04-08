@@ -154,8 +154,8 @@ export default function HomepageTopicManagementPage() {
       // [RLS 修复] 使用 adminQuery
       const data = await adminQuery<ProductSearchItem>(supabase, 'inventory_products', {
         select: 'id, name_i18n, image_url, original_price, status',
-        filters: [{ col: 'status', op: 'eq', val: 'active' }],
-        orFilters: `name_i18n->>zh.ilike.%${keyword}%,name_i18n->>ru.ilike.%${keyword}%,sku.ilike.%${keyword}%`,
+        filters: [{ col: 'status', op: 'eq', val: 'ACTIVE' }],
+        orFilters: `name_i18n->>zh.ilike.%${keyword}%,name_i18n->>ru.ilike.%${keyword}%,name_i18n->>tg.ilike.%${keyword}%,sku.ilike.%${keyword}%`,
         limit: 20,
       });
       setSearchResults(data || []);
