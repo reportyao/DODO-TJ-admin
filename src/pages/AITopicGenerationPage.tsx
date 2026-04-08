@@ -17,6 +17,7 @@
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSupabase } from '../contexts/SupabaseContext';
+import { adminQuery, adminInsert, adminUpdate } from '../lib/adminApi';
 import { useAdminAuth } from '../contexts/AdminAuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -282,14 +283,13 @@ export default function AITopicGenerationPage() {
       }
       setSearching(true);
       try {
-        const { data, error } = await supabase
-          .from('inventory_products')
-          .select('id, name, name_i18n, description_i18n, image_url, original_price, status')
-          .or(`name_i18n->>zh.ilike.%${productSearch}%,name_i18n->>ru.ilike.%${productSearch}%,name.ilike.%${productSearch}%`)
-          .eq('status', 'active')
-          .limit(20);
-
-        if (error) throw error;
+        // [RLS 修复] 使用 adminQuery
+        const data = await adminQuery<any>(supabase, 'inventory_products', {
+          select: 'id, name, name_i18n, description_i18n, image_url, original_price, status',
+          filters: [{ col: 'status', op: 'eq', val: 'active' }],
+          orFilters: `name_i18n->>zh.ilike.%${productSearch}%,name_i18n->>ru.ilike.%${productSearch}%,name.ilike.%${productSearch}%`,
+          limit: 20,
+        });
         setSearchResults(data || []);
       } catch (error: any) {
         console.error('Product search failed:', error);
@@ -451,15 +451,10 @@ export default function AITopicGenerationPage() {
         is_active: false,
       };
 
-      // 插入 homepage_topics
-      const { data: topicResult, error: topicError } = await supabase
-        .from('homepage_topics')
-        .insert([topicData])
-        .select('id')
-        .single();
-
-      if (topicError) throw topicError;
-      const topicId = topicResult.id;
+      // [RLS 修复] 插入 homepage_topics
+      const topicResult = await adminInsert<{ id: string }>(supabase, 'homepage_topics', topicData);
+      const topicId = topicResult?.id;
+      if (!topicId) throw new Error('创建专题失败，未返回 ID');
 
       // 插入 topic_products（带 note_i18n 和 badge_text_i18n）
       const productNotes = editedResult.product_notes || [];
@@ -475,21 +470,21 @@ export default function AITopicGenerationPage() {
       });
 
       if (productInserts.length > 0) {
-        const { error: prodError } = await supabase
-          .from('topic_products')
-          .insert(productInserts);
-        if (prodError) {
+        try {
+          for (const pi of productInserts) {
+            await adminInsert(supabase, 'topic_products', pi);
+          }
+        } catch (prodError: any) {
           console.error('[AITopic] 挂载商品失败:', prodError);
           toast('专题已创建，但商品挂载失败，请手动添加', { icon: '⚠️' });
         }
       }
 
-      // 更新 AI 任务记录的 topic_id
+      // [RLS 修复] 更新 AI 任务记录的 topic_id
       if (task.taskId) {
-        await supabase
-          .from('ai_topic_generation_tasks')
-          .update({ topic_id: topicId })
-          .eq('id', task.taskId);
+        await adminUpdate(supabase, 'ai_topic_generation_tasks', { topic_id: topicId }, [
+          { col: 'id', op: 'eq', val: task.taskId },
+        ]);
       }
 
       // 更新本地任务状态

@@ -5,10 +5,16 @@
  * 支持：列表展示、创建、编辑、删除、排序、启用/停用。
  *
  * 与 BannerManagementPage 保持一致的 CRUD 模式。
+ *
+ * [RLS 修复] 所有写入操作从 supabase.from().insert/update/delete
+ * 改为 adminInsert/adminUpdate/adminDelete，通过 admin_mutate RPC
+ * 以 service_role 权限执行，避免 RLS 策略拦截。
+ * 读取操作改为 adminQuery，确保 admin 端能正常读取数据。
  */
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Eye, EyeOff, ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
 import { useSupabase } from '../contexts/SupabaseContext';
+import { adminQuery, adminInsert, adminUpdate, adminDelete } from '../lib/adminApi';
 import toast from 'react-hot-toast';
 import type { DbHomepageCategoryRow, I18nText } from '../types/homepage';
 
@@ -74,12 +80,12 @@ export default function HomepageCategoryManagementPage() {
   const fetchCategories = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('homepage_categories')
-        .select('*')
-        .order('sort_order', { ascending: true });
-
-      if (error) throw error;
+      // [RLS 修复] 使用 adminQuery 代替 supabase.from().select()
+      const data = await adminQuery<DbHomepageCategoryRow>(supabase, 'homepage_categories', {
+        select: '*',
+        orderBy: 'sort_order',
+        orderAsc: true,
+      });
       setCategories(data || []);
     } catch (error: any) {
       console.error('Failed to fetch categories:', error);
@@ -119,17 +125,14 @@ export default function HomepageCategoryManagementPage() {
       };
 
       if (editingItem) {
-        const { error } = await supabase
-          .from('homepage_categories')
-          .update(saveData)
-          .eq('id', editingItem.id);
-        if (error) throw error;
+        // [RLS 修复] 使用 adminUpdate 代替 supabase.from().update()
+        await adminUpdate(supabase, 'homepage_categories', saveData, [
+          { col: 'id', op: 'eq', val: editingItem.id },
+        ]);
         toast.success('分类更新成功');
       } else {
-        const { error } = await supabase
-          .from('homepage_categories')
-          .insert([saveData]);
-        if (error) throw error;
+        // [RLS 修复] 使用 adminInsert 代替 supabase.from().insert()
+        await adminInsert(supabase, 'homepage_categories', saveData);
         toast.success('分类创建成功');
       }
 
@@ -162,11 +165,10 @@ export default function HomepageCategoryManagementPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('确定要删除这个分类吗？关联的商品分类关系也会被删除。')) return;
     try {
-      const { error } = await supabase
-        .from('homepage_categories')
-        .delete()
-        .eq('id', id);
-      if (error) throw error;
+      // [RLS 修复] 使用 adminDelete 代替 supabase.from().delete()
+      await adminDelete(supabase, 'homepage_categories', [
+        { col: 'id', op: 'eq', val: id },
+      ]);
       toast.success('分类删除成功');
       fetchCategories();
     } catch (error: any) {
@@ -177,11 +179,10 @@ export default function HomepageCategoryManagementPage() {
 
   const toggleActive = async (item: DbHomepageCategoryRow) => {
     try {
-      const { error } = await supabase
-        .from('homepage_categories')
-        .update({ is_active: !item.is_active })
-        .eq('id', item.id);
-      if (error) throw error;
+      // [RLS 修复] 使用 adminUpdate 代替 supabase.from().update()
+      await adminUpdate(supabase, 'homepage_categories', { is_active: !item.is_active }, [
+        { col: 'id', op: 'eq', val: item.id },
+      ]);
       toast.success(item.is_active ? '分类已停用' : '分类已启用');
       fetchCategories();
     } catch (error: any) {
@@ -200,18 +201,13 @@ export default function HomepageCategoryManagementPage() {
     const target = categories[targetIndex];
 
     try {
-      const { error: err1 } = await supabase
-        .from('homepage_categories')
-        .update({ sort_order: target.sort_order })
-        .eq('id', item.id);
-      if (err1) throw err1;
-
-      const { error: err2 } = await supabase
-        .from('homepage_categories')
-        .update({ sort_order: item.sort_order })
-        .eq('id', target.id);
-      if (err2) throw err2;
-
+      // [RLS 修复] 使用 adminUpdate 代替 supabase.from().update()
+      await adminUpdate(supabase, 'homepage_categories', { sort_order: target.sort_order }, [
+        { col: 'id', op: 'eq', val: item.id },
+      ]);
+      await adminUpdate(supabase, 'homepage_categories', { sort_order: item.sort_order }, [
+        { col: 'id', op: 'eq', val: target.id },
+      ]);
       toast.success('排序已更新');
       fetchCategories();
     } catch (error: any) {
@@ -395,7 +391,7 @@ export default function HomepageCategoryManagementPage() {
                   <h3 className="text-sm font-semibold mb-3">分类名称（三语）</h3>
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">🇨🇳 中文 *</label>
+                      <label className="block text-xs text-gray-500 mb-1">中文 *</label>
                       <input
                         type="text"
                         value={formData.name_zh}
@@ -405,7 +401,7 @@ export default function HomepageCategoryManagementPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">🇷🇺 俄语</label>
+                      <label className="block text-xs text-gray-500 mb-1">俄语</label>
                       <input
                         type="text"
                         value={formData.name_ru}
@@ -415,7 +411,7 @@ export default function HomepageCategoryManagementPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">🇹🇯 塔吉克语</label>
+                      <label className="block text-xs text-gray-500 mb-1">塔吉克语</label>
                       <input
                         type="text"
                         value={formData.name_tg}

@@ -12,6 +12,7 @@ import {
   ChevronDown, ChevronUp, Filter,
 } from 'lucide-react';
 import { useSupabase } from '../contexts/SupabaseContext';
+import { adminQuery, adminInsert, adminDelete } from '../lib/adminApi';
 import toast from 'react-hot-toast';
 import type {
   DbHomepageCategoryRow, DbHomepageTagRow, TagGroup, I18nText,
@@ -72,14 +73,23 @@ export default function ProductTaxonomyManagementPage() {
 
   const fetchBaseData = async () => {
     try {
-      const [catRes, tagRes] = await Promise.all([
-        supabase.from('homepage_categories').select('*').eq('is_active', true).order('sort_order'),
-        supabase.from('homepage_tags').select('*').eq('is_active', true).order('tag_group').order('code'),
+      // [RLS 修复] 使用 adminQuery
+      const [catData, tagData] = await Promise.all([
+        adminQuery<DbHomepageCategoryRow>(supabase, 'homepage_categories', {
+          select: '*',
+          filters: [{ col: 'is_active', op: 'eq', val: 'true' }],
+          orderBy: 'sort_order',
+          orderAsc: true,
+        }),
+        adminQuery<DbHomepageTagRow>(supabase, 'homepage_tags', {
+          select: '*',
+          filters: [{ col: 'is_active', op: 'eq', val: 'true' }],
+          orderBy: 'tag_group',
+          orderAsc: true,
+        }),
       ]);
-      if (catRes.error) throw catRes.error;
-      if (tagRes.error) throw tagRes.error;
-      setCategories(catRes.data || []);
-      setTags(tagRes.data || []);
+      setCategories(catData || []);
+      setTags(tagData || []);
     } catch (error: any) {
       toast.error('获取分类/标签数据失败');
     }
@@ -88,32 +98,36 @@ export default function ProductTaxonomyManagementPage() {
   const fetchProducts = async () => {
     setLoading(true);
     try {
-      let query = supabase
-        .from('inventory_products')
-        .select('id, name_i18n, image_url, original_price, status, sku')
-        .order('created_at', { ascending: false })
-        .limit(100);
-      if (filterStatus !== 'all') query = query.eq('status', filterStatus);
-      const { data: productData, error: productError } = await query;
-      if (productError) throw productError;
+      // [RLS 修复] 使用 adminQuery
+      const filters = filterStatus !== 'all' ? [{ col: 'status', op: 'eq' as const, val: filterStatus }] : [];
+      const productData = await adminQuery<ProductItem & { sku: string }>(supabase, 'inventory_products', {
+        select: 'id, name_i18n, image_url, original_price, status, sku',
+        filters,
+        orderBy: 'created_at',
+        orderAsc: false,
+        limit: 100,
+      });
       if (!productData || productData.length === 0) {
         setProducts([]);
         setLoading(false);
         return;
       }
       const productIds = productData.map(p => p.id);
-      const { data: catRelations } = await supabase
-        .from('product_categories').select('product_id, category_id').in('product_id', productIds);
-      const { data: tagRelations } = await supabase
-        .from('product_tags').select('product_id, tag_id').in('product_id', productIds);
+      // product_categories 和 product_tags 是新表，需要 adminQuery
+      const [catRelations, tagRelations] = await Promise.all([
+        adminQuery<{ product_id: string; category_id: string }>(supabase, 'product_categories', { select: 'product_id, category_id' }),
+        adminQuery<{ product_id: string; tag_id: string }>(supabase, 'product_tags', { select: 'product_id, tag_id' }),
+      ]);
+      // 只保留当前页面商品的关系
+      const productIdSet = new Set(productIds);
       const catMap = new Map<string, string[]>();
-      (catRelations || []).forEach(r => {
+      (catRelations || []).filter(r => productIdSet.has(r.product_id)).forEach(r => {
         const arr = catMap.get(r.product_id) || [];
         arr.push(r.category_id);
         catMap.set(r.product_id, arr);
       });
       const tagMap = new Map<string, string[]>();
-      (tagRelations || []).forEach(r => {
+      (tagRelations || []).filter(r => productIdSet.has(r.product_id)).forEach(r => {
         const arr = tagMap.get(r.product_id) || [];
         arr.push(r.tag_id);
         tagMap.set(r.product_id, arr);
@@ -160,19 +174,14 @@ export default function ProductTaxonomyManagementPage() {
     if (!editingProductId) return;
     setSaving(true);
     try {
-      await supabase.from('product_categories').delete().eq('product_id', editingProductId);
-      await supabase.from('product_tags').delete().eq('product_id', editingProductId);
-      if (editCategories.length > 0) {
-        const { error } = await supabase.from('product_categories').insert(
-          editCategories.map(cid => ({ product_id: editingProductId, category_id: cid }))
-        );
-        if (error) throw error;
+      // [RLS 修复] 使用 adminDelete + adminInsert
+      await adminDelete(supabase, 'product_categories', [{ col: 'product_id', op: 'eq', val: editingProductId }]);
+      await adminDelete(supabase, 'product_tags', [{ col: 'product_id', op: 'eq', val: editingProductId }]);
+      for (const cid of editCategories) {
+        await adminInsert(supabase, 'product_categories', { product_id: editingProductId, category_id: cid });
       }
-      if (editTags.length > 0) {
-        const { error } = await supabase.from('product_tags').insert(
-          editTags.map(tid => ({ product_id: editingProductId, tag_id: tid }))
-        );
-        if (error) throw error;
+      for (const tid of editTags) {
+        await adminInsert(supabase, 'product_tags', { product_id: editingProductId, tag_id: tid });
       }
       toast.success('分类标签保存成功');
       cancelEdit();
@@ -207,21 +216,16 @@ export default function ProductTaxonomyManagementPage() {
          * 这导致管理员无法通过替换模式"清空"某个商品的分类或标签。
          * 修复：替换模式下无条件删除旧关系，然后仅在有新选择时插入。
          */
+        // [RLS 修复] 使用 adminDelete + adminInsert
         if (batchMode === 'replace') {
-          await supabase.from('product_categories').delete().eq('product_id', pid);
-          await supabase.from('product_tags').delete().eq('product_id', pid);
+          await adminDelete(supabase, 'product_categories', [{ col: 'product_id', op: 'eq', val: pid }]);
+          await adminDelete(supabase, 'product_tags', [{ col: 'product_id', op: 'eq', val: pid }]);
         }
-        if (batchCategories.length > 0) {
-          await supabase.from('product_categories').upsert(
-            batchCategories.map(cid => ({ product_id: pid, category_id: cid })),
-            { onConflict: 'product_id,category_id', ignoreDuplicates: true }
-          );
+        for (const cid of batchCategories) {
+          await adminInsert(supabase, 'product_categories', { product_id: pid, category_id: cid });
         }
-        if (batchTags.length > 0) {
-          await supabase.from('product_tags').upsert(
-            batchTags.map(tid => ({ product_id: pid, tag_id: tid })),
-            { onConflict: 'product_id,tag_id', ignoreDuplicates: true }
-          );
+        for (const tid of batchTags) {
+          await adminInsert(supabase, 'product_tags', { product_id: pid, tag_id: tid });
         }
       }
       toast.success(`已为 ${productIds.length} 个商品${batchMode === 'add' ? '追加' : '替换'}分类标签`);

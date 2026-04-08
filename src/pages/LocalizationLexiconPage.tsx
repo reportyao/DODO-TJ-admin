@@ -9,6 +9,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Eye, EyeOff, RefreshCw, X, BookOpen } from 'lucide-react';
 import { useSupabase } from '../contexts/SupabaseContext';
+import { adminQuery, adminInsert, adminUpdate, adminDelete } from '../lib/adminApi';
 import toast from 'react-hot-toast';
 import type { DbLocalizationLexiconRow, LexiconGroup, I18nText } from '../types/homepage';
 
@@ -64,13 +65,12 @@ export default function LocalizationLexiconPage() {
   const fetchItems = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('localization_lexicon')
-        .select('*')
-        .order('lexicon_group', { ascending: true })
-        .order('sort_order', { ascending: true });
-
-      if (error) throw error;
+      // [RLS 修复] 使用 adminQuery
+      const data = await adminQuery<DbLocalizationLexiconRow>(supabase, 'localization_lexicon', {
+        select: '*',
+        orderBy: 'lexicon_group',
+        orderAsc: true,
+      });
       setItems(data || []);
     } catch (error: any) {
       console.error('Failed to fetch lexicon:', error);
@@ -135,17 +135,14 @@ export default function LocalizationLexiconPage() {
       };
 
       if (editingItem) {
-        const { error } = await supabase
-          .from('localization_lexicon')
-          .update(saveData)
-          .eq('id', editingItem.id);
-        if (error) throw error;
+        // [RLS 修复] 使用 adminUpdate
+        await adminUpdate(supabase, 'localization_lexicon', saveData, [
+          { col: 'id', op: 'eq', val: editingItem.id },
+        ]);
         toast.success('词条更新成功');
       } else {
-        const { error } = await supabase
-          .from('localization_lexicon')
-          .insert([saveData]);
-        if (error) throw error;
+        // [RLS 修复] 使用 adminInsert
+        await adminInsert(supabase, 'localization_lexicon', saveData);
         toast.success('词条创建成功');
       }
 
@@ -182,8 +179,10 @@ export default function LocalizationLexiconPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('确定要删除这个词条吗？')) return;
     try {
-      const { error } = await supabase.from('localization_lexicon').delete().eq('id', id);
-      if (error) throw error;
+      // [RLS 修复] 使用 adminDelete
+      await adminDelete(supabase, 'localization_lexicon', [
+        { col: 'id', op: 'eq', val: id },
+      ]);
       toast.success('词条删除成功');
       fetchItems();
     } catch (error: any) {
@@ -193,11 +192,10 @@ export default function LocalizationLexiconPage() {
 
   const toggleActive = async (item: DbLocalizationLexiconRow) => {
     try {
-      const { error } = await supabase
-        .from('localization_lexicon')
-        .update({ is_active: !item.is_active })
-        .eq('id', item.id);
-      if (error) throw error;
+      // [RLS 修复] 使用 adminUpdate
+      await adminUpdate(supabase, 'localization_lexicon', { is_active: !item.is_active }, [
+        { col: 'id', op: 'eq', val: item.id },
+      ]);
       toast.success(item.is_active ? '词条已停用' : '词条已启用');
       fetchItems();
     } catch (error: any) {

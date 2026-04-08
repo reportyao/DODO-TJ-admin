@@ -12,6 +12,7 @@ import {
   Search, Package, Link2, ChevronDown, ChevronUp, X, GripVertical,
 } from 'lucide-react';
 import { useSupabase } from '../contexts/SupabaseContext';
+import { adminQuery, adminInsert, adminUpdate, adminDelete } from '../lib/adminApi';
 import { SingleImageUpload } from '@/components/SingleImageUpload';
 import toast from 'react-hot-toast';
 import type {
@@ -111,12 +112,12 @@ export default function HomepageTopicManagementPage() {
   const fetchTopics = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('homepage_topics')
-        .select('*')
-        .order('updated_at', { ascending: false });
-
-      if (error) throw error;
+      // [RLS 修复] 使用 adminQuery
+      const data = await adminQuery<DbHomepageTopicRow>(supabase, 'homepage_topics', {
+        select: '*',
+        orderBy: 'updated_at',
+        orderAsc: false,
+      });
       setTopics(data || []);
     } catch (error: any) {
       console.error('Failed to fetch topics:', error);
@@ -128,13 +129,13 @@ export default function HomepageTopicManagementPage() {
 
   const fetchTopicProducts = async (topicId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('topic_products')
-        .select('*')
-        .eq('topic_id', topicId)
-        .order('sort_order', { ascending: true });
-
-      if (error) throw error;
+      // [RLS 修复] 使用 adminQuery
+      const data = await adminQuery<DbTopicProductRow>(supabase, 'topic_products', {
+        select: '*',
+        filters: [{ col: 'topic_id', op: 'eq', val: topicId }],
+        orderBy: 'sort_order',
+        orderAsc: true,
+      });
       setTopicProducts(data || []);
     } catch (error: any) {
       console.error('Failed to fetch topic products:', error);
@@ -148,14 +149,13 @@ export default function HomepageTopicManagementPage() {
     }
     setSearching(true);
     try {
-      const { data, error } = await supabase
-        .from('inventory_products')
-        .select('id, name_i18n, image_url, original_price, status')
-        .or(`name_i18n->>zh.ilike.%${keyword}%,name_i18n->>ru.ilike.%${keyword}%,sku.ilike.%${keyword}%`)
-        .eq('status', 'active')
-        .limit(20);
-
-      if (error) throw error;
+      // [RLS 修复] 使用 adminQuery
+      const data = await adminQuery<ProductSearchItem>(supabase, 'inventory_products', {
+        select: 'id, name_i18n, image_url, original_price, status',
+        filters: [{ col: 'status', op: 'eq', val: 'active' }],
+        orFilters: `name_i18n->>zh.ilike.%${keyword}%,name_i18n->>ru.ilike.%${keyword}%,sku.ilike.%${keyword}%`,
+        limit: 20,
+      });
       setSearchResults(data || []);
     } catch (error: any) {
       console.error('Product search failed:', error);
@@ -228,17 +228,14 @@ export default function HomepageTopicManagementPage() {
       };
 
       if (editingItem) {
-        const { error } = await supabase
-          .from('homepage_topics')
-          .update(saveData)
-          .eq('id', editingItem.id);
-        if (error) throw error;
+        // [RLS 修复] 使用 adminUpdate
+        await adminUpdate(supabase, 'homepage_topics', saveData, [
+          { col: 'id', op: 'eq', val: editingItem.id },
+        ]);
         toast.success('专题更新成功');
       } else {
-        const { error } = await supabase
-          .from('homepage_topics')
-          .insert([saveData]);
-        if (error) throw error;
+        // [RLS 修复] 使用 adminInsert
+        await adminInsert(supabase, 'homepage_topics', saveData);
         toast.success('专题创建成功');
       }
 
@@ -283,11 +280,10 @@ export default function HomepageTopicManagementPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('确定要删除这个专题吗？关联的商品和投放也会被删除。')) return;
     try {
-      // 先删关联
-      await supabase.from('topic_products').delete().eq('topic_id', id);
-      await supabase.from('topic_placements').delete().eq('topic_id', id);
-      const { error } = await supabase.from('homepage_topics').delete().eq('id', id);
-      if (error) throw error;
+      // [RLS 修复] 先删关联
+      await adminDelete(supabase, 'topic_products', [{ col: 'topic_id', op: 'eq', val: id }]);
+      await adminDelete(supabase, 'topic_placements', [{ col: 'topic_id', op: 'eq', val: id }]);
+      await adminDelete(supabase, 'homepage_topics', [{ col: 'id', op: 'eq', val: id }]);
       toast.success('专题删除成功');
       fetchTopics();
     } catch (error: any) {
@@ -297,11 +293,10 @@ export default function HomepageTopicManagementPage() {
 
   const updateStatus = async (item: DbHomepageTopicRow, newStatus: TopicStatus) => {
     try {
-      const { error } = await supabase
-        .from('homepage_topics')
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
-        .eq('id', item.id);
-      if (error) throw error;
+      // [RLS 修复] 使用 adminUpdate
+      await adminUpdate(supabase, 'homepage_topics', { status: newStatus, updated_at: new Date().toISOString() }, [
+        { col: 'id', op: 'eq', val: item.id },
+      ]);
       toast.success(`专题状态已更新为: ${getStatusBadge(newStatus).label}`);
       fetchTopics();
     } catch (error: any) {
@@ -319,14 +314,12 @@ export default function HomepageTopicManagementPage() {
       return;
     }
     try {
-      const { error } = await supabase
-        .from('topic_products')
-        .insert([{
-          topic_id: editingItem.id,
-          product_id: product.id,
-          sort_order: topicProducts.length,
-        }]);
-      if (error) throw error;
+      // [RLS 修复] 使用 adminInsert
+      await adminInsert(supabase, 'topic_products', {
+        topic_id: editingItem.id,
+        product_id: product.id,
+        sort_order: topicProducts.length,
+      });
       toast.success('商品已挂载');
       fetchTopicProducts(editingItem.id);
       setProductSearch('');
@@ -339,11 +332,8 @@ export default function HomepageTopicManagementPage() {
   const removeProductFromTopic = async (tpId: string) => {
     if (!editingItem) return;
     try {
-      const { error } = await supabase
-        .from('topic_products')
-        .delete()
-        .eq('id', tpId);
-      if (error) throw error;
+      // [RLS 修复] 使用 adminDelete
+      await adminDelete(supabase, 'topic_products', [{ col: 'id', op: 'eq', val: tpId }]);
       toast.success('商品已移除');
       fetchTopicProducts(editingItem.id);
     } catch (error: any) {

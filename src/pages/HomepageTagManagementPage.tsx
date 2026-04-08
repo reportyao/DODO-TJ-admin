@@ -9,6 +9,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Eye, EyeOff, RefreshCw, Filter } from 'lucide-react';
 import { useSupabase } from '../contexts/SupabaseContext';
+import { adminQuery, adminInsert, adminUpdate, adminDelete } from '../lib/adminApi';
 import toast from 'react-hot-toast';
 import type { DbHomepageTagRow, TagGroup, I18nText } from '../types/homepage';
 
@@ -60,13 +61,12 @@ export default function HomepageTagManagementPage() {
   const fetchTags = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('homepage_tags')
-        .select('*')
-        .order('tag_group', { ascending: true })
-        .order('code', { ascending: true });
-
-      if (error) throw error;
+      // [RLS 修复] 使用 adminQuery 代替 supabase.from().select()
+      const data = await adminQuery<DbHomepageTagRow>(supabase, 'homepage_tags', {
+        select: '*',
+        orderBy: 'tag_group',
+        orderAsc: true,
+      });
       setTags(data || []);
     } catch (error: any) {
       console.error('Failed to fetch tags:', error);
@@ -113,17 +113,14 @@ export default function HomepageTagManagementPage() {
       };
 
       if (editingItem) {
-        const { error } = await supabase
-          .from('homepage_tags')
-          .update(saveData)
-          .eq('id', editingItem.id);
-        if (error) throw error;
+        // [RLS 修复] 使用 adminUpdate
+        await adminUpdate(supabase, 'homepage_tags', saveData, [
+          { col: 'id', op: 'eq', val: editingItem.id },
+        ]);
         toast.success('标签更新成功');
       } else {
-        const { error } = await supabase
-          .from('homepage_tags')
-          .insert([saveData]);
-        if (error) throw error;
+        // [RLS 修复] 使用 adminInsert
+        await adminInsert(supabase, 'homepage_tags', saveData);
         toast.success('标签创建成功');
       }
 
@@ -157,11 +154,10 @@ export default function HomepageTagManagementPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('确定要删除这个标签吗？关联的商品标签关系也会被删除。')) return;
     try {
-      const { error } = await supabase
-        .from('homepage_tags')
-        .delete()
-        .eq('id', id);
-      if (error) throw error;
+      // [RLS 修复] 使用 adminDelete
+      await adminDelete(supabase, 'homepage_tags', [
+        { col: 'id', op: 'eq', val: id },
+      ]);
       toast.success('标签删除成功');
       fetchTags();
     } catch (error: any) {
@@ -171,11 +167,10 @@ export default function HomepageTagManagementPage() {
 
   const toggleActive = async (item: DbHomepageTagRow) => {
     try {
-      const { error } = await supabase
-        .from('homepage_tags')
-        .update({ is_active: !item.is_active })
-        .eq('id', item.id);
-      if (error) throw error;
+      // [RLS 修复] 使用 adminUpdate
+      await adminUpdate(supabase, 'homepage_tags', { is_active: !item.is_active }, [
+        { col: 'id', op: 'eq', val: item.id },
+      ]);
       toast.success(item.is_active ? '标签已停用' : '标签已启用');
       fetchTags();
     } catch (error: any) {

@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Button } from '../components/ui/button';
 import { useSupabase } from '../contexts/SupabaseContext';
+import { adminQuery } from '../lib/adminApi';
 import toast from 'react-hot-toast';
 import type { BehaviorEventName, I18nText } from '../types/homepage';
 
@@ -184,15 +185,16 @@ export default function BehaviorDashboardPage() {
     overview: OverviewStats;
     breakdown: EventBreakdown[];
   }> => {
-    // 获取该时间段内的所有事件
-    const { data: events, error } = await supabase
-      .from('user_behavior_events')
-      .select('event_name, session_id')
-      .gte('created_at', start)
-      .lt('created_at', end);
-
-    if (error) throw error;
-    const rows = events || [];
+    // [RLS 修复] 使用 adminQuery 代替 supabase.from().select()
+    // user_behavior_events 表无 SELECT RLS 策略，直接查询会返回空数据
+    const rows = await adminQuery<{ event_name: string; session_id: string }>(supabase, 'user_behavior_events', {
+      select: 'event_name, session_id',
+      filters: [
+        { col: 'created_at', op: 'gte', val: start },
+        { col: 'created_at', op: 'lt', val: end },
+      ],
+      limit: 10000,
+    });
 
     // 计算概览
     const sessionSet = new Set(rows.map(r => r.session_id));
@@ -231,29 +233,31 @@ export default function BehaviorDashboardPage() {
 
   const fetchTopicStats = async (start: string, end: string) => {
     try {
-      // 获取专题相关事件
-      const { data: topicEvents } = await supabase
-        .from('user_behavior_events')
-        .select('event_name, source_topic_id, session_id')
-        .in('event_name', ['topic_card_expose', 'topic_card_click', 'topic_detail_view', 'topic_product_click'])
-        .gte('created_at', start)
-        .lt('created_at', end)
-        .not('source_topic_id', 'is', null);
+      // [RLS 修复] 使用 adminQuery
+      const topicEvents = await adminQuery<{ event_name: string; source_topic_id: string; session_id: string }>(supabase, 'user_behavior_events', {
+        select: 'event_name, source_topic_id, session_id',
+        filters: [
+          { col: 'created_at', op: 'gte', val: start },
+          { col: 'created_at', op: 'lt', val: end },
+          { col: 'source_topic_id', op: 'is_not_null' },
+        ],
+        orFilters: 'event_name.in.(topic_card_expose,topic_card_click,topic_detail_view,topic_product_click)',
+        limit: 10000,
+      });
 
-      if (!topicEvents || topicEvents.length === 0) {
+      if (topicEvents.length === 0) {
         setTopicStats([]);
         return;
       }
 
-      // 获取专题名称
+      // [RLS 修复] 获取专题名称
       const topicIds = [...new Set(topicEvents.map(e => e.source_topic_id!))];
-      const { data: topics } = await supabase
-        .from('homepage_topics')
-        .select('id, title_i18n')
-        .in('id', topicIds);
+      const topics = await adminQuery<{ id: string; title_i18n: I18nText }>(supabase, 'homepage_topics', {
+        select: 'id, title_i18n',
+      });
 
       const topicNameMap = new Map<string, string>();
-      (topics || []).forEach(t => {
+      topics.forEach(t => {
         topicNameMap.set(t.id, (t.title_i18n as I18nText)?.zh || t.id.slice(0, 8));
       });
 
@@ -286,27 +290,31 @@ export default function BehaviorDashboardPage() {
 
   const fetchCategoryStats = async (start: string, end: string) => {
     try {
-      const { data: catEvents } = await supabase
-        .from('user_behavior_events')
-        .select('source_category_id, session_id')
-        .eq('event_name', 'category_click')
-        .gte('created_at', start)
-        .lt('created_at', end)
-        .not('source_category_id', 'is', null);
+      // [RLS 修复] 使用 adminQuery
+      const catEvents = await adminQuery<{ source_category_id: string; session_id: string }>(supabase, 'user_behavior_events', {
+        select: 'source_category_id, session_id',
+        filters: [
+          { col: 'event_name', op: 'eq', val: 'category_click' },
+          { col: 'created_at', op: 'gte', val: start },
+          { col: 'created_at', op: 'lt', val: end },
+          { col: 'source_category_id', op: 'is_not_null' },
+        ],
+        limit: 10000,
+      });
 
-      if (!catEvents || catEvents.length === 0) {
+      if (catEvents.length === 0) {
         setCategoryStats([]);
         return;
       }
 
       const catIds = [...new Set(catEvents.map(e => e.source_category_id!))];
-      const { data: cats } = await supabase
-        .from('homepage_categories')
-        .select('id, name_i18n')
-        .in('id', catIds);
+      // [RLS 修复] 使用 adminQuery
+      const cats = await adminQuery<{ id: string; name_i18n: I18nText }>(supabase, 'homepage_categories', {
+        select: 'id, name_i18n',
+      });
 
       const catNameMap = new Map<string, string>();
-      (cats || []).forEach(c => {
+      cats.forEach(c => {
         catNameMap.set(c.id, (c.name_i18n as I18nText)?.zh || c.id.slice(0, 8));
       });
 

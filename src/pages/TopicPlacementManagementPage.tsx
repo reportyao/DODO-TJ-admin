@@ -9,6 +9,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Eye, EyeOff, RefreshCw, ArrowUp, ArrowDown, X } from 'lucide-react';
 import { useSupabase } from '../contexts/SupabaseContext';
+import { adminQuery, adminInsert, adminUpdate, adminDelete } from '../lib/adminApi';
 import { SingleImageUpload } from '@/components/SingleImageUpload';
 import toast from 'react-hot-toast';
 import type { DbTopicPlacementRow, DbHomepageTopicRow, I18nText } from '../types/homepage';
@@ -63,16 +64,22 @@ export default function TopicPlacementManagementPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [placementsRes, topicsRes] = await Promise.all([
-        supabase.from('topic_placements').select('*').order('sort_order', { ascending: true }),
-        supabase.from('homepage_topics').select('id, slug, title_i18n, status').order('updated_at', { ascending: false }),
+      // [RLS 修复] 使用 adminQuery 代替 supabase.from().select()
+      const [placementsData, topicsData] = await Promise.all([
+        adminQuery<DbTopicPlacementRow>(supabase, 'topic_placements', {
+          select: '*',
+          orderBy: 'sort_order',
+          orderAsc: true,
+        }),
+        adminQuery<DbHomepageTopicRow>(supabase, 'homepage_topics', {
+          select: 'id, slug, title_i18n, status',
+          orderBy: 'updated_at',
+          orderAsc: false,
+        }),
       ]);
 
-      if (placementsRes.error) throw placementsRes.error;
-      if (topicsRes.error) throw topicsRes.error;
-
-      setPlacements(placementsRes.data || []);
-      setTopics(topicsRes.data || []);
+      setPlacements(placementsData || []);
+      setTopics(topicsData || []);
     } catch (error: any) {
       console.error('Failed to fetch data:', error);
       toast.error('获取投放列表失败');
@@ -124,17 +131,14 @@ export default function TopicPlacementManagementPage() {
       };
 
       if (editingItem) {
-        const { error } = await supabase
-          .from('topic_placements')
-          .update(saveData)
-          .eq('id', editingItem.id);
-        if (error) throw error;
+        // [RLS 修复] 使用 adminUpdate
+        await adminUpdate(supabase, 'topic_placements', saveData, [
+          { col: 'id', op: 'eq', val: editingItem.id },
+        ]);
         toast.success('投放更新成功');
       } else {
-        const { error } = await supabase
-          .from('topic_placements')
-          .insert([saveData]);
-        if (error) throw error;
+        // [RLS 修复] 使用 adminInsert
+        await adminInsert(supabase, 'topic_placements', saveData);
         toast.success('投放创建成功');
       }
 
@@ -173,8 +177,10 @@ export default function TopicPlacementManagementPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('确定要删除这个投放吗？')) return;
     try {
-      const { error } = await supabase.from('topic_placements').delete().eq('id', id);
-      if (error) throw error;
+      // [RLS 修复] 使用 adminDelete
+      await adminDelete(supabase, 'topic_placements', [
+        { col: 'id', op: 'eq', val: id },
+      ]);
       toast.success('投放删除成功');
       fetchData();
     } catch (error: any) {
@@ -184,11 +190,10 @@ export default function TopicPlacementManagementPage() {
 
   const toggleActive = async (item: DbTopicPlacementRow) => {
     try {
-      const { error } = await supabase
-        .from('topic_placements')
-        .update({ is_active: !item.is_active })
-        .eq('id', item.id);
-      if (error) throw error;
+      // [RLS 修复] 使用 adminUpdate
+      await adminUpdate(supabase, 'topic_placements', { is_active: !item.is_active }, [
+        { col: 'id', op: 'eq', val: item.id },
+      ]);
       toast.success(item.is_active ? '投放已停用' : '投放已启用');
       fetchData();
     } catch (error: any) {
