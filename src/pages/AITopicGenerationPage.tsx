@@ -37,6 +37,8 @@ import {
   Globe, BookOpen, Save,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import ProductPickerPanel from '@/components/ProductPickerPanel';
+import type { ProductPickerItem } from '@/components/ProductPickerPanel';
 
 import { adminSSEFetch } from '@/lib/adminApi';
 import { auditLog } from '@/lib/auditLogger';
@@ -147,6 +149,7 @@ export default function AITopicGenerationPage() {
   const [productSearch, setProductSearch] = useState('');
   const [searchResults, setSearchResults] = useState<ProductSearchItem[]>([]);
   const [searching, setSearching] = useState(false);
+  const [showProductPicker, setShowProductPicker] = useState(false);
 
   // ─── 持久化到 sessionStorage ──────────────────────────────
   useEffect(() => {
@@ -323,6 +326,28 @@ export default function AITopicGenerationPage() {
 
   const removeProduct = (productId: string) => {
     setSelectedProducts(prev => prev.filter(p => p.id !== productId));
+  };
+
+  // 批量添加商品（来自 ProductPickerPanel）
+  const addProductsFromPicker = (products: ProductPickerItem[]) => {
+    const newProducts: AITopicProductInput[] = [];
+    for (const product of products) {
+      if (selectedProducts.some(p => p.id === product.id)) continue;
+      newProducts.push({
+        id: product.id,
+        name: product.name_i18n?.zh || product.name || '',
+        name_i18n: product.name_i18n || undefined,
+        description_i18n: product.description_i18n || undefined,
+        image_url: product.image_url,
+        original_price: product.original_price,
+      });
+    }
+    if (newProducts.length > 0) {
+      setSelectedProducts(prev => [...prev, ...newProducts]);
+      toast.success(`已添加 ${newProducts.length} 个商品`);
+    } else {
+      toast.error('没有新商品被添加（可能已全部添加）');
+    }
   };
 
   // ─── 标签切换 ──────────────────────────────────────────────
@@ -609,28 +634,46 @@ export default function AITopicGenerationPage() {
             {/* 商品选择 */}
             <div>
               <Label className="font-medium">选择商品 * ({selectedProducts.length} 个已选)</Label>
-              <p className="text-xs text-gray-400 mb-1">搜索并添加要纳入专题的商品</p>
-              <div className="relative">
-                <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-                <Input
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                  placeholder="搜索商品名称..."
-                  className="pl-9"
-                />
-                {searching && (
-                  <Loader2 className="absolute right-3 top-2.5 w-4 h-4 text-gray-400 animate-spin" />
-                )}
+              <p className="text-xs text-gray-400 mb-1">通过快速搜索或打开商品选择器添加商品</p>
+              
+              {/* 快速搜索 + 打开选择器按钮 */}
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                  <Input
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    placeholder="快速搜索商品名称..."
+                    className="pl-9"
+                  />
+                  {searching && (
+                    <Loader2 className="absolute right-3 top-2.5 w-4 h-4 text-gray-400 animate-spin" />
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowProductPicker(true)}
+                  className="flex items-center gap-1.5 whitespace-nowrap border-orange-300 text-orange-600 hover:bg-orange-50"
+                >
+                  <Package className="w-4 h-4" />
+                  浏览选择
+                </Button>
               </div>
 
-              {/* 搜索结果下拉 */}
+              {/* 快速搜索结果下拉 */}
               {searchResults.length > 0 && (
-                <div className="mt-1 border rounded-lg bg-white shadow-lg max-h-48 overflow-y-auto z-10">
+                <div className="mt-1 border rounded-lg bg-white shadow-lg max-h-48 overflow-y-auto z-10 relative">
                   {searchResults.map(product => (
                     <button
                       key={product.id}
                       onClick={() => addProduct(product)}
-                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-50 text-left text-sm"
+                      disabled={selectedProducts.some(p => p.id === product.id)}
+                      className={`w-full flex items-center gap-3 px-3 py-2 text-left text-sm ${
+                        selectedProducts.some(p => p.id === product.id)
+                          ? 'bg-gray-50 opacity-50 cursor-not-allowed'
+                          : 'hover:bg-gray-50'
+                      }`}
                     >
                       {product.image_url && (
                         <img src={product.image_url} alt="" className="w-8 h-8 rounded object-cover" />
@@ -639,7 +682,10 @@ export default function AITopicGenerationPage() {
                         <div className="truncate">{product.name_i18n?.zh || product.name || product.id}</div>
                         <div className="text-xs text-gray-400">{product.original_price} сомони</div>
                       </div>
-                      <Plus className="w-4 h-4 text-green-500 flex-shrink-0" />
+                      {selectedProducts.some(p => p.id === product.id)
+                        ? <span className="text-xs text-gray-400">已添加</span>
+                        : <Plus className="w-4 h-4 text-green-500 flex-shrink-0" />
+                      }
                     </button>
                   ))}
                 </div>
@@ -670,6 +716,15 @@ export default function AITopicGenerationPage() {
                   ))}
                 </div>
               )}
+
+              {/* 商品选择器侧边面板 */}
+              <ProductPickerPanel
+                open={showProductPicker}
+                onClose={() => setShowProductPicker(false)}
+                onConfirm={addProductsFromPicker}
+                existingProductIds={selectedProducts.map(p => p.id)}
+                title="选择专题商品"
+              />
             </div>
 
             {/* 核心场景 */}

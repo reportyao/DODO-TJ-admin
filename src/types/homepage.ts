@@ -380,7 +380,15 @@ export type LexiconGroup =
   | 'gifting'
   | 'home_scene'
   | 'tone'
-  | 'taboo';
+  | 'taboo'
+  | 'shopping'
+  | 'beauty'
+  | 'children'
+  | 'tech'
+  | 'season'
+  | 'daily'
+  | 'stationery'
+  | 'novelty';
 
 export interface DbLocalizationLexiconRow {
   id: string;

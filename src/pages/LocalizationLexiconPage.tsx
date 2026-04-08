@@ -24,6 +24,14 @@ const LEXICON_GROUP_OPTIONS: { value: LexiconGroup; label: string; color: string
   { value: 'home_scene', label: '居家场景', color: 'bg-green-100 text-green-700' },
   { value: 'tone', label: '语气语调', color: 'bg-purple-100 text-purple-700' },
   { value: 'taboo', label: '文化禁忌', color: 'bg-gray-100 text-gray-700' },
+  { value: 'shopping', label: '购物习惯', color: 'bg-yellow-100 text-yellow-700' },
+  { value: 'beauty', label: '美妆护肤', color: 'bg-rose-100 text-rose-700' },
+  { value: 'children', label: '儿童玩具', color: 'bg-cyan-100 text-cyan-700' },
+  { value: 'tech', label: '数码3C', color: 'bg-indigo-100 text-indigo-700' },
+  { value: 'season', label: '季节场景', color: 'bg-teal-100 text-teal-700' },
+  { value: 'daily', label: '日常用品', color: 'bg-lime-100 text-lime-700' },
+  { value: 'stationery', label: '文具学习', color: 'bg-sky-100 text-sky-700' },
+  { value: 'novelty', label: '新奇特', color: 'bg-fuchsia-100 text-fuchsia-700' },
 ];
 
 const getGroupBadge = (group: LexiconGroup) => {
