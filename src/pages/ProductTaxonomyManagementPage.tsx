@@ -201,9 +201,15 @@ export default function ProductTaxonomyManagementPage() {
     try {
       const productIds = Array.from(selectedProducts);
       for (const pid of productIds) {
+        /**
+         * [审查修复] 替换模式逻辑 bug：
+         * 原代码在替换模式下，仅当 batchCategories/batchTags 非空时才删除旧关系。
+         * 这导致管理员无法通过替换模式"清空"某个商品的分类或标签。
+         * 修复：替换模式下无条件删除旧关系，然后仅在有新选择时插入。
+         */
         if (batchMode === 'replace') {
-          if (batchCategories.length > 0) await supabase.from('product_categories').delete().eq('product_id', pid);
-          if (batchTags.length > 0) await supabase.from('product_tags').delete().eq('product_id', pid);
+          await supabase.from('product_categories').delete().eq('product_id', pid);
+          await supabase.from('product_tags').delete().eq('product_id', pid);
         }
         if (batchCategories.length > 0) {
           await supabase.from('product_categories').upsert(

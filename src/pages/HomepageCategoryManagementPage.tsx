@@ -15,15 +15,21 @@ import type { DbHomepageCategoryRow, I18nText } from '../types/homepage';
 // ============================================================
 // 图标选项
 // ============================================================
+/**
+ * [审查修复] ICON_OPTIONS 的 value 与种子数据 homepage_categories.code 对齐
+ * 原映射使用 electronics/home_living/beauty_care 等旧值，
+ * 种子数据使用 daily_goods/home_appliance/food_kitchen 等新值，
+ * 导致管理员创建分类时选择的图标 key 在前端 CategoryGrid 中无法匹配。
+ */
 const ICON_OPTIONS = [
-  { value: 'electronics', label: '📱 电子数码' },
-  { value: 'home_living', label: '🏠 家居生活' },
-  { value: 'beauty_care', label: '💄 美妆护理' },
-  { value: 'food_drink', label: '🍽️ 食品饮料' },
-  { value: 'fashion', label: '👗 服饰鞋包' },
+  { value: 'daily_goods', label: '🏠 日用百货' },
+  { value: 'home_appliance', label: '📺 家用电器' },
+  { value: 'food_kitchen', label: '🍽️ 食品厨房' },
+  { value: 'personal_care', label: '💄 个护美妆' },
+  { value: 'clothing_bags', label: '👗 服饰箱包' },
+  { value: 'digital_tech', label: '📱 数码科技' },
   { value: 'mother_baby', label: '👶 母婴亲子' },
   { value: 'sports_outdoor', label: '⚽ 运动户外' },
-  { value: 'gifts_festival', label: '🎁 礼品节庆' },
   { value: 'other', label: '📦 其他' },
 ];
 
@@ -379,7 +385,7 @@ export default function HomepageCategoryManagementPage() {
                     value={formData.code}
                     onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                     className="w-full border rounded px-3 py-2"
-                    placeholder="如: electronics"
+                    placeholder="如: daily_goods"
                     disabled={!!editingItem?.is_fixed}
                   />
                 </div>
@@ -395,7 +401,7 @@ export default function HomepageCategoryManagementPage() {
                         value={formData.name_zh}
                         onChange={(e) => setFormData({ ...formData, name_zh: e.target.value })}
                         className="w-full border rounded px-3 py-2"
-                        placeholder="电子数码"
+                        placeholder="日用百货"
                       />
                     </div>
                     <div>
@@ -405,7 +411,7 @@ export default function HomepageCategoryManagementPage() {
                         value={formData.name_ru}
                         onChange={(e) => setFormData({ ...formData, name_ru: e.target.value })}
                         className="w-full border rounded px-3 py-2"
-                        placeholder="Электроника"
+                        placeholder="Товары для дома"
                       />
                     </div>
                     <div>
@@ -415,7 +421,7 @@ export default function HomepageCategoryManagementPage() {
                         value={formData.name_tg}
                         onChange={(e) => setFormData({ ...formData, name_tg: e.target.value })}
                         className="w-full border rounded px-3 py-2"
-                        placeholder="Электроника"
+                        placeholder="Молҳои рӯзгор"
                       />
                     </div>
                   </div>

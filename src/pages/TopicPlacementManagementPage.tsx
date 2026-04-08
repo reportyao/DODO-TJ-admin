@@ -332,14 +332,25 @@ export default function TopicPlacementManagementPage() {
                     onChange={(e) => setFormData({ ...formData, topic_id: e.target.value })}
                     className="w-full border rounded px-3 py-2">
                     <option value="">请选择专题</option>
-                    {topics.map(t => {
-                      const i18n = t.title_i18n as I18nText;
-                      return (
-                        <option key={t.id} value={t.id}>
-                          [{t.status}] {i18n?.zh || t.slug}
-                        </option>
-                      );
-                    })}
+                    {/**
+                     * [审查修复] 优先显示已发布/待发布的专题，并对草稿/已下线专题添加警告标记。
+                     * 原代码允许将任意状态的专题关联到投放，但前端 RPC 只会查询
+                     * status='published' 且 is_active=true 的专题，导致管理员创建的投放实际不会展示。
+                     */}
+                    {[...topics]
+                      .sort((a, b) => {
+                        const order: Record<string, number> = { published: 0, ready: 1, draft: 2, offline: 3 };
+                        return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+                      })
+                      .map(t => {
+                        const i18n = t.title_i18n as I18nText;
+                        const isUsable = t.status === 'published' || t.status === 'ready';
+                        return (
+                          <option key={t.id} value={t.id} className={isUsable ? '' : 'text-gray-400'}>
+                            [{t.status}] {i18n?.zh || t.slug}{!isUsable ? ' ⚠️前端不可见' : ''}
+                          </option>
+                        );
+                      })}
                   </select>
                 </div>
 
