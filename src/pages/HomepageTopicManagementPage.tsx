@@ -43,9 +43,11 @@ const TOPIC_TYPE_OPTIONS = [
   { value: 'promotion', label: '促销型' },
 ];
 
+// [修复] 增加 banner 选项，与前端 TopicCard 支持的样式保持一致
 const CARD_STYLE_OPTIONS = [
   { value: 'hero', label: 'Hero 大卡' },
   { value: 'standard', label: '标准卡片' },
+  { value: 'banner', label: 'Banner 横幅' },
   { value: 'mini', label: '迷你卡片' },
 ];
 

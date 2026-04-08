@@ -200,14 +200,30 @@ export default function HomepageCategoryManagementPage() {
     const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
     const target = categories[targetIndex];
 
+    // [修复] 保存原始 sort_order 值，用于第二次更新失败时回滚第一次操作
+    const originalSortOrder = item.sort_order;
+    const targetSortOrder = target.sort_order;
+
     try {
-      // [RLS 修复] 使用 adminUpdate 代替 supabase.from().update()
-      await adminUpdate(supabase, 'homepage_categories', { sort_order: target.sort_order }, [
+      // 第一步：更新当前项的 sort_order
+      await adminUpdate(supabase, 'homepage_categories', { sort_order: targetSortOrder }, [
         { col: 'id', op: 'eq', val: item.id },
       ]);
-      await adminUpdate(supabase, 'homepage_categories', { sort_order: item.sort_order }, [
-        { col: 'id', op: 'eq', val: target.id },
-      ]);
+
+      try {
+        // 第二步：更新目标项的 sort_order
+        await adminUpdate(supabase, 'homepage_categories', { sort_order: originalSortOrder }, [
+          { col: 'id', op: 'eq', val: target.id },
+        ]);
+      } catch (error2: any) {
+        // 第二步失败，回滚第一步
+        console.error('排序交换第二步失败，回滚第一步:', error2);
+        await adminUpdate(supabase, 'homepage_categories', { sort_order: originalSortOrder }, [
+          { col: 'id', op: 'eq', val: item.id },
+        ]);
+        throw error2;
+      }
+
       toast.success('排序已更新');
       fetchCategories();
     } catch (error: any) {

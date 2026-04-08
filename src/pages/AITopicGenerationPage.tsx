@@ -76,13 +76,16 @@ const TOPIC_TYPE_MAP: Record<string, string> = {
 };
 
 // card_style 映射：AI 返回值 → 数据库枚举值
+// [修复] 增加 banner 映射，与前端 TopicCard 支持的样式保持一致
 const CARD_STYLE_MAP: Record<string, string> = {
   story_card: 'hero',
   image_card: 'standard',
   minimal_card: 'mini',
+  banner_card: 'banner',
   hero: 'hero',
   standard: 'standard',
   mini: 'mini',
+  banner: 'banner',
 };
 
 // ============================================================
