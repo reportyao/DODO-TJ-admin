@@ -64,6 +64,7 @@ import TopicPlacementManagementPage from './pages/TopicPlacementManagementPage';
 import LocalizationLexiconPage from './pages/LocalizationLexiconPage';
 import ProductTaxonomyManagementPage from './pages/ProductTaxonomyManagementPage';
 import BehaviorDashboardPage from './pages/BehaviorDashboardPage';
+import AITopicGenerationPage from './pages/AITopicGenerationPage';
 
 import { AdminAuthProvider, useAdminAuth } from './contexts/AdminAuthContext';
 import LoginPage from './pages/LoginPage';
@@ -164,6 +165,7 @@ function App(): JSX.Element {
             <NavLink to="/topic-placements" label="投放管理" icon="📡" />
             <NavLink to="/product-taxonomy" label="商品分类标签" icon="🔖" />
             <NavLink to="/localization-lexicon" label="本地化词库" icon="🌍" />
+            <NavLink to="/ai-topic-generate" label="AI专题助手" icon="🤖" />
             <NavLink to="/behavior-dashboard" label="行为看板" icon="📊" />
 
             {/* ==================== 系统配置 ==================== */}
@@ -243,6 +245,7 @@ function App(): JSX.Element {
               <Route path="/topic-placements" element={<ProtectedRoute element={<TopicPlacementManagementPage />} requiredRole="admin" />} />
               <Route path="/product-taxonomy" element={<ProtectedRoute element={<ProductTaxonomyManagementPage />} requiredRole="admin" />} />
               <Route path="/localization-lexicon" element={<ProtectedRoute element={<LocalizationLexiconPage />} requiredRole="admin" />} />
+              <Route path="/ai-topic-generate" element={<ProtectedRoute element={<AITopicGenerationPage />} requiredRole="admin" />} />
               <Route path="/behavior-dashboard" element={<ProtectedRoute element={<BehaviorDashboardPage />} requiredRole="admin" />} />
 
               {/* ==================== 地推管理模块路由 ==================== */}
