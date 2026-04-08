@@ -14,6 +14,8 @@ import {
 import { useSupabase } from '../contexts/SupabaseContext';
 import { adminQuery, adminInsert, adminUpdate, adminDelete } from '../lib/adminApi';
 import { SingleImageUpload } from '@/components/SingleImageUpload';
+import ProductPickerPanel from '@/components/ProductPickerPanel';
+import type { ProductPickerItem } from '@/components/ProductPickerPanel';
 import toast from 'react-hot-toast';
 import type {
   DbHomepageTopicRow, DbTopicProductRow,
@@ -103,6 +105,9 @@ export default function HomepageTopicManagementPage() {
   const [productSearch, setProductSearch] = useState('');
   const [searchResults, setSearchResults] = useState<ProductSearchItem[]>([]);
   const [searching, setSearching] = useState(false);
+  const [showProductPicker, setShowProductPicker] = useState(false);
+  // 存储已挂载商品的详细信息（用于显示名称和图片）
+  const [topicProductDetails, setTopicProductDetails] = useState<Map<string, ProductSearchItem>>(new Map());
 
   useEffect(() => {
     fetchTopics();
@@ -139,6 +144,21 @@ export default function HomepageTopicManagementPage() {
         orderAsc: true,
       });
       setTopicProducts(data || []);
+
+      // 获取已挂载商品的详细信息
+      if (data && data.length > 0) {
+        const productIds = data.map(tp => tp.product_id);
+        const products = await adminQuery<ProductSearchItem>(supabase, 'inventory_products', {
+          select: 'id, name_i18n, image_url, original_price, status',
+          orFilters: productIds.map(id => `id.eq.${id}`).join(','),
+          limit: productIds.length,
+        });
+        const detailMap = new Map<string, ProductSearchItem>();
+        (products || []).forEach(p => detailMap.set(p.id, p));
+        setTopicProductDetails(detailMap);
+      } else {
+        setTopicProductDetails(new Map());
+      }
     } catch (error: any) {
       console.error('Failed to fetch topic products:', error);
     }
@@ -328,6 +348,31 @@ export default function HomepageTopicManagementPage() {
       setSearchResults([]);
     } catch (error: any) {
       toast.error('挂载失败: ' + error.message);
+    }
+  };
+
+  // 批量挂载商品（来自 ProductPickerPanel）
+  const addProductsToTopic = async (products: ProductPickerItem[]) => {
+    if (!editingItem) return;
+    let added = 0;
+    for (const product of products) {
+      if (topicProducts.some(tp => tp.product_id === product.id)) continue;
+      try {
+        await adminInsert(supabase, 'topic_products', {
+          topic_id: editingItem.id,
+          product_id: product.id,
+          sort_order: topicProducts.length + added,
+        });
+        added++;
+      } catch (error: any) {
+        console.error(`Failed to add product ${product.id}:`, error);
+      }
+    }
+    if (added > 0) {
+      toast.success(`成功挂载 ${added} 个商品`);
+      fetchTopicProducts(editingItem.id);
+    } else {
+      toast.error('没有新商品被挂载（可能已全部挂载）');
     }
   };
 
@@ -528,10 +573,11 @@ export default function HomepageTopicManagementPage() {
                         <input
                           type="text"
                           value={formData.slug}
-                          onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
+                          onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-') })}
                           className="w-full border rounded px-3 py-2"
                           placeholder="如: spring-home-essentials"
                         />
+                        <p className="text-xs text-gray-400 mt-1">URL 友好标识符，用于生成专题页面链接。仅支持小写字母、数字和连字符。</p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1">专题类型</label>
@@ -762,50 +808,16 @@ export default function HomepageTopicManagementPage() {
                 {/* ==================== 商品挂载 Tab ==================== */}
                 {activeTab === 'products' && editingItem && (
                   <div className="space-y-4">
-                    {/* 搜索商品 */}
+                    {/* 添加商品按钮 */}
                     <div>
-                      <label className="block text-sm font-medium mb-1">搜索商品</label>
-                      <div className="relative">
-                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-                        <input
-                          type="text"
-                          value={productSearch}
-                          onChange={(e) => setProductSearch(e.target.value)}
-                          className="w-full border rounded pl-9 pr-3 py-2"
-                          placeholder="输入商品名称或 SKU 搜索..."
-                        />
-                      </div>
-                      {/* 搜索结果 */}
-                      {searching && <div className="text-sm text-gray-500 mt-2">搜索中...</div>}
-                      {searchResults.length > 0 && (
-                        <div className="border rounded mt-2 max-h-48 overflow-y-auto">
-                          {searchResults.map(p => {
-                            const pName = (p.name_i18n as I18nText)?.zh || p.id;
-                            const alreadyAdded = topicProducts.some(tp => tp.product_id === p.id);
-                            return (
-                              <div key={p.id} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 border-b last:border-b-0">
-                                <img src={p.image_url} alt="" className="w-10 h-10 object-cover rounded" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-sm font-medium truncate">{pName}</div>
-                                  <div className="text-xs text-gray-500">{p.original_price} TJS</div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => addProductToTopic(p)}
-                                  disabled={alreadyAdded}
-                                  className={`text-xs px-2 py-1 rounded ${
-                                    alreadyAdded
-                                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                      : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                                  }`}
-                                >
-                                  {alreadyAdded ? '已挂载' : '+ 挂载'}
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowProductPicker(true)}
+                        className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-orange-300 rounded-lg py-3 text-orange-600 hover:bg-orange-50 hover:border-orange-400 transition-colors"
+                      >
+                        <Search className="w-4 h-4" />
+                        搜索并添加商品（支持分类浏览、模糊搜索、批量多选）
+                      </button>
                     </div>
 
                     {/* 已挂载商品列表 */}
@@ -815,31 +827,47 @@ export default function HomepageTopicManagementPage() {
                       </h3>
                       {topicProducts.length === 0 ? (
                         <div className="text-center py-8 text-gray-400 text-sm">
-                          暂无挂载商品，请在上方搜索并添加
+                          暂无挂载商品，请点击上方按钮搜索并添加
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          {topicProducts.map((tp, idx) => (
-                            <div key={tp.id} className="flex items-center gap-3 bg-gray-50 rounded px-3 py-2">
-                              <span className="text-xs text-gray-400 w-6 text-center">{idx + 1}</span>
-                              <div className="flex-1 min-w-0">
-                                <div className="text-sm font-medium truncate">
-                                  商品 ID: {tp.product_id.slice(0, 8)}...
+                          {topicProducts.map((tp, idx) => {
+                            const detail = topicProductDetails.get(tp.product_id);
+                            const pName = detail ? ((detail.name_i18n as I18nText)?.zh || (detail.name_i18n as I18nText)?.ru || tp.product_id.slice(0, 8)) : tp.product_id.slice(0, 8) + '...';
+                            return (
+                              <div key={tp.id} className="flex items-center gap-3 bg-gray-50 rounded px-3 py-2">
+                                <span className="text-xs text-gray-400 w-6 text-center">{idx + 1}</span>
+                                {detail?.image_url && (
+                                  <img src={detail.image_url} alt="" className="w-10 h-10 object-cover rounded flex-shrink-0" />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-medium truncate">{pName}</div>
+                                  <div className="text-xs text-gray-500">
+                                    {detail ? `${detail.original_price} TJS` : `ID: ${tp.product_id.slice(0, 12)}...`}
+                                  </div>
                                 </div>
-                                <div className="text-xs text-gray-500">排序: {tp.sort_order}</div>
+                                <button
+                                  type="button"
+                                  onClick={() => removeProductFromTopic(tp.id)}
+                                  className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded hover:bg-red-200"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => removeProductFromTopic(tp.id)}
-                                className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded hover:bg-red-200"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
+
+                    {/* 商品选择器面板 */}
+                    <ProductPickerPanel
+                      open={showProductPicker}
+                      onClose={() => setShowProductPicker(false)}
+                      onConfirm={addProductsToTopic}
+                      existingProductIds={topicProducts.map(tp => tp.product_id)}
+                      title="选择挂载商品"
+                    />
                   </div>
                 )}
 

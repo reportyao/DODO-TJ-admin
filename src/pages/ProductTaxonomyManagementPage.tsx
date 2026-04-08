@@ -6,7 +6,7 @@
  *
  * 与 BannerManagementPage 保持一致的 CRUD 模式。
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Search, RefreshCw, Tag, FolderOpen, Save, X, Check,
   ChevronDown, ChevronUp, Filter,
@@ -68,8 +68,19 @@ export default function ProductTaxonomyManagementPage() {
   const [batchTags, setBatchTags] = useState<string[]>([]);
   const [batchMode, setBatchMode] = useState<'add' | 'replace'>('add');
 
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => { fetchBaseData(); }, []);
   useEffect(() => { fetchProducts(); }, [filterStatus]);
+
+  // 搜索防抖：关键词变化时300ms后重新查询服务端
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      fetchProducts();
+    }, 300);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [searchKeyword]);
 
   const fetchBaseData = async () => {
     try {
@@ -100,12 +111,21 @@ export default function ProductTaxonomyManagementPage() {
     try {
       // [RLS 修复] 使用 adminQuery
       const filters = filterStatus !== 'all' ? [{ col: 'status', op: 'eq' as const, val: filterStatus }] : [];
+
+      // [搜索修复] 服务端模糊搜索，支持中/俄/塔吉克文+SKU
+      let orFilters: string | undefined;
+      if (searchKeyword.trim()) {
+        const kw = searchKeyword.trim();
+        orFilters = `name_i18n->>zh.ilike.%${kw}%,name_i18n->>ru.ilike.%${kw}%,name_i18n->>tg.ilike.%${kw}%,sku.ilike.%${kw}%`;
+      }
+
       const productData = await adminQuery<ProductItem & { sku: string }>(supabase, 'inventory_products', {
         select: 'id, name_i18n, image_url, original_price, status, sku',
         filters,
+        orFilters,
         orderBy: 'created_at',
         orderAsc: false,
-        limit: 100,
+        limit: 200,
       });
       if (!productData || productData.length === 0) {
         setProducts([]);
@@ -144,13 +164,8 @@ export default function ProductTaxonomyManagementPage() {
     }
   };
 
+  // [搜索修复] 搜索已改为服务端查询，前端只做分类过滤
   const filteredProducts = products.filter(p => {
-    if (searchKeyword.trim()) {
-      const name = (p.name_i18n as I18nText)?.zh || '';
-      const nameRu = (p.name_i18n as I18nText)?.ru || '';
-      const kw = searchKeyword.toLowerCase();
-      if (!name.toLowerCase().includes(kw) && !nameRu.toLowerCase().includes(kw) && !p.sku.toLowerCase().includes(kw)) return false;
-    }
     if (filterCategory !== 'all') {
       if (filterCategory === 'unassigned') { if (p.category_ids.length > 0) return false; }
       else { if (!p.category_ids.includes(filterCategory)) return false; }
