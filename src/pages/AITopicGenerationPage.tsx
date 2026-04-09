@@ -163,6 +163,10 @@ export default function AITopicGenerationPage() {
   const [manualNotes, setManualNotes] = useState('');
   const [localContextHints, setLocalContextHints] = useState('');
 
+  // 封面图生成选项
+  const [generateCover, setGenerateCover] = useState(true);
+  const [coverMode, setCoverMode] = useState<'ai_generate' | 'product_collage'>('ai_generate');
+
   // 商品搜索
   const [productSearch, setProductSearch] = useState('');
   const [searchResults, setSearchResults] = useState<ProductSearchItem[]>([]);
@@ -433,6 +437,8 @@ export default function AITopicGenerationPage() {
           manual_notes: task.request.manual_notes,
           tone_constraints: task.request.tone_constraints,
           output_languages: task.request.output_languages,
+          generate_cover: task.request.generate_cover ?? true,
+          cover_mode: task.request.cover_mode ?? 'ai_generate',
         },
         // onEvent
         (data: AITopicSSEEventData) => {
@@ -654,6 +660,8 @@ export default function AITopicGenerationPage() {
       manual_notes: manualNotes.trim() || undefined,
       tone_constraints: selectedToneConstraints,
       output_languages: ['zh', 'ru', 'tg'],
+      generate_cover: generateCover,
+      cover_mode: coverMode,
     };
 
     const task: AITopicTask = {
@@ -734,23 +742,39 @@ export default function AITopicGenerationPage() {
       const topicType = TOPIC_TYPE_MAP[aiTopicType] || 'story';
       const cardStyle = CARD_STYLE_MAP[aiCardStyle] || 'standard';
 
-      // [BUG-06/07 修复] 构建 story_blocks_i18n，确保 block_key 唯一且 block_type 有效
-      const storyBlocks = (editedResult.story_blocks_i18n || []).map((block, idx) => {
-        const validBlockTypes = ['paragraph', 'heading', 'callout'];
-        const blockType = validBlockTypes.includes(block.block_type || '') ? block.block_type : 'paragraph';
-        return {
-          block_key: block.block_key || `block_${idx}_${Date.now().toString(36)}`,
-          block_type: blockType,
-          content_i18n: {
-            zh: block.zh || '',
-            ru: block.ru || '',
-            tg: block.tg || '',
-          },
-        };
-      });
+      // [v2 + BUG-06/07 修复] 从 sections 构建 story_blocks_i18n，确保 block_key 唯一且 block_type 有效
+      const sections = editedResult.sections || [];
+      const validBlockTypes = ['paragraph', 'heading', 'callout'];
+      const storyBlocks = sections.length > 0
+        ? sections.map((section, i) => {
+            const uniqueKey = typeof crypto !== 'undefined' && crypto.randomUUID
+              ? crypto.randomUUID().slice(0, 8)
+              : `${Date.now().toString(36)}_${i}`;
+            return {
+              block_key: `section_${i}_${uniqueKey}`,
+              block_type: 'paragraph' as string,
+              content_i18n: {
+                zh: section.story_text_i18n?.zh || '',
+                ru: section.story_text_i18n?.ru || '',
+                tg: section.story_text_i18n?.tg || '',
+              },
+            };
+          })
+        : (editedResult.story_blocks_i18n || []).map((block, idx) => {
+            const blockType = validBlockTypes.includes(block.block_type || '') ? block.block_type : 'paragraph';
+            return {
+              block_key: block.block_key || `block_${idx}_${Date.now().toString(36)}`,
+              block_type: blockType,
+              content_i18n: {
+                zh: block.zh || '',
+                ru: block.ru || '',
+                tg: block.tg || '',
+              },
+            };
+          });
 
-      // 构建专题数据
-      const topicData = {
+      // 构建专题数据（含封面图）
+      const topicData: Record<string, any> = {
         topic_type: topicType,
         status: 'draft',
         slug,
@@ -765,23 +789,49 @@ export default function AITopicGenerationPage() {
         is_active: false,
       };
 
+      // v2: 封面图
+      if (editedResult.cover_image_url) {
+        topicData.cover_image_url = editedResult.cover_image_url;
+      }
+
       // [RLS 修复] 插入 homepage_topics
       const topicResult = await adminInsert<{ id: string }>(supabase, 'homepage_topics', topicData);
       const topicId = topicResult?.id;
       if (!topicId) throw new Error('创建专题失败，未返回 ID');
 
-      // 插入 topic_products（带 note_i18n 和 badge_text_i18n）
-      const productNotes = editedResult.product_notes || [];
-      const productInserts = task.request.selected_products.map((p, index) => {
-        const note = productNotes.find(n => n.product_id === p.id);
-        return {
-          topic_id: topicId,
-          product_id: p.id,
-          sort_order: index,
-          note_i18n: note?.note_i18n || null,
-          badge_text_i18n: note?.badge_text_i18n || null,
-        };
-      });
+      // v2: 按 sections 插入 topic_products（带 story_group + story_text_i18n）
+      const productInserts: any[] = [];
+      let globalSortOrder = 0;
+
+      for (let sectionIdx = 0; sectionIdx < sections.length; sectionIdx++) {
+        const section = sections[sectionIdx];
+        for (const sp of (section.products || [])) {
+          productInserts.push({
+            topic_id: topicId,
+            product_id: sp.product_id,
+            sort_order: globalSortOrder++,
+            story_group: sectionIdx,
+            story_text_i18n: section.story_text_i18n || null,
+            note_i18n: sp.note_i18n || null,
+            badge_text_i18n: sp.badge_text_i18n || null,
+          });
+        }
+      }
+
+      // 处理未分配到 section 的商品
+      const sectionProductIds = new Set(productInserts.map(p => p.product_id));
+      for (const p of task.request.selected_products) {
+        if (!sectionProductIds.has(p.id)) {
+          productInserts.push({
+            topic_id: topicId,
+            product_id: p.id,
+            sort_order: globalSortOrder++,
+            story_group: sections.length,
+            note_i18n: null,
+            badge_text_i18n: null,
+          });
+        }
+      }
 
       if (productInserts.length > 0) {
         try {
@@ -1070,6 +1120,52 @@ export default function AITopicGenerationPage() {
                 placeholder="可选：补充任何你希望 AI 注意的信息..."
                 rows={2}
               />
+            </div>
+
+            {/* 封面图生成选项 */}
+            <div className="border rounded-lg p-3 bg-gray-50">
+              <div className="flex items-center justify-between mb-2">
+                <Label className="font-medium">自动生成封面图</Label>
+                <button
+                  type="button"
+                  onClick={() => setGenerateCover(!generateCover)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    generateCover ? 'bg-purple-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                      generateCover ? 'translate-x-4.5' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+              {generateCover && (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCoverMode('ai_generate')}
+                    className={`flex-1 px-3 py-1.5 rounded text-xs border transition-colors ${
+                      coverMode === 'ai_generate'
+                        ? 'bg-purple-100 border-purple-300 text-purple-700'
+                        : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+                    }`}
+                  >
+                    AI 场景图
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCoverMode('product_collage')}
+                    className={`flex-1 px-3 py-1.5 rounded text-xs border transition-colors ${
+                      coverMode === 'product_collage'
+                        ? 'bg-purple-100 border-purple-300 text-purple-700'
+                        : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+                    }`}
+                  >
+                    商品合成图
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* 提交按钮 */}
@@ -1381,7 +1477,7 @@ function TopicResultPreview({
   onDiscard: () => void;
   saving: boolean;
 }) {
-  // [BUG-24 修复] 深拷贝初始化，避免浅拷贝导致编辑时修改原始 result 对象
+  // [BUG-24 修复 + v2] 深拷贝初始化，避免浅拷贝导致编辑时修改原始 result 对象
   const [editedResult, setEditedResult] = useState<AITopicDraftResult>(() => {
     try {
       return JSON.parse(JSON.stringify(result));
@@ -1389,7 +1485,7 @@ function TopicResultPreview({
       return { ...result };
     }
   });
-  const [activeSection, setActiveSection] = useState<'understanding' | 'content' | 'products'>('content');
+  const [activeSection, setActiveSection] = useState<'understanding' | 'content' | 'sections'>('content');
 
   const updateField = (field: string, value: any) => {
     setEditedResult(prev => ({ ...prev, [field]: value }));
@@ -1402,12 +1498,49 @@ function TopicResultPreview({
     }));
   };
 
-  const updateStoryBlock = (index: number, lang: string, value: string) => {
+  // v2: 更新 section 的场景文案
+  const updateSectionStoryText = (sectionIdx: number, lang: string, value: string) => {
     setEditedResult(prev => {
-      const blocks = [...(prev.story_blocks_i18n || [])];
-      blocks[index] = { ...blocks[index], [lang]: value };
-      return { ...prev, story_blocks_i18n: blocks };
+      const sections = [...(prev.sections || [])];
+      sections[sectionIdx] = {
+        ...sections[sectionIdx],
+        story_text_i18n: { ...sections[sectionIdx].story_text_i18n, [lang]: value },
+      };
+      return { ...prev, sections };
     });
+  };
+
+  // v2: 更新 section 内商品的 note
+  const updateSectionProductNote = (sectionIdx: number, productIdx: number, lang: string, value: string) => {
+    setEditedResult(prev => {
+      const sections = [...(prev.sections || [])];
+      const products = [...(sections[sectionIdx].products || [])];
+      products[productIdx] = {
+        ...products[productIdx],
+        note_i18n: { ...products[productIdx].note_i18n, [lang]: value },
+      };
+      sections[sectionIdx] = { ...sections[sectionIdx], products };
+      return { ...prev, sections };
+    });
+  };
+
+  // v2: 更新 section 内商品的 badge
+  const updateSectionProductBadge = (sectionIdx: number, productIdx: number, lang: string, value: string) => {
+    setEditedResult(prev => {
+      const sections = [...(prev.sections || [])];
+      const products = [...(sections[sectionIdx].products || [])];
+      products[productIdx] = {
+        ...products[productIdx],
+        badge_text_i18n: { ...(products[productIdx].badge_text_i18n || {}), [lang]: value },
+      };
+      sections[sectionIdx] = { ...sections[sectionIdx], products };
+      return { ...prev, sections };
+    });
+  };
+
+  // v2: 选择封面图
+  const selectCoverImage = (url: string) => {
+    setEditedResult(prev => ({ ...prev, cover_image_url: url }));
   };
 
   return (
@@ -1427,12 +1560,39 @@ function TopicResultPreview({
         </div>
       )}
 
+      {/* v2: 封面图选择 */}
+      {(editedResult.cover_image_urls && editedResult.cover_image_urls.length > 0) && (
+        <div className="bg-gray-50 rounded-lg p-3">
+          <Label className="text-xs text-gray-500 font-medium mb-2 block">封面图（点击选择）</Label>
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {editedResult.cover_image_urls.map((url, i) => (
+              <button
+                key={i}
+                onClick={() => selectCoverImage(url)}
+                className={`relative flex-shrink-0 rounded-lg overflow-hidden border-2 transition-all ${
+                  editedResult.cover_image_url === url
+                    ? 'border-purple-500 ring-2 ring-purple-200'
+                    : 'border-gray-200 hover:border-gray-400'
+                }`}
+              >
+                <img src={url} alt={`封面图 ${i + 1}`} className="w-40 h-24 object-cover" />
+                {editedResult.cover_image_url === url && (
+                  <div className="absolute top-1 right-1 bg-purple-600 text-white rounded-full p-0.5">
+                    <CheckCircle className="w-3.5 h-3.5" />
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 切换标签 */}
       <div className="flex gap-1 border-b">
         {[
           { key: 'understanding', label: '商品理解', icon: <Lightbulb className="w-4 h-4" /> },
           { key: 'content', label: '专题内容', icon: <FileText className="w-4 h-4" /> },
-          { key: 'products', label: '商品说明', icon: <Package className="w-4 h-4" /> },
+          { key: 'sections', label: '段落与商品', icon: <Package className="w-4 h-4" /> },
         ].map(tab => (
           <button
             key={tab.key}
@@ -1571,93 +1731,98 @@ function TopicResultPreview({
             </div>
           </div>
 
-          {/* 正文段落 */}
-          {editedResult.story_blocks_i18n && editedResult.story_blocks_i18n.length > 0 && (
-            <div>
-              <Label className="text-xs text-gray-500 font-medium">正文段落</Label>
-              {editedResult.story_blocks_i18n.map((block, idx) => (
-                <div key={idx} className="mt-3 border rounded-lg p-3 bg-gray-50">
-                  <div className="text-xs text-gray-400 mb-2">段落 {idx + 1}: {block.block_key}</div>
-                  {['zh', 'ru', 'tg'].map(lang => (
-                    <div key={lang} className="flex items-start gap-2 mb-1">
-                      <span className="text-xs text-gray-400 w-8 mt-2">{lang.toUpperCase()}</span>
-                      <Textarea
-                        value={(block as any)[lang] || ''}
-                        onChange={(e) => updateStoryBlock(idx, lang, e.target.value)}
-                        rows={2}
-                        className="text-sm"
-                      />
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
-      {/* ─── 商品说明 ───────────────────────────────────────── */}
-      {activeSection === 'products' && (
-        <div className="space-y-3">
-          {(editedResult.product_notes || []).map((note, idx) => (
-            <div key={idx} className="border rounded-lg p-3 bg-gray-50">
-              <div className="text-xs text-gray-400 mb-2">
-                商品 ID: {note.product_id?.slice(0, 8)}...
-              </div>
-              <div className="space-y-2">
-                <div>
-                  <Label className="text-xs text-gray-500">场景说明</Label>
-                  {['zh', 'ru', 'tg'].map(lang => (
-                    <div key={lang} className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-gray-400 w-8">{lang.toUpperCase()}</span>
-                      <Input
-                        value={note.note_i18n?.[lang] || ''}
-                        onChange={(e) => {
-                          setEditedResult(prev => {
-                            const notes = [...(prev.product_notes || [])];
-                            notes[idx] = {
-                              ...notes[idx],
-                              note_i18n: { ...notes[idx].note_i18n, [lang]: e.target.value },
-                            };
-                            return { ...prev, product_notes: notes };
-                          });
-                        }}
-                        className="text-sm"
-                      />
-                    </div>
-                  ))}
+      {/* ─── v2: 段落与商品（Sections）───────────────────── */}
+      {activeSection === 'sections' && (
+        <div className="space-y-4">
+          {(editedResult.sections || []).length === 0 ? (
+            <div className="text-center py-8 text-gray-400 text-sm">
+              AI 未生成段落分组
+            </div>
+          ) : (
+            editedResult.sections.map((section, sIdx) => (
+              <div key={sIdx} className="border rounded-lg overflow-hidden">
+                {/* Section 头部 */}
+                <div className="bg-orange-50 px-4 py-2 border-b">
+                  <div className="text-sm font-medium text-orange-700">
+                    段落 {sIdx + 1} · {section.products?.length || 0} 个商品
+                  </div>
                 </div>
-                {note.badge_text_i18n && (
+
+                <div className="p-4 space-y-3">
+                  {/* 场景文案 */}
                   <div>
-                    <Label className="text-xs text-gray-500">角标文案</Label>
+                    <Label className="text-xs text-gray-500 font-medium">场景化文案</Label>
                     {['zh', 'ru', 'tg'].map(lang => (
-                      <div key={lang} className="flex items-center gap-2 mt-1">
-                        <span className="text-xs text-gray-400 w-8">{lang.toUpperCase()}</span>
-                        <Input
-                          value={note.badge_text_i18n?.[lang] || ''}
-                          onChange={(e) => {
-                            setEditedResult(prev => {
-                              const notes = [...(prev.product_notes || [])];
-                              notes[idx] = {
-                                ...notes[idx],
-                                badge_text_i18n: { ...(notes[idx].badge_text_i18n || {}), [lang]: e.target.value },
-                              };
-                              return { ...prev, product_notes: notes };
-                            });
-                          }}
+                      <div key={lang} className="flex items-start gap-2 mt-1">
+                        <span className="text-xs text-gray-400 w-8 mt-2">{lang.toUpperCase()}</span>
+                        <Textarea
+                          value={section.story_text_i18n?.[lang] || ''}
+                          onChange={(e) => updateSectionStoryText(sIdx, lang, e.target.value)}
+                          rows={2}
                           className="text-sm"
                         />
                       </div>
                     ))}
                   </div>
-                )}
+
+                  {/* 关联商品 */}
+                  <div className="space-y-2">
+                    <Label className="text-xs text-gray-500 font-medium">关联商品</Label>
+                    {(section.products || []).map((sp, pIdx) => {
+                      const productInfo = task.request.selected_products.find(p => p.id === sp.product_id);
+                      return (
+                        <div key={pIdx} className="bg-gray-50 rounded-lg p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            {productInfo?.image_url && (
+                              <img src={productInfo.image_url} alt="" className="w-8 h-8 rounded object-cover" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium truncate">
+                                {productInfo?.name_i18n?.zh || productInfo?.name || sp.product_id.slice(0, 8)}
+                              </div>
+                              <div className="text-xs text-gray-400">{sp.product_id.slice(0, 8)}...</div>
+                            </div>
+                          </div>
+
+                          {/* 场景说明 */}
+                          <div className="mb-2">
+                            <Label className="text-xs text-gray-400">场景说明</Label>
+                            {['zh', 'ru', 'tg'].map(lang => (
+                              <div key={lang} className="flex items-center gap-2 mt-0.5">
+                                <span className="text-xs text-gray-400 w-8">{lang.toUpperCase()}</span>
+                                <Input
+                                  value={sp.note_i18n?.[lang] || ''}
+                                  onChange={(e) => updateSectionProductNote(sIdx, pIdx, lang, e.target.value)}
+                                  className="text-sm h-8"
+                                />
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* 角标 */}
+                          <div>
+                            <Label className="text-xs text-gray-400">角标文案</Label>
+                            {['zh', 'ru', 'tg'].map(lang => (
+                              <div key={lang} className="flex items-center gap-2 mt-0.5">
+                                <span className="text-xs text-gray-400 w-8">{lang.toUpperCase()}</span>
+                                <Input
+                                  value={sp.badge_text_i18n?.[lang] || ''}
+                                  onChange={(e) => updateSectionProductBadge(sIdx, pIdx, lang, e.target.value)}
+                                  className="text-sm h-8"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
-          {(!editedResult.product_notes || editedResult.product_notes.length === 0) && (
-            <div className="text-center py-8 text-gray-400 text-sm">
-              AI 未生成商品说明
-            </div>
+            ))
           )}
         </div>
       )}

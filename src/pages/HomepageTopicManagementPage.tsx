@@ -92,6 +92,7 @@ const defaultFormData = {
   intro_zh: '', intro_ru: '', intro_tg: '',
   cover_image_default: '',
   cover_image_zh: '', cover_image_ru: '', cover_image_tg: '',
+  cover_image_url: '',
   theme_color: '#FF6B35',
   card_style: 'standard',
   local_context_notes: '',
@@ -128,7 +129,14 @@ export default function HomepageTopicManagementPage() {
   const [editingItem, setEditingItem] = useState<DbHomepageTopicRow | null>(null);
   const [formData, setFormData] = useState(defaultFormData);
   const [filterStatus, setFilterStatus] = useState<TopicStatus | 'all'>('all');
-  const [activeTab, setActiveTab] = useState<'basic' | 'content' | 'products'>('basic');
+  const [activeTab, setActiveTab] = useState<'basic' | 'content' | 'sections'>('basic');
+
+  // v2: Section 分组编辑状态
+  const [sectionGroups, setSectionGroups] = useState<{
+    story_text_i18n: I18nText;
+    products: { product_id: string; note_i18n?: I18nText; badge_text_i18n?: I18nText }[];
+  }[]>([]);
+  const [activeSectionIdx, setActiveSectionIdx] = useState<number | null>(null);
 
   // 商品挂载状态
   const [topicProducts, setTopicProducts] = useState<DbTopicProductRow[]>([]);
@@ -193,8 +201,28 @@ export default function HomepageTopicManagementPage() {
         const detailMap = new Map<string, ProductSearchItem>();
         (products || []).forEach(p => detailMap.set(p.id, p));
         setTopicProductDetails(detailMap);
+
+        // v2: 按 story_group 分组构建 sectionGroups
+        const groupMap = new Map<number, { story_text_i18n: I18nText; products: { product_id: string; note_i18n?: I18nText; badge_text_i18n?: I18nText }[] }>();
+        for (const tp of (data || [])) {
+          const groupIdx = (tp as any).story_group ?? 0;
+          if (!groupMap.has(groupIdx)) {
+            groupMap.set(groupIdx, {
+              story_text_i18n: (tp as any).story_text_i18n || {},
+              products: [],
+            });
+          }
+          groupMap.get(groupIdx)!.products.push({
+            product_id: tp.product_id,
+            note_i18n: tp.note_i18n || undefined,
+            badge_text_i18n: tp.badge_text_i18n || undefined,
+          });
+        }
+        const sortedGroups = [...groupMap.entries()].sort((a, b) => a[0] - b[0]).map(([_, g]) => g);
+        setSectionGroups(sortedGroups.length > 0 ? sortedGroups : [{ story_text_i18n: {}, products: [] }]);
       } else {
         setTopicProductDetails(new Map());
+        setSectionGroups([{ story_text_i18n: {}, products: [] }]);
       }
     } catch (error: any) {
       console.error('Failed to fetch topic products:', error);
@@ -373,6 +401,7 @@ export default function HomepageTopicManagementPage() {
         cover_image_zh: formData.cover_image_zh || null,
         cover_image_ru: formData.cover_image_ru || null,
         cover_image_tg: formData.cover_image_tg || null,
+        cover_image_url: formData.cover_image_url || null,
         theme_color: formData.theme_color || null,
         card_style: formData.card_style,
         local_context_notes: formData.local_context_notes || null,
@@ -387,9 +416,79 @@ export default function HomepageTopicManagementPage() {
         await adminUpdate(supabase, 'homepage_topics', saveData, [
           { col: 'id', op: 'eq', val: editingItem.id },
         ]);
+
+        // v2: 保存 sectionGroups 到 topic_products
+        // [BUG-M1 修复] 先构建全部插入数据，再删除旧数据并批量插入，减少中间状态
+        // [BUG-M2 修复] 空对象 {} 转为 null
+        const isEmptyI18n = (obj: any) => !obj || (typeof obj === 'object' && Object.keys(obj).length === 0);
+        const productInserts: any[] = [];
+        let globalSort = 0;
+        for (let sIdx = 0; sIdx < sectionGroups.length; sIdx++) {
+          const section = sectionGroups[sIdx];
+          const storyText = isEmptyI18n(section.story_text_i18n) ? null : section.story_text_i18n;
+          for (const sp of section.products) {
+            productInserts.push({
+              topic_id: editingItem.id,
+              product_id: sp.product_id,
+              sort_order: globalSort++,
+              story_group: sIdx,
+              story_text_i18n: storyText,
+              note_i18n: isEmptyI18n(sp.note_i18n) ? null : sp.note_i18n,
+              badge_text_i18n: isEmptyI18n(sp.badge_text_i18n) ? null : sp.badge_text_i18n,
+            });
+          }
+        }
+        // 先删除旧数据
+        await adminDelete(supabase, 'topic_products', [{ col: 'topic_id', op: 'eq', val: editingItem.id }]);
+        // 批量插入新数据
+        let insertFailed = 0;
+        for (const pi of productInserts) {
+          try {
+            await adminInsert(supabase, 'topic_products', pi);
+          } catch (e) {
+            console.error('[sections save] insert failed:', e);
+            insertFailed++;
+          }
+        }
+        if (insertFailed > 0) {
+          toast.error(`${insertFailed} 个商品挂载失败，请检查段落与商品`);
+        }
+
         toast.success('专题更新成功');
       } else {
-        await adminInsert(supabase, 'homepage_topics', saveData);
+        const result = await adminInsert<{ id: string }>(supabase, 'homepage_topics', saveData);
+
+        // v2: 新建时也保存 sectionGroups
+        // [BUG-M2 修复] 空对象 {} 转为 null
+        const isEmptyI18n = (obj: any) => !obj || (typeof obj === 'object' && Object.keys(obj).length === 0);
+        if (result?.id && sectionGroups.some(s => s.products.length > 0)) {
+          let globalSort = 0;
+          let insertFailed = 0;
+          for (let sIdx = 0; sIdx < sectionGroups.length; sIdx++) {
+            const section = sectionGroups[sIdx];
+            const storyText = isEmptyI18n(section.story_text_i18n) ? null : section.story_text_i18n;
+            for (const sp of section.products) {
+              try {
+                await adminInsert(supabase, 'topic_products', {
+                  topic_id: result.id,
+                  product_id: sp.product_id,
+                  sort_order: globalSort++,
+                  story_group: sIdx,
+                  story_text_i18n: storyText,
+                  note_i18n: isEmptyI18n(sp.note_i18n) ? null : sp.note_i18n,
+                  badge_text_i18n: isEmptyI18n(sp.badge_text_i18n) ? null : sp.badge_text_i18n,
+                });
+              } catch (e) {
+                console.error('[sections save] insert failed:', e);
+                insertFailed++;
+              }
+            }
+          }
+          if (insertFailed > 0) {
+            toast.error(`${insertFailed} 个商品挂载失败，请检查段落与商品`);
+          }
+        }
+
         toast.success('专题创建成功');
       }
 
@@ -429,6 +528,7 @@ export default function HomepageTopicManagementPage() {
       cover_image_zh: item.cover_image_zh || '',
       cover_image_ru: item.cover_image_ru || '',
       cover_image_tg: item.cover_image_tg || '',
+      cover_image_url: item.cover_image_url || '',
       theme_color: item.theme_color || '#FF6B35',
       card_style: item.card_style || 'standard',
       local_context_notes: item.local_context_notes || '',
@@ -447,6 +547,7 @@ export default function HomepageTopicManagementPage() {
       tg: b.tg || b.content_i18n?.tg || '',
     })));
     setActiveTab('basic');
+    setActiveSectionIdx(null);
     fetchTopicProducts(item.id);
     setShowModal(true);
   };
@@ -518,8 +619,9 @@ export default function HomepageTopicManagementPage() {
   };
 
   // ============================================================
-  // 商品挂载操作
+  // 商品挂载操作 (v2: 仅保留为向后兼容，新流程请使用 sections 编辑器)
   // ============================================================
+  /** @deprecated v2 请使用 sections 编辑器。保留仅为向后兼容。 */
   const addProductToTopic = async (product: ProductSearchItem) => {
     if (!editingItem) return;
     if (topicProducts.some(tp => tp.product_id === product.id)) {
@@ -527,11 +629,11 @@ export default function HomepageTopicManagementPage() {
       return;
     }
     try {
-      // [RLS 修复] 使用 adminInsert
       await adminInsert(supabase, 'topic_products', {
         topic_id: editingItem.id,
         product_id: product.id,
         sort_order: topicProducts.length,
+        story_group: 0,
       });
       toast.success('商品已挂载');
       fetchTopicProducts(editingItem.id);
@@ -542,7 +644,7 @@ export default function HomepageTopicManagementPage() {
     }
   };
 
-  // 批量挂载商品（来自 ProductPickerPanel）
+  /** @deprecated v2 请使用 sections 编辑器。保留仅为向后兼容。 */
   const addProductsToTopic = async (products: ProductPickerItem[]) => {
     if (!editingItem) return;
     let added = 0;
@@ -553,6 +655,7 @@ export default function HomepageTopicManagementPage() {
           topic_id: editingItem.id,
           product_id: product.id,
           sort_order: topicProducts.length + added,
+          story_group: 0,
         });
         added++;
       } catch (error: any) {
@@ -570,7 +673,6 @@ export default function HomepageTopicManagementPage() {
   const removeProductFromTopic = async (tpId: string) => {
     if (!editingItem) return;
     try {
-      // [RLS 修复] 使用 adminDelete
       await adminDelete(supabase, 'topic_products', [{ col: 'id', op: 'eq', val: tpId }]);
       toast.success('商品已移除');
       fetchTopicProducts(editingItem.id);
@@ -620,6 +722,8 @@ export default function HomepageTopicManagementPage() {
     setSearchResults([]);
     setStoryBlocks([]);
     setActiveTab('basic');
+    setSectionGroups([{ story_text_i18n: {}, products: [] }]);
+    setActiveSectionIdx(null);
   };
 
   return (
@@ -680,11 +784,11 @@ export default function HomepageTopicManagementPage() {
               const badge = getStatusBadge(item.status);
               return (
                 <div key={item.id} className="bg-white rounded-lg shadow-sm p-4 flex items-start gap-4">
-                  {/* 封面缩略图 */}
+                  {/* 封面缩略图 [BUG-M5 修复] 优先使用 cover_image_url，回退到 cover_image_default */}
                   <div className="w-24 h-16 bg-gray-100 rounded overflow-hidden flex-shrink-0">
-                    {item.cover_image_default ? (
+                    {(item.cover_image_url || item.cover_image_default) ? (
                       <img
-                        src={item.cover_image_default}
+                        src={item.cover_image_url || item.cover_image_default || ''}
                         alt=""
                         className="w-full h-full object-cover"
                         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -800,7 +904,7 @@ export default function HomepageTopicManagementPage() {
 
               {/* Tab 切换 */}
               <div className="flex border-b mb-4">
-                {(['basic', 'content', ...(editingItem ? ['products'] : [])] as const).map(tab => (
+                {(['basic', 'content', 'sections'] as const).map(tab => (
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab as any)}
@@ -810,7 +914,7 @@ export default function HomepageTopicManagementPage() {
                         : 'border-transparent text-gray-500 hover:text-gray-700'
                     }`}
                   >
-                    {tab === 'basic' ? '基本信息' : tab === 'content' ? '内容与封面' : '商品挂载'}
+                    {tab === 'basic' ? '基本信息' : tab === 'content' ? '内容与封面' : '段落与商品'}
                   </button>
                 ))}
               </div>
@@ -1157,6 +1261,40 @@ export default function HomepageTopicManagementPage() {
                       </div>
                     </div>
 
+                    {/* AI 生成封面图 */}
+                    {formData.cover_image_url && (
+                      <div className="border-t pt-4">
+                        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                          AI 生成封面图
+                          <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded">自动生成</span>
+                        </h3>
+                        <div className="border border-purple-200 rounded-lg p-4 bg-purple-50">
+                          <img
+                            src={formData.cover_image_url}
+                            alt="AI 封面图"
+                            className="w-full max-w-md rounded-lg shadow-sm mb-2"
+                          />
+                          <div className="flex items-center gap-2 mt-2">
+                            <input
+                              type="text"
+                              className="flex-1 border rounded px-2 py-1 text-xs"
+                              value={formData.cover_image_url}
+                              onChange={(e) => setFormData({ ...formData, cover_image_url: e.target.value })}
+                              placeholder="AI 封面图 URL"
+                            />
+                            <button
+                              type="button"
+                              className="text-xs text-red-500 hover:text-red-700"
+                              onClick={() => setFormData({ ...formData, cover_image_url: '' })}
+                            >
+                              清除
+                            </button>
+                          </div>
+                          <p className="text-xs text-gray-400 mt-1">此封面图由 AI 专题助手自动生成，前端会优先使用此图片</p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* 本地化备注 */}
                     <div className="border-t pt-4">
                       <label className="block text-sm font-medium mb-1">本地化备注（内部使用）</label>
@@ -1171,68 +1309,197 @@ export default function HomepageTopicManagementPage() {
                   </div>
                 )}
 
-                {/* ==================== 商品挂载 Tab ==================== */}
-                {activeTab === 'products' && editingItem && (
+                {/* ==================== v2: 段落与商品 Tab ==================== */}
+                {activeTab === 'sections' && (
                   <div className="space-y-4">
-                    {/* 添加商品按钮 */}
-                    <div>
-                      <button
-                        type="button"
-                        onClick={() => setShowProductPicker(true)}
-                        className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-orange-300 rounded-lg py-3 text-orange-600 hover:bg-orange-50 hover:border-orange-400 transition-colors"
-                      >
-                        <Search className="w-4 h-4" />
-                        搜索并添加商品（支持分类浏览、模糊搜索、批量多选）
-                      </button>
-                    </div>
-
-                    {/* 已挂载商品列表 */}
-                    <div className="border-t pt-4">
-                      <h3 className="text-sm font-semibold mb-3">
-                        已挂载商品 ({topicProducts.length})
-                      </h3>
-                      {topicProducts.length === 0 ? (
-                        <div className="text-center py-8 text-gray-400 text-sm">
-                          暂无挂载商品，请点击上方按钮搜索并添加
+                    {/* 段落列表 */}
+                    {sectionGroups.map((section, sIdx) => (
+                      <div key={sIdx} className="border rounded-lg overflow-hidden">
+                        {/* Section 头部 */}
+                        <div
+                          className="flex items-center justify-between bg-orange-50 px-4 py-2 cursor-pointer hover:bg-orange-100 transition-colors"
+                          onClick={() => setActiveSectionIdx(activeSectionIdx === sIdx ? null : sIdx)}
+                        >
+                          <div className="flex items-center gap-2">
+                            {activeSectionIdx === sIdx ? <ChevronUp className="w-4 h-4 text-orange-600" /> : <ChevronDown className="w-4 h-4 text-orange-600" />}
+                            <span className="text-sm font-medium text-orange-700">
+                              段落 {sIdx + 1}
+                            </span>
+                            <span className="text-xs text-orange-500">
+                              {section.products.length} 个商品
+                              {section.story_text_i18n?.zh ? ` · ${section.story_text_i18n.zh.slice(0, 20)}...` : ''}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (sectionGroups.length <= 1) { toast.error('至少保留一个段落'); return; }
+                              setSectionGroups(prev => prev.filter((_, i) => i !== sIdx));
+                              // [BUG-M7 修复] 删除段落后正确调整 activeSectionIdx
+                              if (activeSectionIdx === sIdx) {
+                                setActiveSectionIdx(null);
+                              } else if (activeSectionIdx !== null && activeSectionIdx > sIdx) {
+                                setActiveSectionIdx(activeSectionIdx - 1);
+                              }
+                            }}
+                            className="text-xs text-red-400 hover:text-red-600 px-2 py-1"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {topicProducts.map((tp, idx) => {
-                            const detail = topicProductDetails.get(tp.product_id);
-                            const pName = detail ? ((detail.name_i18n as I18nText)?.zh || (detail.name_i18n as I18nText)?.ru || tp.product_id.slice(0, 8)) : tp.product_id.slice(0, 8) + '...';
-                            return (
-                              <div key={tp.id} className="flex items-center gap-3 bg-gray-50 rounded px-3 py-2">
-                                <span className="text-xs text-gray-400 w-6 text-center">{idx + 1}</span>
-                                {detail?.image_url && (
-                                  <img src={detail.image_url} alt="" className="w-10 h-10 object-cover rounded flex-shrink-0" />
-                                )}
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-sm font-medium truncate">{pName}</div>
-                                  <div className="text-xs text-gray-500">
-                                    {detail ? `${detail.original_price} TJS` : `ID: ${tp.product_id.slice(0, 12)}...`}
-                                  </div>
+
+                        {/* Section 展开内容 */}
+                        {activeSectionIdx === sIdx && (
+                          <div className="p-4 space-y-4">
+                            {/* 场景化文案 */}
+                            <div>
+                              <label className="block text-xs text-gray-500 font-medium mb-1">场景化文案（三语）</label>
+                              {['zh', 'ru', 'tg'].map(lang => (
+                                <div key={lang} className="flex items-start gap-2 mt-1">
+                                  <span className="text-xs text-gray-400 w-8 mt-2 flex-shrink-0">{lang.toUpperCase()}</span>
+                                  <textarea
+                                    value={section.story_text_i18n?.[lang] || ''}
+                                    onChange={(e) => {
+                                      setSectionGroups(prev => {
+                                        const next = [...prev];
+                                        next[sIdx] = {
+                                          ...next[sIdx],
+                                          story_text_i18n: { ...next[sIdx].story_text_i18n, [lang]: e.target.value },
+                                        };
+                                        return next;
+                                      });
+                                    }}
+                                    className="w-full border rounded px-3 py-2 text-sm"
+                                    rows={2}
+                                    placeholder={lang === 'zh' ? '描述一个生活场景，引导用户理解这组商品的价值...' : ''}
+                                  />
                                 </div>
+                              ))}
+                            </div>
+
+                            {/* 关联商品 */}
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <label className="text-xs text-gray-500 font-medium">关联商品 ({section.products.length})</label>
                                 <button
                                   type="button"
-                                  onClick={() => removeProductFromTopic(tp.id)}
-                                  className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded hover:bg-red-200"
+                                  onClick={() => {
+                                    setActiveSectionIdx(sIdx);
+                                    setShowProductPicker(true);
+                                  }}
+                                  className="text-xs text-orange-600 hover:text-orange-700 flex items-center gap-1"
                                 >
-                                  <X className="w-3 h-3" />
+                                  <Plus className="w-3.5 h-3.5" />
+                                  添加商品
                                 </button>
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
+
+                              {section.products.length === 0 ? (
+                                <div className="text-center py-4 text-gray-400 text-xs border border-dashed rounded">
+                                  点击“添加商品”按钮添加商品到这个段落
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {section.products.map((sp, pIdx) => {
+                                    const detail = topicProductDetails.get(sp.product_id);
+                                    const pName = detail ? ((detail.name_i18n as I18nText)?.zh || (detail.name_i18n as I18nText)?.ru || sp.product_id.slice(0, 8)) : sp.product_id.slice(0, 8) + '...';
+                                    return (
+                                      <div key={pIdx} className="flex items-center gap-3 bg-gray-50 rounded px-3 py-2">
+                                        <GripVertical className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
+                                        {detail?.image_url && (
+                                          <img src={detail.image_url} alt="" className="w-8 h-8 object-cover rounded flex-shrink-0" />
+                                        )}
+                                        <div className="flex-1 min-w-0">
+                                          <div className="text-sm font-medium truncate">{pName}</div>
+                                          <div className="text-xs text-gray-400">
+                                            {detail ? `${detail.original_price} TJS` : sp.product_id.slice(0, 12)}
+                                          </div>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSectionGroups(prev => {
+                                              const next = [...prev];
+                                              next[sIdx] = {
+                                                ...next[sIdx],
+                                                products: next[sIdx].products.filter((_, i) => i !== pIdx),
+                                              };
+                                              return next;
+                                            });
+                                          }}
+                                          className="text-red-400 hover:text-red-600"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* 添加新段落按钮 */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSectionGroups(prev => [...prev, { story_text_i18n: {}, products: [] }]);
+                        setActiveSectionIdx(sectionGroups.length);
+                      }}
+                      className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-gray-300 rounded-lg py-3 text-gray-500 hover:bg-gray-50 hover:border-gray-400 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      添加新段落
+                    </button>
 
                     {/* 商品选择器面板 */}
                     <ProductPickerPanel
                       open={showProductPicker}
                       onClose={() => setShowProductPicker(false)}
-                      onConfirm={addProductsToTopic}
-                      existingProductIds={topicProducts.map(tp => tp.product_id)}
-                      title="选择挂载商品"
+                      onConfirm={(products: ProductPickerItem[]) => {
+                        // [BUG-M3 修复] 确保 targetIdx 在有效范围内
+                        const rawIdx = activeSectionIdx ?? 0;
+                        const targetIdx = Math.min(rawIdx, sectionGroups.length - 1);
+                        const existingIds = new Set(
+                          sectionGroups.flatMap(s => s.products.map(p => p.product_id))
+                        );
+                        const newProducts = products
+                          .filter(p => !existingIds.has(p.id))
+                          .map(p => ({ product_id: p.id }));
+                        if (newProducts.length === 0) {
+                          toast.error('所选商品已全部挂载');
+                          return;
+                        }
+                        setSectionGroups(prev => {
+                          const next = [...prev];
+                          next[targetIdx] = {
+                            ...next[targetIdx],
+                            products: [...next[targetIdx].products, ...newProducts],
+                          };
+                          return next;
+                        });
+                        // 同时更新 topicProductDetails
+                        const newMap = new Map(topicProductDetails);
+                        products.forEach(p => {
+                          if (!newMap.has(p.id)) {
+                            newMap.set(p.id, {
+                              id: p.id,
+                              name_i18n: p.name_i18n || {},
+                              image_url: p.image_url || '',
+                              original_price: p.original_price || 0,
+                              status: 'ACTIVE',
+                            });
+                          }
+                        });
+                        setTopicProductDetails(newMap);
+                        toast.success(`已添加 ${newProducts.length} 个商品到段落 ${targetIdx + 1}`);
+                      }}
+                      existingProductIds={sectionGroups.flatMap(s => s.products.map(p => p.product_id))}
+                      title="选择商品添加到段落"
                     />
                   </div>
                 )}
