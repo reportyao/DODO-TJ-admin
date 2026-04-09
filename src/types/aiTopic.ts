@@ -1,12 +1,18 @@
 /**
- * AI 专题生成助手 — TypeScript 类型定义
+ * AI 专题生成助手 — TypeScript 类型定义 (v2)
  *
  * 定义了 AI 专题任务的状态流转、输入/输出结构、SSE 事件格式等核心类型。
  * 与 ai-listing-generate 保持一致的状态枚举：queued → processing → done / partial / error
  *
- * 两层架构：
- *   - 商品理解层 (understanding): 分析商品在本地生活中的使用场景
- *   - 内容表达层 (content): 生成三语专题草稿
+ * v2 升级：
+ *   - 内容表达层输出改为 sections 模式（段落+商品分组）
+ *   - 新增封面图生成（cover_image_url / cover_image_urls）
+ *   - 理解层新增 product_groups 和 cover_image_prompt
+ *
+ * 三层架构：
+ *   - 商品理解层 (understanding): 分析商品在本地生活中的使用场景 + 分组建议 + 封面图 prompt
+ *   - 内容表达层 (content): 生成三语专题草稿（sections 模式）
+ *   - 封面图生成层 (cover): 基于商品图片 + AI prompt 生成封面图
  */
 
 // ============================================================
@@ -28,6 +34,8 @@ export interface AITopicDraftRequest {
   manual_notes?: string;
   tone_constraints?: string[];
   output_languages: ('zh' | 'ru' | 'tg')[];
+  generate_cover?: boolean;              // v2 新增：是否生成封面图
+  cover_mode?: 'ai_generate' | 'product_collage';  // v2 新增：封面模式
 }
 
 /** 选中商品的输入信息 */
@@ -54,9 +62,17 @@ export interface ProductUnderstanding {
   story_angle: string;
   local_anchors_used: string[];
   risk_notes: string[];
+  product_groups: ProductGroup[];        // v2 新增
   products_analysis: ProductAnalysisItem[];
   recommended_topic_type: 'story' | 'collection' | 'seasonal' | 'gift_guide';
   recommended_card_style: 'story_card' | 'image_card' | 'minimal_card';
+  cover_image_prompt: string;            // v2 新增
+}
+
+/** v2 新增：商品分组建议 */
+export interface ProductGroup {
+  group_theme: string;
+  product_ids: string[];
 }
 
 export interface ProductAnalysisItem {
@@ -70,21 +86,39 @@ export interface ProductAnalysisItem {
 }
 
 // ============================================================
-// 内容表达层结果
+// 内容表达层结果 — v2 Section 模式
 // ============================================================
+
+/** v2 Section：一段场景文案 + 关联商品列表 */
+export interface AITopicSection {
+  story_text_i18n: Record<string, string>;
+  products: AITopicSectionProduct[];
+}
+
+/** v2 Section 内的商品 */
+export interface AITopicSectionProduct {
+  product_id: string;
+  note_i18n: Record<string, string>;
+  badge_text_i18n?: Record<string, string>;
+}
 
 export interface AITopicDraftResult {
   // 理解层
   understanding: ProductUnderstanding;
-  // 内容表达层
+  // v2 内容表达层 — sections 模式
   title_i18n: Record<string, string>;
   subtitle_i18n: Record<string, string>;
   intro_i18n: Record<string, string>;
+  sections: AITopicSection[];
+  // 向后兼容
   story_blocks_i18n: StoryBlock[];
-  placement_variants: PlacementVariant[];
   product_notes: ProductNote[];
+  placement_variants: PlacementVariant[];
   recommended_category_ids: string[];
   recommended_tag_ids: string[];
+  // v2 封面图
+  cover_image_url: string | null;
+  cover_image_urls: string[];
   // 质量元数据
   explanation: {
     local_anchors: string[];
@@ -94,6 +128,7 @@ export interface AITopicDraftResult {
   quality_warnings: string[];
 }
 
+/** 向后兼容的 StoryBlock */
 export interface StoryBlock {
   block_key: string;
   block_type: 'paragraph';
