@@ -222,7 +222,7 @@ export default function ProductPickerPanel({
               共 {totalCount} 个商品 · 已选 {selectedIds.size} 个
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors">
+          <button type="button" onClick={onClose} className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors">
             <X className="w-5 h-5 text-gray-500" />
           </button>
         </div>
@@ -246,6 +246,7 @@ export default function ProductPickerPanel({
         <div className="px-4 py-2 border-b overflow-x-auto">
           <div className="flex gap-1.5 flex-nowrap">
             <button
+              type="button"
               onClick={() => setSelectedCategoryId('all')}
               className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
                 selectedCategoryId === 'all'
@@ -256,6 +257,7 @@ export default function ProductPickerPanel({
               全部
             </button>
             <button
+              type="button"
               onClick={() => setSelectedCategoryId('unassigned')}
               className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
                 selectedCategoryId === 'unassigned'
@@ -267,6 +269,7 @@ export default function ProductPickerPanel({
             </button>
             {categories.map(cat => (
               <button
+                type="button"
                 key={cat.id}
                 onClick={() => setSelectedCategoryId(cat.id)}
                 className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
@@ -284,6 +287,7 @@ export default function ProductPickerPanel({
         {/* 全选操作栏 */}
         <div className="px-4 py-2 border-b bg-gray-50 flex items-center justify-between">
           <button
+            type="button"
             onClick={selectAll}
             className="text-xs text-orange-600 hover:text-orange-700 font-medium"
           >
@@ -386,12 +390,14 @@ export default function ProductPickerPanel({
         {/* 底部确认栏 */}
         <div className="px-5 py-4 border-t bg-gray-50 flex items-center justify-between">
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
           >
             取消
           </button>
           <button
+            type="button"
             onClick={handleConfirm}
             disabled={selectedIds.size === 0}
             className={`px-6 py-2 rounded-lg text-sm font-medium transition-colors ${
