@@ -70,6 +70,7 @@ const defaultFormData = {
   intro_zh: '', intro_ru: '', intro_tg: '',
   cover_image_default: '',
   cover_image_zh: '', cover_image_ru: '', cover_image_tg: '',
+  cover_image_url: '',
   theme_color: '#FF6B35',
   card_style: 'standard',
   local_context_notes: '',
@@ -267,6 +268,7 @@ export default function HomepageTopicManagementPage() {
         cover_image_zh: formData.cover_image_zh || null,
         cover_image_ru: formData.cover_image_ru || null,
         cover_image_tg: formData.cover_image_tg || null,
+        cover_image_url: formData.cover_image_url || null,
         theme_color: formData.theme_color || null,
         card_style: formData.card_style,
         local_context_notes: formData.local_context_notes || null,
@@ -363,6 +365,7 @@ export default function HomepageTopicManagementPage() {
       cover_image_zh: item.cover_image_zh || '',
       cover_image_ru: item.cover_image_ru || '',
       cover_image_tg: item.cover_image_tg || '',
+      cover_image_url: item.cover_image_url || '',
       theme_color: item.theme_color || '#FF6B35',
       card_style: item.card_style || 'standard',
       local_context_notes: item.local_context_notes || '',
@@ -405,8 +408,9 @@ export default function HomepageTopicManagementPage() {
   };
 
   // ============================================================
-  // 商品挂载操作
+  // 商品挂载操作 (v2: 仅保留为向后兼容，新流程请使用 sections 编辑器)
   // ============================================================
+  /** @deprecated v2 请使用 sections 编辑器。保留仅为向后兼容。 */
   const addProductToTopic = async (product: ProductSearchItem) => {
     if (!editingItem) return;
     if (topicProducts.some(tp => tp.product_id === product.id)) {
@@ -414,11 +418,11 @@ export default function HomepageTopicManagementPage() {
       return;
     }
     try {
-      // [RLS 修复] 使用 adminInsert
       await adminInsert(supabase, 'topic_products', {
         topic_id: editingItem.id,
         product_id: product.id,
         sort_order: topicProducts.length,
+        story_group: 0,
       });
       toast.success('商品已挂载');
       fetchTopicProducts(editingItem.id);
@@ -429,7 +433,7 @@ export default function HomepageTopicManagementPage() {
     }
   };
 
-  // 批量挂载商品（来自 ProductPickerPanel）
+  /** @deprecated v2 请使用 sections 编辑器。保留仅为向后兼容。 */
   const addProductsToTopic = async (products: ProductPickerItem[]) => {
     if (!editingItem) return;
     let added = 0;
@@ -440,6 +444,7 @@ export default function HomepageTopicManagementPage() {
           topic_id: editingItem.id,
           product_id: product.id,
           sort_order: topicProducts.length + added,
+          story_group: 0,
         });
         added++;
       } catch (error: any) {
@@ -457,7 +462,6 @@ export default function HomepageTopicManagementPage() {
   const removeProductFromTopic = async (tpId: string) => {
     if (!editingItem) return;
     try {
-      // [RLS 修复] 使用 adminDelete
       await adminDelete(supabase, 'topic_products', [{ col: 'id', op: 'eq', val: tpId }]);
       toast.success('商品已移除');
       fetchTopicProducts(editingItem.id);
@@ -870,6 +874,40 @@ export default function HomepageTopicManagementPage() {
                         </div>
                       </div>
                     </div>
+
+                    {/* AI 生成封面图 */}
+                    {formData.cover_image_url && (
+                      <div className="border-t pt-4">
+                        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                          AI 生成封面图
+                          <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded">自动生成</span>
+                        </h3>
+                        <div className="border border-purple-200 rounded-lg p-4 bg-purple-50">
+                          <img
+                            src={formData.cover_image_url}
+                            alt="AI 封面图"
+                            className="w-full max-w-md rounded-lg shadow-sm mb-2"
+                          />
+                          <div className="flex items-center gap-2 mt-2">
+                            <input
+                              type="text"
+                              className="flex-1 border rounded px-2 py-1 text-xs"
+                              value={formData.cover_image_url}
+                              onChange={(e) => setFormData({ ...formData, cover_image_url: e.target.value })}
+                              placeholder="AI 封面图 URL"
+                            />
+                            <button
+                              type="button"
+                              className="text-xs text-red-500 hover:text-red-700"
+                              onClick={() => setFormData({ ...formData, cover_image_url: '' })}
+                            >
+                              清除
+                            </button>
+                          </div>
+                          <p className="text-xs text-gray-400 mt-1">此封面图由 AI 专题助手自动生成，前端会优先使用此图片</p>
+                        </div>
+                      </div>
+                    )}
 
                     {/* 本地化备注 */}
                     <div className="border-t pt-4">

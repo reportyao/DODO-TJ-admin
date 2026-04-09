@@ -159,6 +159,8 @@ export interface DbHomepageTopicRow {
   cover_image_zh: string | null;
   cover_image_ru: string | null;
   cover_image_tg: string | null;
+  /** v2: AI 生成的封面图 URL */
+  cover_image_url: string | null;
   theme_color: string | null;
   card_style: string | null;
   local_context_notes: string | null;
@@ -186,6 +188,8 @@ export interface DbHomepageTopicInsert {
   cover_image_zh?: string | null;
   cover_image_ru?: string | null;
   cover_image_tg?: string | null;
+  /** v2: AI 生成的封面图 URL */
+  cover_image_url?: string | null;
   theme_color?: string | null;
   card_style?: string | null;
   local_context_notes?: string | null;
@@ -210,6 +214,8 @@ export interface DbHomepageTopicUpdate {
   cover_image_zh?: string | null;
   cover_image_ru?: string | null;
   cover_image_tg?: string | null;
+  /** v2: AI 生成的封面图 URL */
+  cover_image_url?: string | null;
   theme_color?: string | null;
   card_style?: string | null;
   local_context_notes?: string | null;
@@ -232,6 +238,10 @@ export interface DbTopicProductRow {
   sort_order: number;
   note_i18n: I18nText | null;
   badge_text_i18n: I18nText | null;
+  /** v2: 段落分组序号 */
+  story_group: number;
+  /** v2: 该组的场景化文案 */
+  story_text_i18n: I18nText | null;
   created_at: string;
   updated_at: string;
 }
@@ -242,6 +252,10 @@ export interface DbTopicProductInsert {
   sort_order?: number;
   note_i18n?: I18nText | null;
   badge_text_i18n?: I18nText | null;
+  /** v2: 段落分组序号 */
+  story_group?: number;
+  /** v2: 该组的场景化文案 */
+  story_text_i18n?: I18nText | null;
 }
 
 // ============================================================================
