@@ -715,13 +715,18 @@ export default function AITopicGenerationPage() {
     const startTime = Date.now();
 
     try {
-      // 生成 slug
+      // [BUG-03 修复] 生成 slug 并确保唯一性
+      // 使用 crypto.randomUUID 片段代替 Date.now().toString(36) 避免快速连续创建时碰撞
       const slugBase = (editedResult.title_i18n?.zh || editedResult.title_i18n?.ru || 'topic')
         .toLowerCase()
         .replace(/[^a-z0-9\u4e00-\u9fff]/g, '-')
         .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
         .slice(0, 30);
-      const slug = `ai-${slugBase}-${Date.now().toString(36)}`;
+      const uniqueSuffix = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID().slice(0, 8)
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      const slug = `ai-${slugBase}-${uniqueSuffix}`;
 
       // 映射 topic_type 和 card_style
       const aiTopicType = editedResult.understanding?.recommended_topic_type || 'story';
@@ -729,16 +734,20 @@ export default function AITopicGenerationPage() {
       const topicType = TOPIC_TYPE_MAP[aiTopicType] || 'story';
       const cardStyle = CARD_STYLE_MAP[aiCardStyle] || 'standard';
 
-      // 构建 story_blocks_i18n
-      const storyBlocks = (editedResult.story_blocks_i18n || []).map(block => ({
-        block_key: block.block_key,
-        block_type: block.block_type || 'paragraph',
-        content_i18n: {
-          zh: block.zh || '',
-          ru: block.ru || '',
-          tg: block.tg || '',
-        },
-      }));
+      // [BUG-06/07 修复] 构建 story_blocks_i18n，确保 block_key 唯一且 block_type 有效
+      const storyBlocks = (editedResult.story_blocks_i18n || []).map((block, idx) => {
+        const validBlockTypes = ['paragraph', 'heading', 'callout'];
+        const blockType = validBlockTypes.includes(block.block_type || '') ? block.block_type : 'paragraph';
+        return {
+          block_key: block.block_key || `block_${idx}_${Date.now().toString(36)}`,
+          block_type: blockType,
+          content_i18n: {
+            zh: block.zh || '',
+            ru: block.ru || '',
+            tg: block.tg || '',
+          },
+        };
+      });
 
       // 构建专题数据
       const topicData = {
@@ -1372,8 +1381,14 @@ function TopicResultPreview({
   onDiscard: () => void;
   saving: boolean;
 }) {
-  // 可编辑的本地状态
-  const [editedResult, setEditedResult] = useState<AITopicDraftResult>(() => ({ ...result }));
+  // [BUG-24 修复] 深拷贝初始化，避免浅拷贝导致编辑时修改原始 result 对象
+  const [editedResult, setEditedResult] = useState<AITopicDraftResult>(() => {
+    try {
+      return JSON.parse(JSON.stringify(result));
+    } catch {
+      return { ...result };
+    }
+  });
   const [activeSection, setActiveSection] = useState<'understanding' | 'content' | 'products'>('content');
 
   const updateField = (field: string, value: any) => {

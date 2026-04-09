@@ -117,11 +117,14 @@ export default function ProductPickerPanel({
         { col: 'status', op: 'eq', val: 'ACTIVE' },
       ];
 
-      // 构建搜索条件
+      // [BUG-14 修复] 构建搜索条件，对特殊字符进行转义
       let orFilters: string | undefined;
       if (keyword.trim()) {
-        const kw = keyword.trim();
-        orFilters = `name_i18n->>zh.ilike.%${kw}%,name_i18n->>ru.ilike.%${kw}%,name_i18n->>tg.ilike.%${kw}%,sku.ilike.%${kw}%`;
+        // 移除 PostgREST 查询中可能导致解析错误的特殊字符
+        const kw = keyword.trim().replace(/[.,()%_]/g, '');
+        if (kw) {
+          orFilters = `name_i18n->>zh.ilike.%${kw}%,name_i18n->>ru.ilike.%${kw}%,name_i18n->>tg.ilike.%${kw}%,sku.ilike.%${kw}%`;
+        }
       }
 
       // 查询商品
@@ -136,14 +139,8 @@ export default function ProductPickerPanel({
 
       let result = data || [];
 
-      // 如果选择了分类，需要通过 product_categories 关联表过滤
+      // [BUG-15 修复] 分类筛选逻辑修正：'unassigned' 应独立处理，不应先按 categoryId 查询
       if (categoryId !== 'all') {
-        const catRelations = await adminQuery<{ product_id: string }>(supabase, 'product_categories', {
-          select: 'product_id',
-          filters: [{ col: 'category_id', op: 'eq', val: categoryId }] as any,
-        });
-        const productIdSet = new Set((catRelations || []).map(r => r.product_id));
-
         if (categoryId === 'unassigned') {
           // 未分类：获取所有已分类的商品ID，然后排除
           const allRelations = await adminQuery<{ product_id: string }>(supabase, 'product_categories', {
@@ -152,6 +149,11 @@ export default function ProductPickerPanel({
           const assignedIds = new Set((allRelations || []).map(r => r.product_id));
           result = result.filter(p => !assignedIds.has(p.id));
         } else {
+          const catRelations = await adminQuery<{ product_id: string }>(supabase, 'product_categories', {
+            select: 'product_id',
+            filters: [{ col: 'category_id', op: 'eq', val: categoryId }] as any,
+          });
+          const productIdSet = new Set((catRelations || []).map(r => r.product_id));
           result = result.filter(p => productIdSet.has(p.id));
         }
       }

@@ -5,9 +5,17 @@
  * 支持：列表展示、创建、编辑、删除、启用/停用、排序。
  *
  * 与 BannerManagementPage 保持一致的 CRUD 模式。
+ *
+ * [审查修复] 修复清单：
+ *   BUG-08: 时间范围校验（end_time > start_time）
+ *   BUG-09: feed_position 校验（正整数）
+ *   BUG-10: 非 published 专题关联投放时显示警告
+ *   BUG-11: 多语言封面上传支持（zh/ru/tg 三语封面）
+ *   BUG-12: 覆盖副标题支持
+ *   BUG-20: 投放列表增加专题状态标记
  */
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, EyeOff, RefreshCw, ArrowUp, ArrowDown, X } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, EyeOff, RefreshCw, ArrowUp, ArrowDown, X, AlertTriangle } from 'lucide-react';
 import { useSupabase } from '../contexts/SupabaseContext';
 import { adminQuery, adminInsert, adminUpdate, adminDelete } from '../lib/adminApi';
 import { SingleImageUpload } from '@/components/SingleImageUpload';
@@ -72,7 +80,7 @@ export default function TopicPlacementManagementPage() {
           orderAsc: true,
         }),
         adminQuery<DbHomepageTopicRow>(supabase, 'homepage_topics', {
-          select: 'id, slug, title_i18n, status',
+          select: 'id, slug, title_i18n, status, is_active',
           orderBy: 'updated_at',
           orderAsc: false,
         }),
@@ -95,12 +103,63 @@ export default function TopicPlacementManagementPage() {
     return i18n?.zh || topic.slug || topicId.slice(0, 8);
   };
 
+  // [BUG-20 修复] 获取专题状态
+  const getTopicStatus = (topicId: string): string | null => {
+    const topic = topics.find(t => t.id === topicId);
+    return topic?.status || null;
+  };
+
+  // [BUG-08 修复] 时间范围校验
+  const validateTimeRange = (startTime: string, endTime: string): boolean => {
+    if (startTime && endTime) {
+      const start = new Date(startTime).getTime();
+      const end = new Date(endTime).getTime();
+      if (end <= start) {
+        toast.error('结束时间必须晚于开始时间');
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // [BUG-09 修复] feed_position 校验
+  const validateFeedPosition = (pos: number): boolean => {
+    if (!Number.isInteger(pos) || pos < 1) {
+      toast.error('Feed 位置必须为正整数（最小为 1）');
+      return false;
+    }
+    if (pos > 100) {
+      toast.error('Feed 位置不能超过 100');
+      return false;
+    }
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.topic_id) {
       toast.error('请选择关联专题');
       return;
+    }
+
+    // [BUG-08 修复] 时间范围校验
+    if (!validateTimeRange(formData.start_time, formData.end_time)) {
+      return;
+    }
+
+    // [BUG-09 修复] feed_position 校验
+    if (!validateFeedPosition(formData.feed_position)) {
+      return;
+    }
+
+    // [BUG-10 修复] 非 published 专题警告
+    const topicStatus = getTopicStatus(formData.topic_id);
+    if (topicStatus && topicStatus !== 'published') {
+      const statusLabel = topicStatus === 'ready' ? '待发布' : topicStatus === 'draft' ? '草稿' : '已下线';
+      if (!confirm(`关联的专题当前状态为"${statusLabel}"，前端 Feed 只会展示已发布的专题。\n\n确定要继续创建/更新投放吗？`)) {
+        return;
+      }
     }
 
     try {
@@ -119,6 +178,7 @@ export default function TopicPlacementManagementPage() {
         title_i18n: buildI18n(formData.title_zh, formData.title_ru, formData.title_tg),
         subtitle_i18n: buildI18n(formData.subtitle_zh, formData.subtitle_ru, formData.subtitle_tg),
         cover_image_default: formData.cover_image_default || null,
+        // [BUG-11 修复] 保存多语言封面
         cover_image_zh: formData.cover_image_zh || null,
         cover_image_ru: formData.cover_image_ru || null,
         cover_image_tg: formData.cover_image_tg || null,
@@ -175,7 +235,7 @@ export default function TopicPlacementManagementPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('确定要删除这个投放吗？')) return;
+    if (!confirm('确定要删除这个投放吗？删除后前台对应位置的专题卡片将消失。')) return;
     try {
       // [RLS 修复] 使用 adminDelete
       await adminDelete(supabase, 'topic_placements', [
@@ -191,7 +251,7 @@ export default function TopicPlacementManagementPage() {
   const toggleActive = async (item: DbTopicPlacementRow) => {
     try {
       // [RLS 修复] 使用 adminUpdate
-      await adminUpdate(supabase, 'topic_placements', { is_active: !item.is_active }, [
+      await adminUpdate(supabase, 'topic_placements', { is_active: !item.is_active, updated_at: new Date().toISOString() }, [
         { col: 'id', op: 'eq', val: item.id },
       ]);
       toast.success(item.is_active ? '投放已停用' : '投放已启用');
@@ -265,11 +325,30 @@ export default function TopicPlacementManagementPage() {
             <tbody className="divide-y">
               {placements.map(item => {
                 const title = (item.title_i18n as I18nText) || {};
+                const topicStatus = getTopicStatus(item.topic_id);
+                // [BUG-20 修复] 检查关联专题是否有效
+                const isTopicInvalid = topicStatus && topicStatus !== 'published';
                 return (
-                  <tr key={item.id} className="hover:bg-gray-50">
+                  <tr key={item.id} className={`hover:bg-gray-50 ${isTopicInvalid ? 'bg-yellow-50' : ''}`}>
                     <td className="px-4 py-3 text-sm text-gray-600">{item.sort_order}</td>
                     <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-gray-800">{getTopicTitle(item.topic_id)}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm font-medium text-gray-800">{getTopicTitle(item.topic_id)}</div>
+                        {/* [BUG-20 修复] 显示专题状态标记 */}
+                        {topicStatus && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${
+                            topicStatus === 'published' ? 'bg-green-100 text-green-600' :
+                            topicStatus === 'ready' ? 'bg-yellow-100 text-yellow-600' :
+                            topicStatus === 'draft' ? 'bg-gray-100 text-gray-500' :
+                            'bg-red-100 text-red-500'
+                          }`}>
+                            {topicStatus}
+                          </span>
+                        )}
+                        {isTopicInvalid && (
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500" title="关联专题未发布，前端不可见" />
+                        )}
+                      </div>
                       {title.zh && <div className="text-xs text-gray-500">覆盖标题: {title.zh}</div>}
                     </td>
                     <td className="px-4 py-3">
@@ -352,11 +431,27 @@ export default function TopicPlacementManagementPage() {
                         const isUsable = t.status === 'published' || t.status === 'ready';
                         return (
                           <option key={t.id} value={t.id} className={isUsable ? '' : 'text-gray-400'}>
-                            [{t.status}] {i18n?.zh || t.slug}{!isUsable ? ' ⚠️前端不可见' : ''}
+                            [{t.status}] {i18n?.zh || t.slug}{!isUsable ? ' (前端不可见)' : ''}
                           </option>
                         );
                       })}
                   </select>
+                  {/* [BUG-10 修复] 非 published 专题选择时显示警告 */}
+                  {formData.topic_id && (() => {
+                    const status = getTopicStatus(formData.topic_id);
+                    if (status && status !== 'published') {
+                      return (
+                        <div className="flex items-center gap-1 mt-1 text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                          <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                          <span>
+                            该专题状态为"{status}"，前端 Feed 只展示已发布(published)且启用(is_active)的专题。
+                            {status === 'ready' ? '请先到专题管理页面发布该专题。' : ''}
+                          </span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -386,9 +481,19 @@ export default function TopicPlacementManagementPage() {
                   <div>
                     <label className="block text-sm font-medium mb-1">Feed 位置</label>
                     <input type="number" value={formData.feed_position}
-                      onChange={(e) => setFormData({ ...formData, feed_position: Number(e.target.value) })}
-                      className="w-full border rounded px-3 py-2" min={1} />
-                    <p className="text-xs text-gray-400 mt-1">在第几个商品后插入</p>
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setFormData({ ...formData, feed_position: val });
+                      }}
+                      className="w-full border rounded px-3 py-2" min={1} max={100} />
+                    <p className="text-xs text-gray-400 mt-1">在第几个商品后插入（1-100）</p>
+                    {/* [BUG-09 修复] feed_position 实时校验提示 */}
+                    {(formData.feed_position < 1 || formData.feed_position > 100 || !Number.isInteger(formData.feed_position)) && (
+                      <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" />
+                        请输入 1-100 的正整数
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">排序</label>
@@ -412,19 +517,19 @@ export default function TopicPlacementManagementPage() {
                   <h3 className="text-sm font-semibold mb-3">覆盖标题（可选，留空则使用专题标题）</h3>
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">🇨🇳 中文</label>
+                      <label className="block text-xs text-gray-500 mb-1">中文</label>
                       <input type="text" value={formData.title_zh}
                         onChange={(e) => setFormData({ ...formData, title_zh: e.target.value })}
                         className="w-full border rounded px-3 py-2" />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">🇷🇺 俄语</label>
+                      <label className="block text-xs text-gray-500 mb-1">俄语</label>
                       <input type="text" value={formData.title_ru}
                         onChange={(e) => setFormData({ ...formData, title_ru: e.target.value })}
                         className="w-full border rounded px-3 py-2" />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">🇹🇯 塔吉克语</label>
+                      <label className="block text-xs text-gray-500 mb-1">塔吉克语</label>
                       <input type="text" value={formData.title_tg}
                         onChange={(e) => setFormData({ ...formData, title_tg: e.target.value })}
                         className="w-full border rounded px-3 py-2" />
@@ -432,17 +537,73 @@ export default function TopicPlacementManagementPage() {
                   </div>
                 </div>
 
-                {/* 覆盖封面 */}
+                {/* [BUG-12 修复] 覆盖副标题（可选） */}
+                <div className="border-t pt-4">
+                  <h3 className="text-sm font-semibold mb-3">覆盖副标题（可选）</h3>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">中文</label>
+                      <input type="text" value={formData.subtitle_zh}
+                        onChange={(e) => setFormData({ ...formData, subtitle_zh: e.target.value })}
+                        className="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">俄语</label>
+                      <input type="text" value={formData.subtitle_ru}
+                        onChange={(e) => setFormData({ ...formData, subtitle_ru: e.target.value })}
+                        className="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">塔吉克语</label>
+                      <input type="text" value={formData.subtitle_tg}
+                        onChange={(e) => setFormData({ ...formData, subtitle_tg: e.target.value })}
+                        className="w-full border rounded px-3 py-2" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* [BUG-11 修复] 覆盖封面（支持多语言） */}
                 <div className="border-t pt-4">
                   <h3 className="text-sm font-semibold mb-3">覆盖封面（可选）</h3>
-                  <div className="border rounded-lg p-4">
-                    <label className="block text-xs text-gray-500 mb-2">默认封面</label>
-                    <SingleImageUpload
-                      bucket="topics"
-                      folder="placements"
-                      imageUrl={formData.cover_image_default}
-                      onImageUrlChange={(url) => setFormData({ ...formData, cover_image_default: url })}
-                    />
+                  <div className="space-y-4">
+                    <div className="border rounded-lg p-4">
+                      <label className="block text-xs text-gray-500 mb-2">默认封面</label>
+                      <SingleImageUpload
+                        bucket="topics"
+                        folder="placements"
+                        imageUrl={formData.cover_image_default}
+                        onImageUrlChange={(url) => setFormData({ ...formData, cover_image_default: url })}
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="border border-red-200 rounded-lg p-3 bg-red-50">
+                        <label className="block text-xs text-red-600 mb-2">中文版</label>
+                        <SingleImageUpload
+                          bucket="topics"
+                          folder="placements/zh"
+                          imageUrl={formData.cover_image_zh}
+                          onImageUrlChange={(url) => setFormData({ ...formData, cover_image_zh: url })}
+                        />
+                      </div>
+                      <div className="border border-blue-200 rounded-lg p-3 bg-blue-50">
+                        <label className="block text-xs text-blue-600 mb-2">俄语版</label>
+                        <SingleImageUpload
+                          bucket="topics"
+                          folder="placements/ru"
+                          imageUrl={formData.cover_image_ru}
+                          onImageUrlChange={(url) => setFormData({ ...formData, cover_image_ru: url })}
+                        />
+                      </div>
+                      <div className="border border-green-200 rounded-lg p-3 bg-green-50">
+                        <label className="block text-xs text-green-600 mb-2">塔吉克语版</label>
+                        <SingleImageUpload
+                          bucket="topics"
+                          folder="placements/tg"
+                          imageUrl={formData.cover_image_tg}
+                          onImageUrlChange={(url) => setFormData({ ...formData, cover_image_tg: url })}
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -459,6 +620,13 @@ export default function TopicPlacementManagementPage() {
                     <input type="datetime-local" value={formData.end_time}
                       onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
                       className="w-full border rounded px-3 py-2" />
+                    {/* [BUG-08 修复] 时间范围实时校验提示 */}
+                    {formData.start_time && formData.end_time && new Date(formData.end_time) <= new Date(formData.start_time) && (
+                      <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" />
+                        结束时间必须晚于开始时间
+                      </p>
+                    )}
                   </div>
                 </div>
 

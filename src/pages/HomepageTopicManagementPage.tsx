@@ -5,11 +5,23 @@
  * 支持：列表展示、状态筛选、创建/编辑专题、商品挂载管理。
  *
  * 与 BannerManagementPage 保持一致的 CRUD 模式。
+ *
+ * [审查修复] 修复清单：
+ *   BUG-01/02: 删除前检查关联投放和商品数量，给出明确提示
+ *   BUG-03: slug 唯一性前端校验
+ *   BUG-04: 已发布专题编辑 slug 时显示警告
+ *   BUG-06: 正文块支持 block_type 选择（heading/paragraph/callout）
+ *   BUG-07: block_key 使用 crypto.randomUUID 避免重复
+ *   BUG-08: 时间范围校验（end_time > start_time）
+ *   BUG-16: 发布状态变更前校验必要字段
+ *   BUG-24: TopicResultPreview 浅拷贝问题（在 AITopicGenerationPage 中修复）
+ *   BUG-25: 专题列表分页
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Edit, Trash2, Eye, EyeOff, RefreshCw,
   Search, Package, Link2, ChevronDown, ChevronUp, X, GripVertical,
+  AlertTriangle, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { useSupabase } from '../contexts/SupabaseContext';
 import { adminQuery, adminInsert, adminUpdate, adminDelete } from '../lib/adminApi';
@@ -53,6 +65,16 @@ const CARD_STYLE_OPTIONS = [
   { value: 'mini', label: '迷你卡片' },
 ];
 
+// [BUG-06 修复] 正文块类型选项
+const BLOCK_TYPE_OPTIONS = [
+  { value: 'paragraph', label: '段落' },
+  { value: 'heading', label: '标题' },
+  { value: 'callout', label: '高亮提示' },
+];
+
+// [BUG-25 修复] 分页常量
+const PAGE_SIZE = 20;
+
 const getStatusBadge = (status: TopicStatus) => {
   const opt = STATUS_OPTIONS.find(o => o.value === status);
   return opt || { label: status, color: 'bg-gray-100 text-gray-600' };
@@ -90,6 +112,14 @@ interface ProductSearchItem {
   status: string;
 }
 
+// [BUG-07 修复] 安全的唯一ID生成
+function generateBlockKey(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return `block_${crypto.randomUUID().slice(0, 8)}`;
+  }
+  return `block_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export default function HomepageTopicManagementPage() {
   const { supabase } = useSupabase();
   const [topics, setTopics] = useState<DbHomepageTopicRow[]>([]);
@@ -109,6 +139,12 @@ export default function HomepageTopicManagementPage() {
   const [formSaving, setFormSaving] = useState(false);
   // 存储已挂载商品的详细信息（用于显示名称和图片）
   const [topicProductDetails, setTopicProductDetails] = useState<Map<string, ProductSearchItem>>(new Map());
+
+  // [BUG-06 修复] 正文块编辑状态
+  const [storyBlocks, setStoryBlocks] = useState<StoryBlock[]>([]);
+
+  // [BUG-25 修复] 分页状态
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     fetchTopics();
@@ -172,11 +208,13 @@ export default function HomepageTopicManagementPage() {
     }
     setSearching(true);
     try {
+      // [BUG-14 修复] 对搜索关键词进行转义，避免 PostgREST 特殊字符导致查询错误
+      const kw = keyword.trim().replace(/[.,()]/g, '');
       // [RLS 修复] 使用 adminQuery
       const data = await adminQuery<ProductSearchItem>(supabase, 'inventory_products', {
         select: 'id, name_i18n, image_url, original_price, status',
         filters: [{ col: 'status', op: 'eq', val: 'ACTIVE' }],
-        orFilters: `name_i18n->>zh.ilike.%${keyword}%,name_i18n->>ru.ilike.%${keyword}%,name_i18n->>tg.ilike.%${keyword}%,sku.ilike.%${keyword}%`,
+        orFilters: `name_i18n->>zh.ilike.%${kw}%,name_i18n->>ru.ilike.%${kw}%,name_i18n->>tg.ilike.%${kw}%,sku.ilike.%${kw}%`,
         limit: 20,
       });
       setSearchResults(data || []);
@@ -206,6 +244,65 @@ export default function HomepageTopicManagementPage() {
     ? topics
     : topics.filter(t => t.status === filterStatus);
 
+  // [BUG-25 修复] 分页计算
+  const totalPages = Math.max(1, Math.ceil(filteredTopics.length / PAGE_SIZE));
+  const paginatedTopics = filteredTopics.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
+
+  // 筛选变更时重置页码
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterStatus]);
+
+  // [BUG-03 修复] slug 唯一性前端校验
+  const checkSlugUnique = async (slug: string, excludeId?: string): Promise<boolean> => {
+    try {
+      const existing = await adminQuery<{ id: string }>(supabase, 'homepage_topics', {
+        select: 'id',
+        filters: [{ col: 'slug', op: 'eq', val: slug }],
+        limit: 1,
+      });
+      if (!existing || existing.length === 0) return true;
+      if (excludeId && existing[0].id === excludeId) return true;
+      return false;
+    } catch {
+      // 查询失败时不阻止保存，让数据库约束兜底
+      return true;
+    }
+  };
+
+  // [BUG-08 修复] 时间范围校验
+  const validateTimeRange = (startTime: string, endTime: string): boolean => {
+    if (startTime && endTime) {
+      const start = new Date(startTime).getTime();
+      const end = new Date(endTime).getTime();
+      if (end <= start) {
+        toast.error('结束时间必须晚于开始时间');
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // [BUG-16 修复] 发布前必要字段校验
+  const validateForPublish = (status: TopicStatus): string | null => {
+    if (status !== 'published' && status !== 'ready') return null;
+
+    if (!formData.title_zh.trim() && !formData.title_ru.trim() && !formData.title_tg.trim()) {
+      return '发布/就绪状态要求至少填写一种语言的标题';
+    }
+    if (!formData.slug.trim()) {
+      return '发布/就绪状态要求填写 Slug';
+    }
+    // 编辑模式下检查是否有挂载商品
+    if (editingItem && topicProducts.length === 0) {
+      return '发布/就绪状态建议至少挂载一个商品（当前无商品挂载）';
+    }
+    return null;
+  };
+
   // [修复] 抽取保存逻辑为独立函数，供表单提交和"完成"按钮共用
   const saveFormData = async (closeAfterSave: boolean = true): Promise<boolean> => {
     if (!formData.slug.trim()) {
@@ -214,6 +311,32 @@ export default function HomepageTopicManagementPage() {
     }
     if (!formData.title_zh.trim()) {
       toast.error('中文标题不能为空');
+      return false;
+    }
+
+    // [BUG-08 修复] 时间范围校验
+    if (!validateTimeRange(formData.start_time, formData.end_time)) {
+      return false;
+    }
+
+    // [BUG-16 修复] 发布前字段校验（仅警告，不阻止保存）
+    const publishWarning = validateForPublish(formData.status);
+    if (publishWarning) {
+      // 对于"建议"类警告，使用 confirm 让用户选择
+      if (publishWarning.includes('建议')) {
+        if (!confirm(`${publishWarning}\n\n是否仍然继续保存？`)) {
+          return false;
+        }
+      } else {
+        toast.error(publishWarning);
+        return false;
+      }
+    }
+
+    // [BUG-03 修复] slug 唯一性校验
+    const slugUnique = await checkSlugUnique(formData.slug.trim(), editingItem?.id);
+    if (!slugUnique) {
+      toast.error('该 Slug 已被其他专题使用，请更换');
       return false;
     }
 
@@ -229,6 +352,15 @@ export default function HomepageTopicManagementPage() {
 
       const titleI18n = buildI18n(formData.title_zh, formData.title_ru, formData.title_tg) || { zh: formData.title_zh.trim() };
 
+      // [BUG-06 修复] 保存正文块时包含 block_type
+      const storyBlocksI18n = storyBlocks.map(block => ({
+        block_key: block.block_key,
+        block_type: block.block_type || 'paragraph',
+        zh: block.zh || '',
+        ru: block.ru || '',
+        tg: block.tg || '',
+      }));
+
       const saveData = {
         topic_type: formData.topic_type,
         status: formData.status,
@@ -236,6 +368,7 @@ export default function HomepageTopicManagementPage() {
         title_i18n: titleI18n,
         subtitle_i18n: buildI18n(formData.subtitle_zh, formData.subtitle_ru, formData.subtitle_tg),
         intro_i18n: buildI18n(formData.intro_zh, formData.intro_ru, formData.intro_tg),
+        story_blocks_i18n: storyBlocksI18n,
         cover_image_default: formData.cover_image_default || null,
         cover_image_zh: formData.cover_image_zh || null,
         cover_image_ru: formData.cover_image_ru || null,
@@ -304,14 +437,48 @@ export default function HomepageTopicManagementPage() {
       end_time: item.end_time || '',
       is_active: item.is_active,
     });
+    // [BUG-06 修复] 加载正文块
+    const blocks = Array.isArray(item.story_blocks_i18n) ? item.story_blocks_i18n : [];
+    setStoryBlocks(blocks.map((b: any) => ({
+      block_key: b.block_key || generateBlockKey(),
+      block_type: b.block_type || 'paragraph',
+      zh: b.zh || b.content_i18n?.zh || '',
+      ru: b.ru || b.content_i18n?.ru || '',
+      tg: b.tg || b.content_i18n?.tg || '',
+    })));
     setActiveTab('basic');
     fetchTopicProducts(item.id);
     setShowModal(true);
   };
 
+  // [BUG-01/02 修复] 删除前检查关联投放和商品数量
   const handleDelete = async (id: string) => {
-    if (!confirm('确定要删除这个专题吗？关联的商品和投放也会被删除。')) return;
     try {
+      // 查询关联数据数量
+      const [placements, products] = await Promise.all([
+        adminQuery<{ id: string }>(supabase, 'topic_placements', {
+          select: 'id',
+          filters: [{ col: 'topic_id', op: 'eq', val: id }],
+        }),
+        adminQuery<{ id: string }>(supabase, 'topic_products', {
+          select: 'id',
+          filters: [{ col: 'topic_id', op: 'eq', val: id }],
+        }),
+      ]);
+
+      const placementCount = placements?.length || 0;
+      const productCount = products?.length || 0;
+
+      let confirmMsg = '确定要删除这个专题吗？';
+      if (placementCount > 0 || productCount > 0) {
+        confirmMsg += `\n\n该专题关联了：`;
+        if (placementCount > 0) confirmMsg += `\n• ${placementCount} 个投放记录（将同时删除，前台专题卡片将消失）`;
+        if (productCount > 0) confirmMsg += `\n• ${productCount} 个挂载商品（将同时解除关联）`;
+        confirmMsg += '\n\n此操作不可撤销！';
+      }
+
+      if (!confirm(confirmMsg)) return;
+
       // [RLS 修复] 先删关联
       await adminDelete(supabase, 'topic_products', [{ col: 'topic_id', op: 'eq', val: id }]);
       await adminDelete(supabase, 'topic_placements', [{ col: 'topic_id', op: 'eq', val: id }]);
@@ -323,7 +490,21 @@ export default function HomepageTopicManagementPage() {
     }
   };
 
+  // [BUG-16 修复] 状态变更前校验
   const updateStatus = async (item: DbHomepageTopicRow, newStatus: TopicStatus) => {
+    // 发布前校验
+    if (newStatus === 'published' || newStatus === 'ready') {
+      const title = item.title_i18n || {};
+      if (!title.zh && !title.ru && !title.tg) {
+        toast.error(`无法设为${newStatus === 'published' ? '已发布' : '待发布'}：专题标题为空`);
+        return;
+      }
+      if (!item.slug) {
+        toast.error(`无法设为${newStatus === 'published' ? '已发布' : '待发布'}：Slug 为空`);
+        return;
+      }
+    }
+
     try {
       // [RLS 修复] 使用 adminUpdate
       await adminUpdate(supabase, 'homepage_topics', { status: newStatus, updated_at: new Date().toISOString() }, [
@@ -398,12 +579,46 @@ export default function HomepageTopicManagementPage() {
     }
   };
 
+  // [BUG-06 修复] 正文块操作
+  const addStoryBlock = () => {
+    setStoryBlocks(prev => [...prev, {
+      block_key: generateBlockKey(),
+      block_type: 'paragraph',
+      zh: '',
+      ru: '',
+      tg: '',
+    }]);
+  };
+
+  const removeStoryBlock = (index: number) => {
+    setStoryBlocks(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const updateStoryBlock = (index: number, field: string, value: string) => {
+    setStoryBlocks(prev => {
+      const blocks = [...prev];
+      blocks[index] = { ...blocks[index], [field]: value };
+      return blocks;
+    });
+  };
+
+  const moveStoryBlock = (index: number, direction: 'up' | 'down') => {
+    setStoryBlocks(prev => {
+      const blocks = [...prev];
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= blocks.length) return blocks;
+      [blocks[index], blocks[targetIndex]] = [blocks[targetIndex], blocks[index]];
+      return blocks;
+    });
+  };
+
   const resetForm = () => {
     setFormData(defaultFormData);
     setEditingItem(null);
     setTopicProducts([]);
     setProductSearch('');
     setSearchResults([]);
+    setStoryBlocks([]);
     setActiveTab('basic');
   };
 
@@ -458,86 +673,113 @@ export default function HomepageTopicManagementPage() {
       ) : filteredTopics.length === 0 ? (
         <div className="text-center py-12 text-gray-500">暂无专题</div>
       ) : (
-        <div className="grid grid-cols-1 gap-4">
-          {filteredTopics.map(item => {
-            const title = item.title_i18n || {};
-            const badge = getStatusBadge(item.status);
-            return (
-              <div key={item.id} className="bg-white rounded-lg shadow-sm p-4 flex items-start gap-4">
-                {/* 封面缩略图 */}
-                <div className="w-24 h-16 bg-gray-100 rounded overflow-hidden flex-shrink-0">
-                  {item.cover_image_default ? (
-                    <img
-                      src={item.cover_image_default}
-                      alt=""
-                      className="w-full h-full object-cover"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">无封面</div>
-                  )}
-                </div>
-
-                {/* 信息 */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-xs px-2 py-0.5 rounded ${badge.color}`}>{badge.label}</span>
-                    <span className="text-xs text-gray-400 bg-gray-50 px-2 py-0.5 rounded">{item.topic_type}</span>
-                    {!item.is_active && (
-                      <span className="text-xs bg-red-50 text-red-500 px-2 py-0.5 rounded">已停用</span>
+        <>
+          <div className="grid grid-cols-1 gap-4">
+            {paginatedTopics.map(item => {
+              const title = item.title_i18n || {};
+              const badge = getStatusBadge(item.status);
+              return (
+                <div key={item.id} className="bg-white rounded-lg shadow-sm p-4 flex items-start gap-4">
+                  {/* 封面缩略图 */}
+                  <div className="w-24 h-16 bg-gray-100 rounded overflow-hidden flex-shrink-0">
+                    {item.cover_image_default ? (
+                      <img
+                        src={item.cover_image_default}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">无封面</div>
                     )}
                   </div>
-                  <h3 className="font-bold text-gray-800 truncate">{title.zh || item.slug}</h3>
-                  <div className="text-xs text-gray-500 mt-1">
-                    Slug: {item.slug} | 更新: {new Date(item.updated_at).toLocaleDateString('zh-CN')}
+
+                  {/* 信息 */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-xs px-2 py-0.5 rounded ${badge.color}`}>{badge.label}</span>
+                      <span className="text-xs text-gray-400 bg-gray-50 px-2 py-0.5 rounded">{item.topic_type}</span>
+                      {!item.is_active && (
+                        <span className="text-xs bg-red-50 text-red-500 px-2 py-0.5 rounded">已停用</span>
+                      )}
+                    </div>
+                    <h3 className="font-bold text-gray-800 truncate">{title.zh || item.slug}</h3>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Slug: {item.slug} | 更新: {new Date(item.updated_at).toLocaleDateString('zh-CN')}
+                    </div>
+                  </div>
+
+                  {/* 操作 */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {item.status === 'draft' && (
+                      <button
+                        onClick={() => updateStatus(item, 'ready')}
+                        className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded hover:bg-yellow-200"
+                      >
+                        标记就绪
+                      </button>
+                    )}
+                    {item.status === 'ready' && (
+                      <button
+                        onClick={() => updateStatus(item, 'published')}
+                        className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200"
+                      >
+                        发布
+                      </button>
+                    )}
+                    {item.status === 'published' && (
+                      <button
+                        onClick={() => updateStatus(item, 'offline')}
+                        className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded hover:bg-red-200"
+                      >
+                        下线
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleEdit(item)}
+                      className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs hover:bg-blue-200"
+                    >
+                      <Edit className="w-3 h-3" />
+                      编辑
+                    </button>
+                    <button
+                      onClick={() => handleDelete(item.id)}
+                      className="flex items-center gap-1 bg-red-100 text-red-700 px-2 py-1 rounded text-xs hover:bg-red-200"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      删除
+                    </button>
                   </div>
                 </div>
+              );
+            })}
+          </div>
 
-                {/* 操作 */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {item.status === 'draft' && (
-                    <button
-                      onClick={() => updateStatus(item, 'ready')}
-                      className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded hover:bg-yellow-200"
-                    >
-                      标记就绪
-                    </button>
-                  )}
-                  {item.status === 'ready' && (
-                    <button
-                      onClick={() => updateStatus(item, 'published')}
-                      className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200"
-                    >
-                      发布
-                    </button>
-                  )}
-                  {item.status === 'published' && (
-                    <button
-                      onClick={() => updateStatus(item, 'offline')}
-                      className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded hover:bg-red-200"
-                    >
-                      下线
-                    </button>
-                  )}
-                  <button
-                    onClick={() => handleEdit(item)}
-                    className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs hover:bg-blue-200"
-                  >
-                    <Edit className="w-3 h-3" />
-                    编辑
-                  </button>
-                  <button
-                    onClick={() => handleDelete(item.id)}
-                    className="flex items-center gap-1 bg-red-100 text-red-700 px-2 py-1 rounded text-xs hover:bg-red-200"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    删除
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+          {/* [BUG-25 修复] 分页控件 */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-4 mt-6">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm rounded border disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                上一页
+              </button>
+              <span className="text-sm text-gray-500">
+                第 {currentPage} / {totalPages} 页（共 {filteredTopics.length} 条）
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm rounded border disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                下一页
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {/* ============================================================ */}
@@ -588,6 +830,13 @@ export default function HomepageTopicManagementPage() {
                           placeholder="如: spring-home-essentials"
                         />
                         <p className="text-xs text-gray-400 mt-1">URL 友好标识符，用于生成专题页面链接。仅支持小写字母、数字和连字符。</p>
+                        {/* [BUG-04 修复] 已发布专题修改 slug 警告 */}
+                        {editingItem && editingItem.status === 'published' && formData.slug !== editingItem.slug && (
+                          <div className="flex items-center gap-1 mt-1 text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                            <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                            <span>修改已发布专题的 Slug 会导致已有链接失效（如用户收藏、分享链接）</span>
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1">专题类型</label>
@@ -699,6 +948,13 @@ export default function HomepageTopicManagementPage() {
                         <input type="datetime-local" value={formData.end_time}
                           onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
                           className="w-full border rounded px-3 py-2" />
+                        {/* [BUG-08 修复] 时间范围提示 */}
+                        {formData.start_time && formData.end_time && new Date(formData.end_time) <= new Date(formData.start_time) && (
+                          <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            结束时间必须晚于开始时间
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -754,6 +1010,106 @@ export default function HomepageTopicManagementPage() {
                             className="w-full border rounded px-3 py-2" rows={3} />
                         </div>
                       </div>
+                    </div>
+
+                    {/* [BUG-06 修复] 正文块编辑器（支持 block_type） */}
+                    <div className="border-t pt-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold">正文块（三语）</h3>
+                        <button
+                          type="button"
+                          onClick={addStoryBlock}
+                          className="flex items-center gap-1 text-xs bg-orange-100 text-orange-600 px-2 py-1 rounded hover:bg-orange-200"
+                        >
+                          <Plus className="w-3 h-3" />
+                          添加段落
+                        </button>
+                      </div>
+                      {storyBlocks.length === 0 ? (
+                        <div className="text-center py-6 text-gray-400 text-sm border-2 border-dashed rounded-lg">
+                          暂无正文块，点击"添加段落"开始编写
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {storyBlocks.map((block, idx) => (
+                            <div key={block.block_key} className="border rounded-lg p-4 bg-gray-50">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-gray-400 font-mono">{idx + 1}</span>
+                                  {/* [BUG-06 修复] block_type 选择器 */}
+                                  <select
+                                    value={block.block_type || 'paragraph'}
+                                    onChange={(e) => updateStoryBlock(idx, 'block_type', e.target.value)}
+                                    className="text-xs border rounded px-2 py-1 bg-white"
+                                  >
+                                    {BLOCK_TYPE_OPTIONS.map(o => (
+                                      <option key={o.value} value={o.value}>{o.label}</option>
+                                    ))}
+                                  </select>
+                                  <span className="text-xs text-gray-300">{block.block_key}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => moveStoryBlock(idx, 'up')}
+                                    disabled={idx === 0}
+                                    className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                                    title="上移"
+                                  >
+                                    <ChevronUp className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => moveStoryBlock(idx, 'down')}
+                                    disabled={idx === storyBlocks.length - 1}
+                                    className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                                    title="下移"
+                                  >
+                                    <ChevronDown className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeStoryBlock(idx)}
+                                    className="p-1 text-red-400 hover:text-red-600"
+                                    title="删除"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                <div>
+                                  <label className="block text-xs text-gray-500 mb-1">🇨🇳 中文</label>
+                                  <textarea
+                                    value={block.zh || ''}
+                                    onChange={(e) => updateStoryBlock(idx, 'zh', e.target.value)}
+                                    className="w-full border rounded px-3 py-2 text-sm"
+                                    rows={block.block_type === 'heading' ? 1 : 3}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs text-gray-500 mb-1">🇷🇺 俄语</label>
+                                  <textarea
+                                    value={block.ru || ''}
+                                    onChange={(e) => updateStoryBlock(idx, 'ru', e.target.value)}
+                                    className="w-full border rounded px-3 py-2 text-sm"
+                                    rows={block.block_type === 'heading' ? 1 : 3}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs text-gray-500 mb-1">🇹🇯 塔吉克语</label>
+                                  <textarea
+                                    value={block.tg || ''}
+                                    onChange={(e) => updateStoryBlock(idx, 'tg', e.target.value)}
+                                    className="w-full border rounded px-3 py-2 text-sm"
+                                    rows={block.block_type === 'heading' ? 1 : 3}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* 封面图 */}
