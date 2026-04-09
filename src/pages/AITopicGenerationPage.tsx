@@ -122,6 +122,7 @@ export default function AITopicGenerationPage() {
 
   // ─── 核心状态 ──────────────────────────────────────────────
   // [修复] 使用 localStorage 替代 sessionStorage
+  // [修复v2] 恢复时直接重置 processing 为 queued，重新进入执行队列（避免 recovering 伪状态卡死）
   const [tasks, setTasks] = useState<AITopicTask[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -131,11 +132,10 @@ export default function AITopicGenerationPage() {
           ...t,
           createdAt: new Date(t.createdAt),
           completedAt: t.completedAt ? new Date(t.completedAt) : undefined,
-          // [修复] 恢复时将 processing 状态标记为需要恢复
-          // 不再重置为 queued（避免重复执行），而是标记为 recovering
-          status: t.status === 'processing' ? 'recovering' as any : t.status,
-          progress: t.status === 'processing' ? t.progress : t.progress,
-          stage: t.status === 'processing' ? '正在恢复任务状态...' : t.stage,
+          // 恢复时：processing / recovering → queued（重新排队执行），其他状态保持不变
+          status: (t.status === 'processing' || t.status === 'recovering') ? 'queued' : t.status,
+          progress: (t.status === 'processing' || t.status === 'recovering') ? 0 : t.progress,
+          stage: (t.status === 'processing' || t.status === 'recovering') ? '排队中（自动恢复）...' : t.stage,
         }));
       }
     } catch { /* ignore */ }
@@ -212,7 +212,7 @@ export default function AITopicGenerationPage() {
     );
   }, []);
 
-  // ─── [修复] 从 DB 加载历史任务并恢复 ─────────────────────
+  // ─── [修复] 从 DB 加载历史已完成任务（补充本地没有的记录）─────────────────────
   useEffect(() => {
     if (dbLoaded) return;
 
@@ -234,54 +234,9 @@ export default function AITopicGenerationPage() {
         setTasks(prev => {
           const existingTaskIds = new Set(prev.map(t => t.taskId).filter(Boolean));
           const existingLocalIds = new Set(prev.map(t => t.id));
-          let updated = [...prev];
+          const updated = [...prev];
 
-          // 1. 恢复 recovering 状态的任务（从 DB 获取最新状态）
-          updated = updated.map(t => {
-            if ((t.status as string) === 'recovering' && t.taskId) {
-              const dbTask = dbTasks.find((d: any) => d.id === t.taskId);
-              if (dbTask) {
-                if (dbTask.status === 'done' || dbTask.status === 'partial') {
-                  return {
-                    ...t,
-                    status: dbTask.status,
-                    progress: 100,
-                    stage: dbTask.status === 'done' ? '全部完成' : '部分完成（请检查质量警告）',
-                    result: dbTask.result_payload || t.result,
-                    completedAt: dbTask.completed_at ? new Date(dbTask.completed_at) : new Date(),
-                    savedTopicId: dbTask.topic_id || t.savedTopicId,
-                    savedAsDraft: !!dbTask.topic_id || t.savedAsDraft,
-                  };
-                } else if (dbTask.status === 'error') {
-                  return {
-                    ...t,
-                    status: 'error' as any,
-                    progress: 0,
-                    stage: '生成失败',
-                    errorMessage: dbTask.error_message || '未知错误',
-                  };
-                } else if (dbTask.status === 'processing') {
-                  // 后端仍在处理，标记为 processing 并启动轮询
-                  return {
-                    ...t,
-                    status: 'processing' as any,
-                    stage: '后端正在处理中（已恢复监控）...',
-                  };
-                }
-              }
-              // DB 中找不到，标记为 error
-              return {
-                ...t,
-                status: 'error' as any,
-                progress: 0,
-                stage: '任务记录丢失',
-                errorMessage: '无法从服务器恢复任务状态',
-              };
-            }
-            return t;
-          });
-
-          // 2. 从 DB 加载本地不存在的已完成任务
+          // 从 DB 加载本地不存在的已完成任务（跨设备/跨会话历史记录）
           for (const dbTask of dbTasks) {
             if (existingTaskIds.has(dbTask.id) || existingLocalIds.has(dbTask.id)) continue;
             if (dbTask.status !== 'done' && dbTask.status !== 'partial') continue;
@@ -289,7 +244,7 @@ export default function AITopicGenerationPage() {
 
             const request = dbTask.request_payload || {};
             updated.push({
-              id: dbTask.id, // 使用 DB id 作为本地 id
+              id: dbTask.id,
               status: dbTask.status,
               progress: 100,
               stage: dbTask.status === 'done' ? '全部完成' : '部分完成',
@@ -318,7 +273,6 @@ export default function AITopicGenerationPage() {
         setDbLoaded(true);
       } catch (error) {
         console.error('[AITopic] 从 DB 加载历史任务失败:', error);
-        // 即使加载失败也标记为已加载，避免无限重试
         setDbLoaded(true);
       }
     };
@@ -326,14 +280,15 @@ export default function AITopicGenerationPage() {
     loadFromDB();
   }, [supabase, dbLoaded]);
 
-  // ─── [修复] DB 轮询：恢复正在处理中的任务状态 ─────────────
+  // ─── [修复v2] DB 轮询：仅用于 SSE 断开后有 taskId 的任务 ─────────────
+  // 注：大多数情况下任务会通过 SSE 实时更新，轮询只是兜底机制
   useEffect(() => {
-    const processingTasks = tasks.filter(
+    // 只轮询：有 taskId 且 processing 状态 且 没有活跃 SSE 连接的任务
+    const needsPoll = tasks.filter(
       t => t.status === 'processing' && t.taskId && !abortControllersRef.current.has(t.id)
     );
 
-    if (processingTasks.length === 0) {
-      // 没有需要轮询的任务，清除定时器
+    if (needsPoll.length === 0) {
       if (pollTimerRef.current) {
         clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;
@@ -341,7 +296,6 @@ export default function AITopicGenerationPage() {
       return;
     }
 
-    // 启动轮询
     if (!pollTimerRef.current) {
       const pollFn = async () => {
         const taskIds = tasks
@@ -407,12 +361,11 @@ export default function AITopicGenerationPage() {
       };
 
       pollTimerRef.current = setInterval(pollFn, DB_POLL_INTERVAL);
-      // 立即执行一次
-      pollFn();
+      pollFn(); // 立即执行一次
     }
 
     return () => {
-      // 注意：不在这里清除，因为 effect 可能频繁触发
+      // 不在 cleanup 中清除，避免频繁触发时中断轮询
     };
   }, [tasks, supabase]);
 
@@ -506,6 +459,7 @@ export default function AITopicGenerationPage() {
   );
 
   // ─── 当 tasks 变化时检查是否有待处理任务（一次只处理一个）──
+  // [修复v2] 包含 queued 状态（含自动恢复的任务）
   useEffect(() => {
     const hasProcessing = tasks.some((t) => t.status === 'processing');
     if (hasProcessing) return;
@@ -799,7 +753,7 @@ export default function AITopicGenerationPage() {
   const stats = useMemo(() => ({
     total: tasks.length,
     queued: tasks.filter(t => t.status === 'queued').length,
-    processing: tasks.filter(t => t.status === 'processing' || (t.status as string) === 'recovering').length,
+    processing: tasks.filter(t => t.status === 'processing').length,
     done: tasks.filter(t => t.status === 'done' || t.status === 'partial').length,
     error: tasks.filter(t => t.status === 'error').length,
     saved: tasks.filter(t => t.savedAsDraft).length,
@@ -1228,7 +1182,6 @@ function TopicTaskCard({
   const statusConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
     queued: { label: '排队中', color: 'bg-gray-100 text-gray-600', icon: <Clock className="w-3.5 h-3.5" /> },
     processing: { label: '生成中', color: 'bg-blue-100 text-blue-600', icon: <Loader2 className="w-3.5 h-3.5 animate-spin" /> },
-    recovering: { label: '恢复中', color: 'bg-yellow-100 text-yellow-600', icon: <Loader2 className="w-3.5 h-3.5 animate-spin" /> },
     done: { label: '已完成', color: 'bg-green-100 text-green-600', icon: <CheckCircle className="w-3.5 h-3.5" /> },
     partial: { label: '部分完成', color: 'bg-yellow-100 text-yellow-600', icon: <AlertTriangle className="w-3.5 h-3.5" /> },
     error: { label: '失败', color: 'bg-red-100 text-red-600', icon: <AlertTriangle className="w-3.5 h-3.5" /> },
@@ -1260,7 +1213,7 @@ function TopicTaskCard({
       </div>
 
       {/* 进度条 */}
-      {(task.status === 'processing' || (task.status as string) === 'recovering') && (
+      {task.status === 'processing' && (
         <div className="mb-2">
           <div className="w-full bg-gray-100 rounded-full h-1.5">
             <div
@@ -1299,7 +1252,7 @@ function TopicTaskCard({
             重试
           </Button>
         )}
-        {task.status !== 'processing' && (task.status as string) !== 'recovering' && (
+        {task.status !== 'processing' && (
           <Button variant="ghost" size="sm" onClick={onDelete} className="text-xs text-gray-400 ml-auto">
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
