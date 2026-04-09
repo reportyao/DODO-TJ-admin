@@ -206,14 +206,14 @@ export default function ProductPickerPanel({
 
   return (
     <>
-      {/* 遮罩层 */}
+      {/* 遮罩层 - z-[60] 确保在编辑模态框(z-50)之上 */}
       <div
-        className="fixed inset-0 bg-black/40 z-40 transition-opacity"
-        onClick={onClose}
+        className="fixed inset-0 bg-black/40 z-[60] transition-opacity"
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
       />
 
-      {/* 侧边面板 */}
-      <div className="fixed right-0 top-0 h-full w-[520px] max-w-[90vw] bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-300">
+      {/* 侧边面板 - z-[70] 确保在遮罩层之上 */}
+      <div className="fixed right-0 top-0 h-full w-[520px] max-w-[90vw] bg-white shadow-2xl z-[70] flex flex-col animate-in slide-in-from-right duration-300" onClick={(e) => e.stopPropagation()}>
         {/* 头部 */}
         <div className="flex items-center justify-between px-5 py-4 border-b bg-gray-50">
           <div>
