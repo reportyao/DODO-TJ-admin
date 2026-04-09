@@ -9,8 +9,13 @@
  *   5. SSE 联调：通过 adminSSEFetch 调用 Edge Function
  *   6. 入库逻辑：写入 inventory_products 表 + 审计日志
  *
+ * [修复] 任务持久化改造：
+ *   - 使用 localStorage 替代 sessionStorage（跨 tab 持久，切换页面不丢失）
+ *   - 恢复时 processing 状态的任务自动重新排队执行
+ *   - 已完成的任务始终保留在列表中，随时可查看结果
+ *
  * 状态管理：
- *   - tasks: AITask[] — 所有任务列表（sessionStorage 持久化）
+ *   - tasks: AITask[] — 所有任务列表（localStorage 持久化）
  *   - selectedIds: Set<string> — 批量选中的任务 ID
  *   - viewingTaskId: string | null — 当前查看结果的任务 ID
  *   - abortControllers: Map<string, AbortController> — SSE 连接管理
@@ -18,10 +23,6 @@
  * 并发控制：
  *   - 最多同时执行 2 个 SSE 请求（考虑万相 API 的 2QPS 限制）
  *   - 超出的任务处于排队状态，前面的任务完成后自动触发
- *
- * 状态持久化：
- *   - sessionStorage 保存任务列表
- *   - beforeunload 事件拦截，提示"有未保存的生成结果"
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
@@ -48,7 +49,8 @@ import type { AITask, AIListingResult, SSEEventData } from '@/types/aiListing';
 
 const SUPABASE_URL = (import.meta as any).env.VITE_SUPABASE_URL || '';
 const EDGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/ai-listing-generate`;
-const SESSION_STORAGE_KEY = 'ai_listing_tasks';
+// [修复] 使用 localStorage 替代 sessionStorage
+const STORAGE_KEY = 'ai_listing_tasks';
 const MAX_CONCURRENT = 2; // 最多同时处理 2 个任务
 
 // ============================================================
@@ -60,19 +62,20 @@ export default function AIListingPage() {
   const { admin } = useAdminAuth();
 
   // ─── 核心状态 ──────────────────────────────────────────────
+  // [修复] 使用 localStorage 替代 sessionStorage
   const [tasks, setTasks] = useState<AITask[]>(() => {
     try {
-      const saved = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved) as any[];
-        return parsed.map((t) => ({
+        return parsed.map((t: any) => ({
           ...t,
           createdAt: new Date(t.createdAt),
           completedAt: t.completedAt ? new Date(t.completedAt) : undefined,
-          // 恢复时将 processing 状态重置为 queued（因为 SSE 连接已断开）
+          // [修复] 恢复时将 processing 状态重置为 queued（自动重新执行）
           status: t.status === 'processing' ? 'queued' : t.status,
           progress: t.status === 'processing' ? 0 : t.progress,
-          stage: t.status === 'processing' ? '排队中（已恢复）...' : t.stage,
+          stage: t.status === 'processing' ? '排队中（自动恢复）...' : t.stage,
         }));
       }
     } catch {
@@ -91,10 +94,10 @@ export default function AIListingPage() {
   // 当前正在处理的任务数量
   const processingCountRef = useRef(0);
 
-  // ─── 持久化到 sessionStorage ──────────────────────────────
+  // ─── [修复] 持久化到 localStorage ─────────────────────────
   useEffect(() => {
     try {
-      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(tasks));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
     } catch {
       // 存储满时忽略
     }
@@ -198,6 +201,13 @@ export default function AIListingPage() {
 
             // 触发下一个任务
             processNextTask();
+
+            // [修复] 添加完成通知
+            if (data.status === 'done') {
+              toast.success(`"${task.productName}" AI 生成完成！`);
+            } else {
+              toast(`"${task.productName}" 部分完成`, { icon: '⚠️' });
+            }
           } else if (data.status === 'error') {
             updateTask(task.id, {
               status: 'error',
@@ -209,6 +219,8 @@ export default function AIListingPage() {
             abortControllersRef.current.delete(task.id);
             processingCountRef.current = Math.max(0, processingCountRef.current - 1);
             processNextTask();
+
+            toast.error(`"${task.productName}" 生成失败`);
           }
         },
         // onError
@@ -295,7 +307,7 @@ export default function AIListingPage() {
     });
   }, []);
 
-  // ─── 全选/取消全选 ─────────────────────────────────────────
+  // ─── 已完成但未入库的任务列表 ─────────────────────────────
   const completedUnsavedTasks = tasks.filter(
     (t) => (t.status === 'done' || t.status === 'partial') && !t.savedToInventory
   );
@@ -325,29 +337,6 @@ export default function AIListingPage() {
       // 材质推测
       const materialGuess = editedResult.analysis?.material_guess || '';
 
-      /**
-       * 字段映射严格按照开发文档第五章 3.6 节：
-       *
-       * name          → 用户输入的商品名称
-       * name_i18n     → {zh: title_zh, ru: title_ru, tg: title_tg}
-       * description   → AI 生成的中文描述
-       * description_i18n → {zh: description_zh, ru: description_ru, tg: description_tg}
-       * specifications → 用户输入的规格
-       * specifications_i18n → {zh: specs, ru: specs, tg: specs}
-       * material      → AI 提取的 material_guess 或留空
-       * material_i18n → {zh: material, ru: material, tg: material}
-       * details       → AI 生成的中文描述（与 description 相同）
-       * details_i18n  → {zh: description_zh, ru: description_ru, tg: description_tg}
-       * image_url     → 主图 URL（第一张图）
-       * image_urls    → 所有选中图片的 URL 数组
-       * original_price → 用户输入的售价
-       * currency      → 'TJS'
-       * stock         → 用户输入的库存
-       * reserved_stock → 0
-       * sku           → null
-       * barcode       → null
-       * status        → 'ACTIVE'
-       */
       const productData = {
         name: task.productName,
         name_i18n: {
@@ -381,7 +370,6 @@ export default function AIListingPage() {
         },
         image_url: allImages[0] || '',
         // [修复] 将 image_urls 转为 PostgreSQL text[] 字面量字符串
-        // admin_mutate RPC 对 JSON array 会加 ::JSONB 转型，但此列是 text[] 类型
         image_urls: `{${allImages.map(u => `"${u.replace(/"/g, '\\"')}"`).join(',')}}`,
         original_price: task.price,
         currency: 'TJS',
@@ -392,13 +380,13 @@ export default function AIListingPage() {
         status: 'ACTIVE',
       };
 
-      // [修复] 使用 adminInsert RPC 绕过 RLS 限制（anon key 无 INSERT 权限）
+      // [修复] 使用 adminInsert RPC 绕过 RLS 限制
       const insertResult = await adminInsert(supabase, 'inventory_products', productData);
       const insertedId = insertResult?.id || (Array.isArray(insertResult) ? insertResult[0]?.id : null) || 'unknown';
 
       const duration = Date.now() - startTime;
 
-      // 审计日志（使用 AI_CREATE_PRODUCT 与 AuditLogsPage 中已有的标签一致）
+      // 审计日志
       await auditLog(supabase, {
         adminId: admin.id,
         action: 'AI_CREATE_PRODUCT',
@@ -457,7 +445,6 @@ export default function AIListingPage() {
     );
     if (selectedTasks.length === 0) return;
 
-    // 构建确认信息，展示即将入库的商品名称列表
     const nameList = selectedTasks.map((t) => `  · ${t.productName}`).join('\n');
     const confirmed = window.confirm(
       `确定要将以下 ${selectedTasks.length} 个商品批量入库吗？\n\n${nameList}\n\n注意：批量入库将使用 AI 生成的默认文案和全部背景图，不会逐个编辑。`
@@ -472,7 +459,6 @@ export default function AIListingPage() {
     for (const task of selectedTasks) {
       try {
         const result = task.result!;
-        // 批量入库默认选择全部背景图
         const selectedImages = result.background_images;
         await saveTaskToInventory(task, result, selectedImages);
         updateTask(task.id, { savedToInventory: true });
@@ -640,6 +626,7 @@ export default function AIListingPage() {
                       onSelect={handleSelect}
                       onViewResult={handleViewResult}
                       onRetry={handleRetry}
+                      onDelete={handleDeleteTask}
                     />
                   ))}
                 </div>

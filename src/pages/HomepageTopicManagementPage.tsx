@@ -106,6 +106,7 @@ export default function HomepageTopicManagementPage() {
   const [searchResults, setSearchResults] = useState<ProductSearchItem[]>([]);
   const [searching, setSearching] = useState(false);
   const [showProductPicker, setShowProductPicker] = useState(false);
+  const [formSaving, setFormSaving] = useState(false);
   // 存储已挂载商品的详细信息（用于显示名称和图片）
   const [topicProductDetails, setTopicProductDetails] = useState<Map<string, ProductSearchItem>>(new Map());
 
@@ -205,18 +206,18 @@ export default function HomepageTopicManagementPage() {
     ? topics
     : topics.filter(t => t.status === filterStatus);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
+  // [修复] 抽取保存逻辑为独立函数，供表单提交和"完成"按钮共用
+  const saveFormData = async (closeAfterSave: boolean = true): Promise<boolean> => {
     if (!formData.slug.trim()) {
       toast.error('Slug 不能为空');
-      return;
+      return false;
     }
     if (!formData.title_zh.trim()) {
       toast.error('中文标题不能为空');
-      return;
+      return false;
     }
 
+    setFormSaving(true);
     try {
       const buildI18n = (zh: string, ru: string, tg: string): I18nText | null => {
         const obj: I18nText = {};
@@ -250,24 +251,33 @@ export default function HomepageTopicManagementPage() {
       };
 
       if (editingItem) {
-        // [RLS 修复] 使用 adminUpdate
         await adminUpdate(supabase, 'homepage_topics', saveData, [
           { col: 'id', op: 'eq', val: editingItem.id },
         ]);
         toast.success('专题更新成功');
       } else {
-        // [RLS 修复] 使用 adminInsert
         await adminInsert(supabase, 'homepage_topics', saveData);
         toast.success('专题创建成功');
       }
 
-      setShowModal(false);
-      resetForm();
+      if (closeAfterSave) {
+        setShowModal(false);
+        resetForm();
+      }
       fetchTopics();
+      return true;
     } catch (error: any) {
       console.error('Failed to save topic:', error);
       toast.error('保存失败: ' + error.message);
+      return false;
+    } finally {
+      setFormSaving(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveFormData(true);
   };
 
   const handleEdit = (item: DbHomepageTopicRow) => {
@@ -871,37 +881,24 @@ export default function HomepageTopicManagementPage() {
                   </div>
                 )}
 
-                {/* 提交按钮 */}
-                {activeTab !== 'products' && (
-                  <div className="flex gap-2 justify-end pt-4 border-t mt-4">
-                    <button
-                      type="button"
-                      onClick={() => { setShowModal(false); resetForm(); }}
-                      className="px-4 py-2 border rounded hover:bg-gray-50"
-                    >
-                      取消
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600"
-                    >
-                      {editingItem ? '更新' : '创建'}
-                    </button>
-                  </div>
-                )}
-              </form>
-
-              {/* 商品挂载 Tab 的关闭按钮 */}
-              {activeTab === 'products' && (
+                {/* [修复] 统一底部按钮区域 - 所有tab都显示保存和关闭按钮 */}
                 <div className="flex gap-2 justify-end pt-4 border-t mt-4">
                   <button
+                    type="button"
                     onClick={() => { setShowModal(false); resetForm(); }}
-                    className="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600"
+                    className="px-4 py-2 border rounded hover:bg-gray-50"
                   >
-                    完成
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={formSaving}
+                    className="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50"
+                  >
+                    {formSaving ? '保存中...' : (editingItem ? '保存全部修改' : '创建')}
                   </button>
                 </div>
-              )}
+              </form>
             </div>
           </div>
         </div>

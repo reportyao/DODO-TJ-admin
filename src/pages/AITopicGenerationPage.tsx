@@ -7,8 +7,14 @@
  *   3. 弹窗：结果预览与编辑（理解层 + 内容表达层 + 质量警告）
  *   4. 一键创建为专题草稿（写入 homepage_topics + topic_products）
  *
+ * [修复] 任务持久化改造：
+ *   - 使用 localStorage 替代 sessionStorage（跨 tab 持久）
+ *   - 页面加载时从 DB (ai_topic_generation_tasks) 加载历史任务
+ *   - SSE 断开后通过 DB 轮询恢复任务状态
+ *   - 已完成的任务从 DB 读取结果，不依赖页面生命周期
+ *
  * 状态管理：
- *   - tasks: AITopicTask[] — 所有任务列表（sessionStorage 持久化）
+ *   - tasks: AITopicTask[] — 所有任务列表（localStorage + DB 双重持久化）
  *   - viewingTaskId: string | null — 当前查看结果的任务 ID
  *   - abortControllers: Map<string, AbortController> — SSE 连接管理
  *
@@ -50,7 +56,10 @@ import type {
 
 const SUPABASE_URL = (import.meta as any).env.VITE_SUPABASE_URL || '';
 const EDGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/ai-topic-generate`;
-const SESSION_STORAGE_KEY = 'ai_topic_tasks';
+// [修复] 使用 localStorage 替代 sessionStorage
+const STORAGE_KEY = 'ai_topic_tasks';
+// [修复] DB 轮询间隔（毫秒）
+const DB_POLL_INTERVAL = 5000;
 
 // 预设选项
 const SCENE_PRESETS = [
@@ -112,18 +121,21 @@ export default function AITopicGenerationPage() {
   const { admin } = useAdminAuth();
 
   // ─── 核心状态 ──────────────────────────────────────────────
+  // [修复] 使用 localStorage 替代 sessionStorage
   const [tasks, setTasks] = useState<AITopicTask[]>(() => {
     try {
-      const saved = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved) as any[];
         return parsed.map((t: any) => ({
           ...t,
           createdAt: new Date(t.createdAt),
           completedAt: t.completedAt ? new Date(t.completedAt) : undefined,
-          status: t.status === 'processing' ? 'queued' : t.status,
-          progress: t.status === 'processing' ? 0 : t.progress,
-          stage: t.status === 'processing' ? '排队中（已恢复）...' : t.stage,
+          // [修复] 恢复时将 processing 状态标记为需要恢复
+          // 不再重置为 queued（避免重复执行），而是标记为 recovering
+          status: t.status === 'processing' ? 'recovering' as any : t.status,
+          progress: t.status === 'processing' ? t.progress : t.progress,
+          stage: t.status === 'processing' ? '正在恢复任务状态...' : t.stage,
         }));
       }
     } catch { /* ignore */ }
@@ -132,9 +144,13 @@ export default function AITopicGenerationPage() {
 
   const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // [修复] 标记是否已从 DB 加载历史任务
+  const [dbLoaded, setDbLoaded] = useState(false);
 
   // SSE 连接管理
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
+  // [修复] DB 轮询定时器
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ─── 表单状态 ──────────────────────────────────────────────
   const [topicGoal, setTopicGoal] = useState('');
@@ -151,10 +167,10 @@ export default function AITopicGenerationPage() {
   const [searching, setSearching] = useState(false);
   const [showProductPicker, setShowProductPicker] = useState(false);
 
-  // ─── 持久化到 sessionStorage ──────────────────────────────
+  // ─── [修复] 持久化到 localStorage ─────────────────────────
   useEffect(() => {
     try {
-      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(tasks));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
     } catch { /* storage full */ }
   }, [tasks]);
 
@@ -177,11 +193,15 @@ export default function AITopicGenerationPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [tasks]);
 
-  // ─── 组件卸载时中止所有 SSE 连接 ─────────────────────────
+  // ─── 组件卸载时中止所有 SSE 连接和轮询 ──────────────────
   useEffect(() => {
     return () => {
       abortControllersRef.current.forEach((ctrl) => ctrl.abort());
       abortControllersRef.current.clear();
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -191,6 +211,210 @@ export default function AITopicGenerationPage() {
       prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t))
     );
   }, []);
+
+  // ─── [修复] 从 DB 加载历史任务并恢复 ─────────────────────
+  useEffect(() => {
+    if (dbLoaded) return;
+
+    const loadFromDB = async () => {
+      try {
+        // 查询最近 50 条任务记录
+        const dbTasks = await adminQuery<any>(supabase, 'ai_topic_generation_tasks', {
+          select: 'id, status, request_payload, result_payload, error_message, created_at, completed_at, topic_id',
+          orderBy: 'created_at',
+          orderAsc: false,
+          limit: 50,
+        });
+
+        if (!dbTasks || dbTasks.length === 0) {
+          setDbLoaded(true);
+          return;
+        }
+
+        setTasks(prev => {
+          const existingTaskIds = new Set(prev.map(t => t.taskId).filter(Boolean));
+          const existingLocalIds = new Set(prev.map(t => t.id));
+          let updated = [...prev];
+
+          // 1. 恢复 recovering 状态的任务（从 DB 获取最新状态）
+          updated = updated.map(t => {
+            if ((t.status as string) === 'recovering' && t.taskId) {
+              const dbTask = dbTasks.find((d: any) => d.id === t.taskId);
+              if (dbTask) {
+                if (dbTask.status === 'done' || dbTask.status === 'partial') {
+                  return {
+                    ...t,
+                    status: dbTask.status,
+                    progress: 100,
+                    stage: dbTask.status === 'done' ? '全部完成' : '部分完成（请检查质量警告）',
+                    result: dbTask.result_payload || t.result,
+                    completedAt: dbTask.completed_at ? new Date(dbTask.completed_at) : new Date(),
+                    savedTopicId: dbTask.topic_id || t.savedTopicId,
+                    savedAsDraft: !!dbTask.topic_id || t.savedAsDraft,
+                  };
+                } else if (dbTask.status === 'error') {
+                  return {
+                    ...t,
+                    status: 'error' as any,
+                    progress: 0,
+                    stage: '生成失败',
+                    errorMessage: dbTask.error_message || '未知错误',
+                  };
+                } else if (dbTask.status === 'processing') {
+                  // 后端仍在处理，标记为 processing 并启动轮询
+                  return {
+                    ...t,
+                    status: 'processing' as any,
+                    stage: '后端正在处理中（已恢复监控）...',
+                  };
+                }
+              }
+              // DB 中找不到，标记为 error
+              return {
+                ...t,
+                status: 'error' as any,
+                progress: 0,
+                stage: '任务记录丢失',
+                errorMessage: '无法从服务器恢复任务状态',
+              };
+            }
+            return t;
+          });
+
+          // 2. 从 DB 加载本地不存在的已完成任务
+          for (const dbTask of dbTasks) {
+            if (existingTaskIds.has(dbTask.id) || existingLocalIds.has(dbTask.id)) continue;
+            if (dbTask.status !== 'done' && dbTask.status !== 'partial') continue;
+            if (!dbTask.result_payload) continue;
+
+            const request = dbTask.request_payload || {};
+            updated.push({
+              id: dbTask.id, // 使用 DB id 作为本地 id
+              status: dbTask.status,
+              progress: 100,
+              stage: dbTask.status === 'done' ? '全部完成' : '部分完成',
+              request: {
+                topic_goal: request.topic_goal || '(历史任务)',
+                target_audience: request.target_audience || [],
+                core_scene: request.core_scene || [],
+                local_context_hints: request.local_context_hints || [],
+                selected_products: request.selected_products || [],
+                manual_notes: request.manual_notes,
+                tone_constraints: request.tone_constraints || [],
+                output_languages: request.output_languages || ['zh', 'ru', 'tg'],
+              },
+              result: dbTask.result_payload,
+              taskId: dbTask.id,
+              savedAsDraft: !!dbTask.topic_id,
+              savedTopicId: dbTask.topic_id || undefined,
+              createdAt: new Date(dbTask.created_at),
+              completedAt: dbTask.completed_at ? new Date(dbTask.completed_at) : undefined,
+            });
+          }
+
+          return updated;
+        });
+
+        setDbLoaded(true);
+      } catch (error) {
+        console.error('[AITopic] 从 DB 加载历史任务失败:', error);
+        // 即使加载失败也标记为已加载，避免无限重试
+        setDbLoaded(true);
+      }
+    };
+
+    loadFromDB();
+  }, [supabase, dbLoaded]);
+
+  // ─── [修复] DB 轮询：恢复正在处理中的任务状态 ─────────────
+  useEffect(() => {
+    const processingTasks = tasks.filter(
+      t => t.status === 'processing' && t.taskId && !abortControllersRef.current.has(t.id)
+    );
+
+    if (processingTasks.length === 0) {
+      // 没有需要轮询的任务，清除定时器
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+      return;
+    }
+
+    // 启动轮询
+    if (!pollTimerRef.current) {
+      const pollFn = async () => {
+        const taskIds = tasks
+          .filter(t => t.status === 'processing' && t.taskId && !abortControllersRef.current.has(t.id))
+          .map(t => t.taskId!)
+          .filter(Boolean);
+
+        if (taskIds.length === 0) {
+          if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
+          }
+          return;
+        }
+
+        try {
+          for (const taskId of taskIds) {
+            const dbTasks = await adminQuery<any>(supabase, 'ai_topic_generation_tasks', {
+              select: 'id, status, result_payload, error_message, completed_at, topic_id',
+              filters: [{ col: 'id', op: 'eq', val: taskId }],
+              limit: 1,
+            });
+
+            if (dbTasks && dbTasks.length > 0) {
+              const dbTask = dbTasks[0];
+              if (dbTask.status === 'done' || dbTask.status === 'partial') {
+                setTasks(prev => prev.map(t => {
+                  if (t.taskId === taskId) {
+                    return {
+                      ...t,
+                      status: dbTask.status,
+                      progress: 100,
+                      stage: dbTask.status === 'done' ? '全部完成' : '部分完成（请检查质量警告）',
+                      result: dbTask.result_payload || t.result,
+                      completedAt: dbTask.completed_at ? new Date(dbTask.completed_at) : new Date(),
+                      savedTopicId: dbTask.topic_id || t.savedTopicId,
+                      savedAsDraft: !!dbTask.topic_id || t.savedAsDraft,
+                    };
+                  }
+                  return t;
+                }));
+                toast.success('AI 专题草稿生成完成！');
+              } else if (dbTask.status === 'error') {
+                setTasks(prev => prev.map(t => {
+                  if (t.taskId === taskId) {
+                    return {
+                      ...t,
+                      status: 'error',
+                      progress: 0,
+                      stage: '生成失败',
+                      errorMessage: dbTask.error_message || '未知错误',
+                    };
+                  }
+                  return t;
+                }));
+                toast.error('生成失败: ' + (dbTask.error_message || '未知错误'));
+              }
+            }
+          }
+        } catch (error) {
+          console.error('[AITopic] DB 轮询失败:', error);
+        }
+      };
+
+      pollTimerRef.current = setInterval(pollFn, DB_POLL_INTERVAL);
+      // 立即执行一次
+      pollFn();
+    }
+
+    return () => {
+      // 注意：不在这里清除，因为 effect 可能频繁触发
+    };
+  }, [tasks, supabase]);
 
   // ─── SSE 执行单个任务 ──────────────────────────────────────
   const executeTask = useCallback(
@@ -252,21 +476,33 @@ export default function AITopicGenerationPage() {
         },
         // onError
         (error: Error) => {
-          updateTask(task.id, {
-            status: 'error',
-            progress: 0,
-            stage: '连接失败',
-            errorMessage: error.message || '网络连接中断，请重试',
-          });
+          // [修复] SSE 断开时，如果任务有 taskId，不标记为 error，而是标记为 processing
+          // 让 DB 轮询来恢复状态
+          const currentTask = tasks.find(t => t.id === task.id);
+          if (currentTask?.taskId) {
+            updateTask(task.id, {
+              status: 'processing',
+              stage: '连接中断，正在从服务器恢复...',
+            });
+          } else {
+            updateTask(task.id, {
+              status: 'error',
+              progress: 0,
+              stage: '连接失败',
+              errorMessage: error.message || '网络连接中断，请重试',
+            });
+          }
 
           abortControllersRef.current.delete(task.id);
-          toast.error('连接失败: ' + error.message);
+          if (!currentTask?.taskId) {
+            toast.error('连接失败: ' + error.message);
+          }
         }
       );
 
       abortControllersRef.current.set(task.id, controller);
     },
-    [updateTask]
+    [updateTask, tasks]
   );
 
   // ─── 当 tasks 变化时检查是否有待处理任务（一次只处理一个）──
@@ -563,7 +799,7 @@ export default function AITopicGenerationPage() {
   const stats = useMemo(() => ({
     total: tasks.length,
     queued: tasks.filter(t => t.status === 'queued').length,
-    processing: tasks.filter(t => t.status === 'processing').length,
+    processing: tasks.filter(t => t.status === 'processing' || (t.status as string) === 'recovering').length,
     done: tasks.filter(t => t.status === 'done' || t.status === 'partial').length,
     error: tasks.filter(t => t.status === 'error').length,
     saved: tasks.filter(t => t.savedAsDraft).length,
@@ -727,66 +963,36 @@ export default function AITopicGenerationPage() {
               />
             </div>
 
-            {/* 核心场景 */}
-            <div>
-              <Label className="font-medium">核心场景</Label>
-              <p className="text-xs text-gray-400 mb-1">选择或输入商品的使用场景</p>
-              <div className="flex flex-wrap gap-1.5">
-                {SCENE_PRESETS.map(scene => (
-                  <button
-                    key={scene}
-                    onClick={() => toggleTag(selectedScenes, setSelectedScenes, scene)}
-                    className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
-                      selectedScenes.includes(scene)
-                        ? 'bg-blue-100 border-blue-300 text-blue-700'
-                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    {scene}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* 核心场景 - [修复] 添加自定义新增入口 */}
+            <TagSectionWithCustomInput
+              label="核心场景"
+              hint="选择或输入商品的使用场景"
+              presets={SCENE_PRESETS}
+              selected={selectedScenes}
+              onToggle={(value) => toggleTag(selectedScenes, setSelectedScenes, value)}
+              onAdd={(value) => setSelectedScenes(prev => [...prev, value])}
+              colorScheme="blue"
+            />
 
-            {/* 目标人群 */}
-            <div>
-              <Label className="font-medium">目标人群</Label>
-              <div className="flex flex-wrap gap-1.5 mt-1">
-                {AUDIENCE_PRESETS.map(audience => (
-                  <button
-                    key={audience}
-                    onClick={() => toggleTag(selectedAudiences, setSelectedAudiences, audience)}
-                    className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
-                      selectedAudiences.includes(audience)
-                        ? 'bg-green-100 border-green-300 text-green-700'
-                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    {audience}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* 目标人群 - [修复] 添加自定义新增入口 */}
+            <TagSectionWithCustomInput
+              label="目标人群"
+              presets={AUDIENCE_PRESETS}
+              selected={selectedAudiences}
+              onToggle={(value) => toggleTag(selectedAudiences, setSelectedAudiences, value)}
+              onAdd={(value) => setSelectedAudiences(prev => [...prev, value])}
+              colorScheme="green"
+            />
 
-            {/* 语气约束 */}
-            <div>
-              <Label className="font-medium">不要出现的风格</Label>
-              <div className="flex flex-wrap gap-1.5 mt-1">
-                {TONE_CONSTRAINT_PRESETS.map(tone => (
-                  <button
-                    key={tone}
-                    onClick={() => toggleTag(selectedToneConstraints, setSelectedToneConstraints, tone)}
-                    className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
-                      selectedToneConstraints.includes(tone)
-                        ? 'bg-red-100 border-red-300 text-red-700'
-                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    {tone}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* 语气约束 - [修复] 添加自定义新增入口 */}
+            <TagSectionWithCustomInput
+              label="不要出现的风格"
+              presets={TONE_CONSTRAINT_PRESETS}
+              selected={selectedToneConstraints}
+              onToggle={(value) => toggleTag(selectedToneConstraints, setSelectedToneConstraints, value)}
+              onAdd={(value) => setSelectedToneConstraints(prev => [...prev, value])}
+              colorScheme="red"
+            />
 
             {/* 本地化提示 */}
             <div>
@@ -899,6 +1105,112 @@ export default function AITopicGenerationPage() {
 }
 
 // ============================================================
+// [修复] 带自定义新增入口的标签选择组件
+// ============================================================
+
+function TagSectionWithCustomInput({
+  label,
+  hint,
+  presets,
+  selected,
+  onToggle,
+  onAdd,
+  colorScheme,
+}: {
+  label: string;
+  hint?: string;
+  presets: string[];
+  selected: string[];
+  onToggle: (value: string) => void;
+  onAdd: (value: string) => void;
+  colorScheme: 'blue' | 'green' | 'red';
+}) {
+  const [inputValue, setInputValue] = useState('');
+  const [showInput, setShowInput] = useState(false);
+
+  const colorMap = {
+    blue: { active: 'bg-blue-100 border-blue-300 text-blue-700', hover: 'hover:bg-blue-50' },
+    green: { active: 'bg-green-100 border-green-300 text-green-700', hover: 'hover:bg-green-50' },
+    red: { active: 'bg-red-100 border-red-300 text-red-700', hover: 'hover:bg-red-50' },
+  };
+  const colors = colorMap[colorScheme];
+
+  const handleAdd = () => {
+    const trimmed = inputValue.trim();
+    if (!trimmed) return;
+    if (selected.includes(trimmed) || presets.includes(trimmed)) {
+      toast.error('该选项已存在');
+      return;
+    }
+    onAdd(trimmed);
+    setInputValue('');
+    setShowInput(false);
+  };
+
+  // 合并预设和自定义标签
+  const allTags = [...presets, ...selected.filter(s => !presets.includes(s))];
+
+  return (
+    <div>
+      <Label className="font-medium">{label}</Label>
+      {hint && <p className="text-xs text-gray-400 mb-1">{hint}</p>}
+      <div className="flex flex-wrap gap-1.5 mt-1">
+        {allTags.map(tag => (
+          <button
+            key={tag}
+            onClick={() => onToggle(tag)}
+            className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
+              selected.includes(tag)
+                ? colors.active
+                : `bg-white border-gray-200 text-gray-600 hover:bg-gray-50`
+            }`}
+          >
+            {tag}
+          </button>
+        ))}
+        {/* 自定义新增入口 */}
+        {showInput ? (
+          <div className="flex items-center gap-1">
+            <input
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); handleAdd(); }
+                if (e.key === 'Escape') { setShowInput(false); setInputValue(''); }
+              }}
+              placeholder="输入自定义..."
+              className="px-2 py-1 rounded-full text-xs border border-gray-300 w-28 focus:outline-none focus:border-blue-400"
+              autoFocus
+            />
+            <button
+              onClick={handleAdd}
+              className="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-600 hover:bg-gray-200"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+            <button
+              onClick={() => { setShowInput(false); setInputValue(''); }}
+              className="px-1 py-1 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowInput(true)}
+            className="px-2.5 py-1 rounded-full text-xs border border-dashed border-gray-300 text-gray-400 hover:text-gray-600 hover:border-gray-400 transition-colors flex items-center gap-1"
+          >
+            <Plus className="w-3 h-3" />
+            自定义
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // 任务进度卡片
 // ============================================================
 
@@ -916,6 +1228,7 @@ function TopicTaskCard({
   const statusConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
     queued: { label: '排队中', color: 'bg-gray-100 text-gray-600', icon: <Clock className="w-3.5 h-3.5" /> },
     processing: { label: '生成中', color: 'bg-blue-100 text-blue-600', icon: <Loader2 className="w-3.5 h-3.5 animate-spin" /> },
+    recovering: { label: '恢复中', color: 'bg-yellow-100 text-yellow-600', icon: <Loader2 className="w-3.5 h-3.5 animate-spin" /> },
     done: { label: '已完成', color: 'bg-green-100 text-green-600', icon: <CheckCircle className="w-3.5 h-3.5" /> },
     partial: { label: '部分完成', color: 'bg-yellow-100 text-yellow-600', icon: <AlertTriangle className="w-3.5 h-3.5" /> },
     error: { label: '失败', color: 'bg-red-100 text-red-600', icon: <AlertTriangle className="w-3.5 h-3.5" /> },
@@ -947,7 +1260,7 @@ function TopicTaskCard({
       </div>
 
       {/* 进度条 */}
-      {task.status === 'processing' && (
+      {(task.status === 'processing' || (task.status as string) === 'recovering') && (
         <div className="mb-2">
           <div className="w-full bg-gray-100 rounded-full h-1.5">
             <div
@@ -974,13 +1287,19 @@ function TopicTaskCard({
             查看结果
           </Button>
         )}
+        {task.savedAsDraft && (
+          <Button variant="outline" size="sm" onClick={onViewResult} className="text-xs text-purple-600">
+            <BookOpen className="w-3.5 h-3.5 mr-1" />
+            查看草稿
+          </Button>
+        )}
         {task.status === 'error' && (
           <Button variant="outline" size="sm" onClick={onRetry} className="text-xs text-orange-600">
             <RefreshCw className="w-3.5 h-3.5 mr-1" />
             重试
           </Button>
         )}
-        {task.status !== 'processing' && (
+        {task.status !== 'processing' && (task.status as string) !== 'recovering' && (
           <Button variant="ghost" size="sm" onClick={onDelete} className="text-xs text-gray-400 ml-auto">
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
@@ -1103,35 +1422,49 @@ function TopicResultPreview({
             )}
           </div>
 
-          {/* 单品分析 */}
-          <div className="space-y-2">
-            <Label className="font-medium text-sm">单品场景分析</Label>
-            {(editedResult.understanding.products_analysis || []).map((pa, i) => (
-              <div key={i} className="border rounded-lg p-3 text-sm space-y-1">
-                <div className="font-medium">{pa.product_name}</div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div><span className="text-gray-400">最佳场景：</span>{pa.best_scene}</div>
-                  <div><span className="text-gray-400">目标人群：</span>{pa.target_people}</div>
-                  <div><span className="text-gray-400">本地连接：</span>{pa.local_life_connection}</div>
-                  <div><span className="text-gray-400">推荐角标：</span>{pa.recommended_badge}</div>
-                </div>
-                <div className="text-xs"><span className="text-gray-400">卖点角度：</span>{pa.selling_angle}</div>
-              </div>
-            ))}
+          {/* 推荐配置 */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-gray-50 rounded-lg p-3">
+              <Label className="text-xs text-gray-500">推荐专题类型</Label>
+              <p className="text-sm font-medium mt-0.5">{editedResult.understanding.recommended_topic_type}</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <Label className="text-xs text-gray-500">推荐卡片样式</Label>
+              <p className="text-sm font-medium mt-0.5">{editedResult.understanding.recommended_card_style}</p>
+            </div>
           </div>
+
+          {/* 单品分析 */}
+          {editedResult.understanding.products_analysis && editedResult.understanding.products_analysis.length > 0 && (
+            <div>
+              <Label className="text-xs text-gray-500 font-medium mb-2 block">单品分析</Label>
+              <div className="space-y-2">
+                {editedResult.understanding.products_analysis.map((pa, i) => (
+                  <div key={i} className="bg-gray-50 rounded-lg p-3 text-xs space-y-1">
+                    <div className="font-medium text-sm">{pa.product_name}</div>
+                    <div><span className="text-gray-500">最佳场景：</span>{pa.best_scene}</div>
+                    <div><span className="text-gray-500">目标人群：</span>{pa.target_people}</div>
+                    <div><span className="text-gray-500">本地关联：</span>{pa.local_life_connection}</div>
+                    <div><span className="text-gray-500">卖点角度：</span>{pa.selling_angle}</div>
+                    <div><span className="text-gray-500">推荐标签：</span>{pa.recommended_badge}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* ─── 专题内容（可编辑） ─────────────────────────────── */}
+      {/* ─── 专题内容 ───────────────────────────────────────── */}
       {activeSection === 'content' && (
         <div className="space-y-4">
-          {/* 标题 */}
+          {/* 三语标题 */}
           <div>
-            <Label className="font-medium text-sm">标题</Label>
-            <div className="grid grid-cols-3 gap-2 mt-1">
+            <Label className="text-xs text-gray-500 font-medium">专题标题</Label>
+            <div className="space-y-2 mt-1">
               {['zh', 'ru', 'tg'].map(lang => (
-                <div key={lang}>
-                  <Label className="text-xs text-gray-400">{lang === 'zh' ? '中文' : lang === 'ru' ? '俄语' : '塔吉克语'}</Label>
+                <div key={lang} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 w-8">{lang.toUpperCase()}</span>
                   <Input
                     value={editedResult.title_i18n?.[lang] || ''}
                     onChange={(e) => updateI18nField('title_i18n', lang, e.target.value)}
@@ -1142,13 +1475,13 @@ function TopicResultPreview({
             </div>
           </div>
 
-          {/* 副标题 */}
+          {/* 三语副标题 */}
           <div>
-            <Label className="font-medium text-sm">副标题</Label>
-            <div className="grid grid-cols-3 gap-2 mt-1">
+            <Label className="text-xs text-gray-500 font-medium">副标题</Label>
+            <div className="space-y-2 mt-1">
               {['zh', 'ru', 'tg'].map(lang => (
-                <div key={lang}>
-                  <Label className="text-xs text-gray-400">{lang === 'zh' ? '中文' : lang === 'ru' ? '俄语' : '塔吉克语'}</Label>
+                <div key={lang} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 w-8">{lang.toUpperCase()}</span>
                   <Input
                     value={editedResult.subtitle_i18n?.[lang] || ''}
                     onChange={(e) => updateI18nField('subtitle_i18n', lang, e.target.value)}
@@ -1159,13 +1492,13 @@ function TopicResultPreview({
             </div>
           </div>
 
-          {/* 导语 */}
+          {/* 三语导语 */}
           <div>
-            <Label className="font-medium text-sm">导语</Label>
+            <Label className="text-xs text-gray-500 font-medium">导语</Label>
             <div className="space-y-2 mt-1">
               {['zh', 'ru', 'tg'].map(lang => (
-                <div key={lang}>
-                  <Label className="text-xs text-gray-400">{lang === 'zh' ? '中文' : lang === 'ru' ? '俄语' : '塔吉克语'}</Label>
+                <div key={lang} className="flex items-start gap-2">
+                  <span className="text-xs text-gray-400 w-8 mt-2">{lang.toUpperCase()}</span>
                   <Textarea
                     value={editedResult.intro_i18n?.[lang] || ''}
                     onChange={(e) => updateI18nField('intro_i18n', lang, e.target.value)}
@@ -1177,20 +1510,20 @@ function TopicResultPreview({
             </div>
           </div>
 
-          {/* 正文块 */}
+          {/* 正文段落 */}
           {editedResult.story_blocks_i18n && editedResult.story_blocks_i18n.length > 0 && (
             <div>
-              <Label className="font-medium text-sm">正文段落</Label>
-              {editedResult.story_blocks_i18n.map((block, index) => (
-                <div key={index} className="border rounded-lg p-3 mt-2 space-y-2">
-                  <div className="text-xs text-gray-400 font-medium">段落 {index + 1}</div>
+              <Label className="text-xs text-gray-500 font-medium">正文段落</Label>
+              {editedResult.story_blocks_i18n.map((block, idx) => (
+                <div key={idx} className="mt-3 border rounded-lg p-3 bg-gray-50">
+                  <div className="text-xs text-gray-400 mb-2">段落 {idx + 1}: {block.block_key}</div>
                   {['zh', 'ru', 'tg'].map(lang => (
-                    <div key={lang}>
-                      <Label className="text-xs text-gray-400">{lang === 'zh' ? '中文' : lang === 'ru' ? '俄语' : '塔吉克语'}</Label>
+                    <div key={lang} className="flex items-start gap-2 mb-1">
+                      <span className="text-xs text-gray-400 w-8 mt-2">{lang.toUpperCase()}</span>
                       <Textarea
                         value={(block as any)[lang] || ''}
-                        onChange={(e) => updateStoryBlock(index, lang, e.target.value)}
-                        rows={3}
+                        onChange={(e) => updateStoryBlock(idx, lang, e.target.value)}
+                        rows={2}
                         className="text-sm"
                       />
                     </div>
@@ -1199,85 +1532,89 @@ function TopicResultPreview({
               ))}
             </div>
           )}
+        </div>
+      )}
 
-          {/* 卡片文案变体 */}
-          {editedResult.placement_variants && editedResult.placement_variants.length > 0 && (
-            <div>
-              <Label className="font-medium text-sm">卡片文案变体（投放用）</Label>
-              {editedResult.placement_variants.map((variant, index) => (
-                <div key={index} className="border rounded-lg p-3 mt-2 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-purple-600">{variant.variant_name}</span>
-                    <span className="text-xs text-gray-400">角度: {variant.angle}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
+      {/* ─── 商品说明 ───────────────────────────────────────── */}
+      {activeSection === 'products' && (
+        <div className="space-y-3">
+          {(editedResult.product_notes || []).map((note, idx) => (
+            <div key={idx} className="border rounded-lg p-3 bg-gray-50">
+              <div className="text-xs text-gray-400 mb-2">
+                商品 ID: {note.product_id?.slice(0, 8)}...
+              </div>
+              <div className="space-y-2">
+                <div>
+                  <Label className="text-xs text-gray-500">场景说明</Label>
+                  {['zh', 'ru', 'tg'].map(lang => (
+                    <div key={lang} className="flex items-center gap-2 mt-1">
+                      <span className="text-xs text-gray-400 w-8">{lang.toUpperCase()}</span>
+                      <Input
+                        value={note.note_i18n?.[lang] || ''}
+                        onChange={(e) => {
+                          setEditedResult(prev => {
+                            const notes = [...(prev.product_notes || [])];
+                            notes[idx] = {
+                              ...notes[idx],
+                              note_i18n: { ...notes[idx].note_i18n, [lang]: e.target.value },
+                            };
+                            return { ...prev, product_notes: notes };
+                          });
+                        }}
+                        className="text-sm"
+                      />
+                    </div>
+                  ))}
+                </div>
+                {note.badge_text_i18n && (
+                  <div>
+                    <Label className="text-xs text-gray-500">角标文案</Label>
                     {['zh', 'ru', 'tg'].map(lang => (
-                      <div key={lang}>
-                        <Label className="text-xs text-gray-400">{lang === 'zh' ? '中文' : lang === 'ru' ? '俄语' : '塔吉克语'}</Label>
+                      <div key={lang} className="flex items-center gap-2 mt-1">
+                        <span className="text-xs text-gray-400 w-8">{lang.toUpperCase()}</span>
                         <Input
-                          value={variant.title_i18n?.[lang] || ''}
-                          readOnly
-                          className="text-xs bg-gray-50"
+                          value={note.badge_text_i18n?.[lang] || ''}
+                          onChange={(e) => {
+                            setEditedResult(prev => {
+                              const notes = [...(prev.product_notes || [])];
+                              notes[idx] = {
+                                ...notes[idx],
+                                badge_text_i18n: { ...(notes[idx].badge_text_i18n || {}), [lang]: e.target.value },
+                              };
+                              return { ...prev, product_notes: notes };
+                            });
+                          }}
+                          className="text-sm"
                         />
                       </div>
                     ))}
                   </div>
-                </div>
-              ))}
+                )}
+              </div>
+            </div>
+          ))}
+          {(!editedResult.product_notes || editedResult.product_notes.length === 0) && (
+            <div className="text-center py-8 text-gray-400 text-sm">
+              AI 未生成商品说明
             </div>
           )}
         </div>
       )}
 
-      {/* ─── 商品说明 ─────────────────────────────────────── */}
-      {activeSection === 'products' && (
-        <div className="space-y-3">
-          {(editedResult.product_notes || []).map((note, index) => {
-            const product = task.request.selected_products.find(p => p.id === note.product_id);
-            return (
-              <div key={index} className="border rounded-lg p-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  {product?.image_url && (
-                    <img src={product.image_url} alt="" className="w-8 h-8 rounded object-cover" />
-                  )}
-                  <div>
-                    <div className="font-medium text-sm">
-                      {product?.name_i18n?.zh || product?.name || note.product_id}
-                    </div>
-                    {note.badge_text_i18n?.zh && (
-                      <span className="inline-block px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded text-xs mt-0.5">
-                        {note.badge_text_i18n.zh}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  {['zh', 'ru', 'tg'].map(lang => (
-                    <div key={lang} className="text-xs">
-                      <span className="text-gray-400 inline-block w-12">
-                        {lang === 'zh' ? '中文' : lang === 'ru' ? '俄语' : '塔语'}:
-                      </span>
-                      <span>{note.note_i18n?.[lang] || '-'}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-          {(!editedResult.product_notes || editedResult.product_notes.length === 0) && (
-            <div className="text-center py-8 text-gray-400 text-sm">暂无商品说明</div>
-          )}
-        </div>
-      )}
-
-      {/* ─── 操作按钮 ─────────────────────────────────────── */}
+      {/* ─── 底部操作栏 ─────────────────────────────────────── */}
       <div className="flex items-center justify-between pt-4 border-t">
-        <Button variant="outline" onClick={onDiscard}>
+        <Button variant="ghost" onClick={onDiscard} className="text-gray-500">
           关闭
         </Button>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {/* 解释信息 */}
+          {editedResult.explanation && (
+            <div className="text-xs text-gray-400 max-w-xs truncate">
+              角度: {editedResult.explanation.selected_story_angle}
+            </div>
+          )}
           {task.savedAsDraft ? (
-            <span className="text-sm text-purple-600 flex items-center gap-1">
+            <span className="inline-flex items-center gap-1.5 text-sm text-green-600 font-medium">
               <CheckCircle className="w-4 h-4" />
               已创建为专题草稿
             </span>
