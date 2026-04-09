@@ -60,6 +60,8 @@ const EDGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/ai-topic-generate`;
 const STORAGE_KEY = 'ai_topic_tasks';
 // [修复] DB 轮询间隔（毫秒）
 const DB_POLL_INTERVAL = 5000;
+// [v4 修复] 任务超时时间（毫秒）—— 超过此时间仍在 processing 的任务将被强制检查
+const TASK_TIMEOUT_MS = 5 * 60 * 1000; // 5 分钟
 
 // 预设选项
 const SCENE_PRESETS = [
@@ -280,13 +282,28 @@ export default function AITopicGenerationPage() {
     loadFromDB();
   }, [supabase, dbLoaded]);
 
-  // ─── [修复v2] DB 轮询：仅用于 SSE 断开后有 taskId 的任务 ─────────────
-  // 注：大多数情况下任务会通过 SSE 实时更新，轮询只是兜底机制
+  // ─── [v4 修复] 跟踪每个任务是否已收到终态事件 ───────────────────
+  // 用于判断 SSE 流正常结束时是否需要启动 DB 轮询兜底
+  const taskReceivedFinalEventRef = useRef<Set<string>>(new Set());
+
+  // ─── [v4 修复] DB 轮询：用于 SSE 断开后有 taskId 的任务，以及超时任务 ───────
+  // 改进：
+  //   1. 也轮询有活跃 SSE 但已超时的任务（兜底）
+  //   2. 使用 ref 读取最新 tasks，避免闭包陈旧问题
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
+
   useEffect(() => {
-    // 只轮询：有 taskId 且 processing 状态 且 没有活跃 SSE 连接的任务
-    const needsPoll = tasks.filter(
-      t => t.status === 'processing' && t.taskId && !abortControllersRef.current.has(t.id)
-    );
+    // 轮询候选：
+    //   A. 有 taskId 且 processing 且没有活跃 SSE 连接（SSE 断开后的兜底）
+    //   B. 有 taskId 且 processing 且已超时（SSE 可能卡死）
+    const now = Date.now();
+    const needsPoll = tasks.filter(t => {
+      if (t.status !== 'processing' || !t.taskId) return false;
+      const noSSE = !abortControllersRef.current.has(t.id);
+      const timedOut = (now - new Date(t.createdAt).getTime()) > TASK_TIMEOUT_MS;
+      return noSSE || timedOut;
+    });
 
     if (needsPoll.length === 0) {
       if (pollTimerRef.current) {
@@ -298,12 +315,17 @@ export default function AITopicGenerationPage() {
 
     if (!pollTimerRef.current) {
       const pollFn = async () => {
-        const taskIds = tasks
-          .filter(t => t.status === 'processing' && t.taskId && !abortControllersRef.current.has(t.id))
-          .map(t => t.taskId!)
-          .filter(Boolean);
+        // [v4 修复] 从 ref 读取最新 tasks，避免闭包陈旧
+        const currentTasks = tasksRef.current;
+        const now2 = Date.now();
+        const pollCandidates = currentTasks.filter(t => {
+          if (t.status !== 'processing' || !t.taskId) return false;
+          const noSSE = !abortControllersRef.current.has(t.id);
+          const timedOut = (now2 - new Date(t.createdAt).getTime()) > TASK_TIMEOUT_MS;
+          return noSSE || timedOut;
+        });
 
-        if (taskIds.length === 0) {
+        if (pollCandidates.length === 0) {
           if (pollTimerRef.current) {
             clearInterval(pollTimerRef.current);
             pollTimerRef.current = null;
@@ -312,7 +334,8 @@ export default function AITopicGenerationPage() {
         }
 
         try {
-          for (const taskId of taskIds) {
+          for (const task of pollCandidates) {
+            const taskId = task.taskId!;
             const dbTasks = await adminQuery<any>(supabase, 'ai_topic_generation_tasks', {
               select: 'id, status, result_payload, error_message, completed_at, topic_id',
               filters: [{ col: 'id', op: 'eq', val: taskId }],
@@ -322,6 +345,13 @@ export default function AITopicGenerationPage() {
             if (dbTasks && dbTasks.length > 0) {
               const dbTask = dbTasks[0];
               if (dbTask.status === 'done' || dbTask.status === 'partial') {
+                // [v4 修复] 如果还有活跃 SSE 连接，主动中断它
+                const ctrl = abortControllersRef.current.get(task.id);
+                if (ctrl) {
+                  ctrl.abort();
+                  abortControllersRef.current.delete(task.id);
+                }
+
                 setTasks(prev => prev.map(t => {
                   if (t.taskId === taskId) {
                     return {
@@ -339,6 +369,12 @@ export default function AITopicGenerationPage() {
                 }));
                 toast.success('AI 专题草稿生成完成！');
               } else if (dbTask.status === 'error') {
+                const ctrl = abortControllersRef.current.get(task.id);
+                if (ctrl) {
+                  ctrl.abort();
+                  abortControllersRef.current.delete(task.id);
+                }
+
                 setTasks(prev => prev.map(t => {
                   if (t.taskId === taskId) {
                     return {
@@ -353,6 +389,7 @@ export default function AITopicGenerationPage() {
                 }));
                 toast.error('生成失败: ' + (dbTask.error_message || '未知错误'));
               }
+              // 如果 DB 中仍然是 processing，继续轮询
             }
           }
         } catch (error) {
@@ -369,9 +406,16 @@ export default function AITopicGenerationPage() {
     };
   }, [tasks, supabase]);
 
-  // ─── SSE 执行单个任务 ──────────────────────────────────────
+  // ─── [v4 修复] SSE 执行单个任务 ──────────────────────────────
+  // 改进：
+  //   1. 不再依赖 tasks 闭包，改用 tasksRef 读取最新状态
+  //   2. processing 事件也保存 task_id（如果有的话）
+  //   3. 新增 onStreamEnd 回调，实现 SSE 流结束兜底
   const executeTask = useCallback(
     (task: AITopicTask) => {
+      // 重置终态跟踪
+      taskReceivedFinalEventRef.current.delete(task.id);
+
       updateTask(task.id, {
         status: 'processing',
         progress: 5,
@@ -393,12 +437,20 @@ export default function AITopicGenerationPage() {
         // onEvent
         (data: AITopicSSEEventData) => {
           if (data.status === 'processing') {
-            updateTask(task.id, {
+            // [v4 修复] processing 事件也保存 task_id（后端在创建任务记录后就会发送）
+            const updates: Partial<AITopicTask> = {
               status: 'processing',
               progress: data.progress || 0,
               stage: data.stage || '处理中...',
-            });
+            };
+            if (data.task_id) {
+              updates.taskId = data.task_id;
+            }
+            updateTask(task.id, updates);
           } else if (data.status === 'done' || data.status === 'partial') {
+            // 标记已收到终态事件
+            taskReceivedFinalEventRef.current.add(task.id);
+
             updateTask(task.id, {
               status: data.status,
               progress: 100,
@@ -416,6 +468,9 @@ export default function AITopicGenerationPage() {
               toast('部分完成，请检查质量警告', { icon: '⚠️' });
             }
           } else if (data.status === 'error') {
+            // 标记已收到终态事件
+            taskReceivedFinalEventRef.current.add(task.id);
+
             updateTask(task.id, {
               status: 'error',
               progress: 0,
@@ -429,10 +484,10 @@ export default function AITopicGenerationPage() {
         },
         // onError
         (error: Error) => {
-          // [修复] SSE 断开时，如果任务有 taskId，不标记为 error，而是标记为 processing
-          // 让 DB 轮询来恢复状态
-          const currentTask = tasks.find(t => t.id === task.id);
+          // [v4 修复] 使用 tasksRef 读取最新状态，避免闭包陈旧
+          const currentTask = tasksRef.current.find(t => t.id === task.id);
           if (currentTask?.taskId) {
+            // 有 taskId，保持 processing 状态，让 DB 轮询兜底
             updateTask(task.id, {
               status: 'processing',
               stage: '连接中断，正在从服务器恢复...',
@@ -450,16 +505,48 @@ export default function AITopicGenerationPage() {
           if (!currentTask?.taskId) {
             toast.error('连接失败: ' + error.message);
           }
+        },
+        // [v4 新增] onStreamEnd —— SSE 流正常结束的兜底处理
+        () => {
+          // 清理 controller
+          abortControllersRef.current.delete(task.id);
+
+          // 如果已经收到了终态事件，不需要兜底
+          if (taskReceivedFinalEventRef.current.has(task.id)) {
+            return;
+          }
+
+          // [v4 修复 核心] SSE 流正常结束但未收到终态事件
+          // 检查任务是否有 taskId，如果有则保持 processing 让 DB 轮询兜底
+          const currentTask = tasksRef.current.find(t => t.id === task.id);
+          console.warn('[AITopic] SSE 流正常结束但未收到终态事件，任务:', task.id, 'taskId:', currentTask?.taskId);
+
+          if (currentTask?.taskId) {
+            // 有 taskId，保持 processing，DB 轮询会接管恢复
+            updateTask(task.id, {
+              status: 'processing',
+              stage: 'SSE 连接已关闭，正在从服务器查询结果...',
+            });
+          } else {
+            // 没有 taskId，无法通过 DB 恢复，标记为错误
+            updateTask(task.id, {
+              status: 'error',
+              progress: 0,
+              stage: '生成失败',
+              errorMessage: '服务器连接已关闭但未返回结果，请重试',
+            });
+            toast.error('生成失败：服务器未返回结果，请重试');
+          }
         }
       );
 
       abortControllersRef.current.set(task.id, controller);
     },
-    [updateTask, tasks]
+    [updateTask]  // [v4 修复] 移除 tasks 依赖，改用 tasksRef
   );
 
   // ─── 当 tasks 变化时检查是否有待处理任务（一次只处理一个）──
-  // [修复v2] 包含 queued 状态（含自动恢复的任务）
+  // [v4 修复] 包含 queued 状态（含自动恢复的任务）
   useEffect(() => {
     const hasProcessing = tasks.some((t) => t.status === 'processing');
     if (hasProcessing) return;

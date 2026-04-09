@@ -289,13 +289,16 @@ export async function adminRpc<T = any>(
  * @param body 请求体
  * @param onEvent SSE 事件回调（每收到一个 data: 行触发一次）
  * @param onError 错误回调
+ * @param onStreamEnd [v4 新增] SSE 流正常结束回调（可选）。当流正常关闭但未收到终态事件时，
+ *                    调用方可通过此回调进行兜底处理（如启动 DB 轮询恢复）。
  * @returns AbortController（调用方可用于取消请求）
  */
 export function adminSSEFetch(
   url: string,
   body: Record<string, any>,
   onEvent: (data: any) => void,
-  onError: (error: Error) => void
+  onError: (error: Error) => void,
+  onStreamEnd?: () => void
 ): AbortController {
   const controller = new AbortController()
   const sessionToken = getSessionToken()
@@ -373,6 +376,13 @@ export function adminSSEFetch(
             // 忽略非 JSON 行
           }
         }
+      }
+
+      // [v4 修复] SSE 流正常结束后通知调用方
+      // 如果流正常关闭但调用方未收到终态事件（done/partial/error），
+      // 调用方可通过此回调启动兜底恢复机制（如 DB 轮询）
+      if (onStreamEnd) {
+        onStreamEnd()
       }
     })
     .catch((error) => {
