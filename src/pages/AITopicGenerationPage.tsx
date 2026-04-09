@@ -792,15 +792,24 @@ export default function AITopicGenerationPage() {
         ]);
       }
 
-      // 更新本地任务状态
-      updateTask(taskId, {
-        savedAsDraft: true,
-        savedTopicId: topicId,
-      });
+      // [v6 修复] 先关闭 Dialog，再更新任务状态
+      // 避免 React DOM reconciliation 与 Radix Dialog Portal 卸载的竞争条件
+      // （savedAsDraft 切换会在 Dialog 内部将 <Button> 替换为 <span>，
+      //  同时 Portal 正在卸载子树，导致 insertBefore 错误）
+      setViewingTaskId(null);
+      toast.success('专题草稿创建成功！请到专题管理页面继续编辑和发布。');
 
-      // 审计日志
+      // 延迟更新任务状态，等待 Dialog 关闭动画完成后再更新 DOM
+      setTimeout(() => {
+        updateTask(taskId, {
+          savedAsDraft: true,
+          savedTopicId: topicId,
+        });
+      }, 100);
+
+      // 审计日志（异步，不阻塞 UI）
       const duration = Date.now() - startTime;
-      await auditLog(supabase, {
+      auditLog(supabase, {
         adminId: admin.id,
         action: 'AI_CREATE_TOPIC_DRAFT',
         targetType: 'homepage_topic',
@@ -816,10 +825,7 @@ export default function AITopicGenerationPage() {
         source: 'admin_ui',
         status: 'success',
         durationMs: duration,
-      });
-
-      setViewingTaskId(null);
-      toast.success('专题草稿创建成功！请到专题管理页面继续编辑和发布。');
+      }).catch(e => console.error('[AITopic] 审计日志写入失败:', e));
     } catch (error: any) {
       console.error('[AITopic] 创建专题草稿失败:', error);
       toast.error('创建失败: ' + (error.message || '未知错误'));
