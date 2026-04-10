@@ -1566,6 +1566,52 @@ function TopicResultPreview({
       parsed.product_notes = fixedNotes;
     }
 
+    // [v9 修复] 确保 selected_products 中的所有商品都出现在 sections 中
+    // 无论 sections 来自 AI 直接输出还是向后兼容构建，都需要检查是否有遗漏的商品
+    if (parsed.sections && parsed.sections.length > 0) {
+      const allSectionProductIds = new Set<string>();
+      for (const sec of parsed.sections) {
+        for (const sp of (sec.products || [])) {
+          allSectionProductIds.add(sp.product_id);
+        }
+      }
+
+      const missingProducts = (task.request.selected_products || []).filter(
+        p => !allSectionProductIds.has(p.id)
+      );
+
+      if (missingProducts.length > 0) {
+        // 将缺失的商品添加到一个新的"其他商品"段落
+        const missingProductEntries = missingProducts.map(p => ({
+          product_id: p.id,
+          note_i18n: { zh: `${p.name_i18n?.zh || p.name || '未知商品'}（AI 未生成说明，请手动编辑）`, ru: '', tg: '' },
+          badge_text_i18n: { zh: '待编辑', ru: '', tg: '' },
+        }));
+        parsed.sections.push({
+          story_text_i18n: {
+            zh: '其他推荐商品',
+            ru: 'Другие рекомендуемые товары',
+            tg: 'Дигар молҳои тавсияшаванда',
+          },
+          products: missingProductEntries,
+        });
+      }
+    } else if (!parsed.sections || parsed.sections.length === 0) {
+      // sections 仍然为空（没有 story_blocks 也没有 product_notes），
+      // 但有 selected_products，创建一个包含所有商品的默认段落
+      const allProducts = (task.request.selected_products || []);
+      if (allProducts.length > 0) {
+        parsed.sections = [{
+          story_text_i18n: { zh: '推荐商品', ru: 'Рекомендуемые товары', tg: 'Молҳои тавсияшаванда' },
+          products: allProducts.map(p => ({
+            product_id: p.id,
+            note_i18n: { zh: `${p.name_i18n?.zh || p.name || '未知商品'}（AI 未生成说明，请手动编辑）`, ru: '', tg: '' },
+            badge_text_i18n: { zh: '待编辑', ru: '', tg: '' },
+          })),
+        }];
+      }
+    }
+
     return parsed;
   });
   const [activeSection, setActiveSection] = useState<'understanding' | 'content' | 'sections'>('content');
