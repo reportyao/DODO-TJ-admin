@@ -890,6 +890,15 @@ export default function AITopicGenerationPage() {
       const productInserts: any[] = [];
       let globalSortOrder = 0;
 
+      // [修复] 统一空 i18n 对象处理，确保 {} 转为 null 入库
+      const normalizeI18n = (obj: any) => {
+        if (!obj) return null;
+        if (typeof obj === 'object' && Object.keys(obj).length === 0) return null;
+        // 检查所有值是否都为空字符串
+        if (typeof obj === 'object' && Object.values(obj).every(v => !v || (typeof v === 'string' && v.trim() === ''))) return null;
+        return obj;
+      };
+
       for (let sectionIdx = 0; sectionIdx < sections.length; sectionIdx++) {
         const section = sections[sectionIdx];
         for (const sp of (section.products || [])) {
@@ -898,9 +907,9 @@ export default function AITopicGenerationPage() {
             product_id: sp.product_id,
             sort_order: globalSortOrder++,
             story_group: sectionIdx,
-            story_text_i18n: section.story_text_i18n || null,
-            note_i18n: sp.note_i18n || null,
-            badge_text_i18n: sp.badge_text_i18n || null,
+            story_text_i18n: normalizeI18n(section.story_text_i18n),
+            note_i18n: normalizeI18n(sp.note_i18n),
+            badge_text_i18n: normalizeI18n(sp.badge_text_i18n),
           });
         }
       }
@@ -925,8 +934,8 @@ export default function AITopicGenerationPage() {
               sort_order: globalSortOrder++,
               story_group: 0,
               story_text_i18n: null,
-              note_i18n: note.note_i18n || null,
-              badge_text_i18n: note.badge_text_i18n || null,
+              note_i18n: normalizeI18n(note.note_i18n),
+              badge_text_i18n: normalizeI18n(note.badge_text_i18n),
             });
           }
         }
@@ -972,13 +981,16 @@ export default function AITopicGenerationPage() {
       setViewingTaskId(null);
       toast.success('专题草稿创建成功！请到专题管理页面继续编辑和发布。');
 
-      // 延迟更新任务状态，等待 Dialog 关闭动画完成后再更新 DOM
-      setTimeout(() => {
-        updateTask(taskId, {
-          savedAsDraft: true,
-          savedTopicId: topicId,
-        });
-      }, 100);
+      // [修复] 使用 requestAnimationFrame + setTimeout 确保 Dialog 完全卸载后再更新任务状态
+      // requestAnimationFrame 确保在下一帧渲染后执行，300ms 延迟确保 Radix Dialog 动画完成
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          updateTask(taskId, {
+            savedAsDraft: true,
+            savedTopicId: topicId,
+          });
+        }, 300);
+      });
 
       // 审计日志（异步，不阻塞 UI）
       const duration = Date.now() - startTime;
