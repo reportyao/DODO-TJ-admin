@@ -611,6 +611,32 @@ export default function HomepageTopicManagementPage() {
       await adminUpdate(supabase, 'homepage_topics', { status: newStatus, updated_at: new Date().toISOString() }, [
         { col: 'id', op: 'eq', val: item.id },
       ]);
+
+      // [FIX] 发布时自动创建默认 topic_placement（如果不存在）
+      // 没有 placement 记录的专题不会出现在前端首页 feed 中
+      if (newStatus === 'published') {
+        try {
+          const existingPlacements = await adminQuery<{ id: string }>(supabase, 'topic_placements', {
+            select: 'id',
+            filters: [{ col: 'topic_id', op: 'eq', val: item.id }],
+          });
+          if (!existingPlacements || existingPlacements.length === 0) {
+            await adminInsert(supabase, 'topic_placements', {
+              topic_id: item.id,
+              placement_name: 'home_feed',
+              card_variant_name: item.card_style || 'standard',
+              feed_position: 3,
+              sort_order: 0,
+              is_active: true,
+            });
+            toast.success('已自动创建首页投放记录');
+          }
+        } catch (placementErr: any) {
+          console.error('自动创建投放记录失败:', placementErr);
+          toast.error('专题已发布，但自动创建投放记录失败，请手动到投放管理页面添加');
+        }
+      }
+
       toast.success(`专题状态已更新为: ${getStatusBadge(newStatus).label}`);
       fetchTopics();
     } catch (error: any) {

@@ -45,6 +45,7 @@ import {
 import toast from 'react-hot-toast';
 import ProductPickerPanel from '@/components/ProductPickerPanel';
 import type { ProductPickerItem } from '@/components/ProductPickerPanel';
+import { SingleImageUpload } from '@/components/SingleImageUpload';
 
 import { adminSSEFetch } from '@/lib/adminApi';
 import { auditLog } from '@/lib/auditLogger';
@@ -1713,32 +1714,52 @@ function TopicResultPreview({
         </div>
       )}
 
-      {/* v2: 封面图选择 */}
-      {(editedResult.cover_image_urls && editedResult.cover_image_urls.length > 0) && (
-        <div className="bg-gray-50 rounded-lg p-3">
-          <Label className="text-xs text-gray-500 font-medium mb-2 block">封面图（点击选择）</Label>
-          <div className="flex gap-3 overflow-x-auto pb-2">
-            {editedResult.cover_image_urls.map((url, i) => (
-              <button
-                key={i}
-                onClick={() => selectCoverImage(url)}
-                className={`relative flex-shrink-0 rounded-lg overflow-hidden border-2 transition-all ${
-                  editedResult.cover_image_url === url
-                    ? 'border-purple-500 ring-2 ring-purple-200'
-                    : 'border-gray-200 hover:border-gray-400'
-                }`}
-              >
-                <img src={url} alt={`封面图 ${i + 1}`} className="w-40 h-24 object-cover" />
-                {editedResult.cover_image_url === url && (
-                  <div className="absolute top-1 right-1 bg-purple-600 text-white rounded-full p-0.5">
-                    <CheckCircle className="w-3.5 h-3.5" />
-                  </div>
-                )}
-              </button>
-            ))}
+      {/* v2: 封面图选择 + 手动上传 */}
+      <div className="bg-gray-50 rounded-lg p-3">
+        <Label className="text-xs text-gray-500 font-medium mb-2 block">专题封面图</Label>
+        {/* AI生成的封面图候选（如果有） */}
+        {(editedResult.cover_image_urls && editedResult.cover_image_urls.length > 0) && (
+          <div className="mb-3">
+            <p className="text-xs text-gray-400 mb-2">AI 生成的封面图（点击选择）：</p>
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {editedResult.cover_image_urls.map((url, i) => (
+                <button
+                  key={i}
+                  onClick={() => selectCoverImage(url)}
+                  className={`relative flex-shrink-0 rounded-lg overflow-hidden border-2 transition-all ${
+                    editedResult.cover_image_url === url
+                      ? 'border-purple-500 ring-2 ring-purple-200'
+                      : 'border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  <img src={url} alt={`封面图 ${i + 1}`} className="w-40 h-24 object-cover" />
+                  {editedResult.cover_image_url === url && (
+                    <div className="absolute top-1 right-1 bg-purple-600 text-white rounded-full p-0.5">
+                      <CheckCircle className="w-3.5 h-3.5" />
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
+        )}
+        {/* 手动上传封面图 */}
+        <div className="border border-dashed border-gray-300 rounded-lg p-3 bg-white">
+          <p className="text-xs text-gray-400 mb-2">手动上传封面图：</p>
+          <SingleImageUpload
+            bucket="topics"
+            folder="covers"
+            imageUrl={editedResult.cover_image_url || ''}
+            onImageUrlChange={(url) => selectCoverImage(url)}
+          />
         </div>
-      )}
+        {editedResult.cover_image_url && (
+          <div className="mt-2 flex items-center gap-2">
+            <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+            <span className="text-xs text-green-600">已选择封面图</span>
+          </div>
+        )}
+      </div>
 
       {/* 切换标签 */}
       <div className="flex gap-1 border-b">
