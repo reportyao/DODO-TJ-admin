@@ -23,7 +23,7 @@
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSupabase } from '../contexts/SupabaseContext';
-import { adminQuery, adminInsert, adminUpdate } from '../lib/adminApi';
+import { adminQuery, adminInsert, adminUpdate, adminDelete } from '../lib/adminApi';
 import { useAdminAuth } from '../contexts/AdminAuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -699,14 +699,33 @@ export default function AITopicGenerationPage() {
   };
 
   // ─── 删除任务 ──────────────────────────────────────────────
-  const handleDeleteTask = (taskId: string) => {
+  // [BUG-FIX-1] 删除任务时同时从数据库 ai_topic_generation_tasks 表删除，
+  // 避免刷新页面后从 DB 加载历史任务导致已删除的任务重新出现
+  const handleDeleteTask = async (taskId: string) => {
+    // 找到要删除的任务，获取其后端 taskId（用于 DB 删除）
+    const taskToDelete = tasks.find(t => t.id === taskId);
+
     const controller = abortControllersRef.current.get(taskId);
     if (controller) {
       controller.abort();
       abortControllersRef.current.delete(taskId);
     }
+    // 立即从本地状态移除（UI 即时响应）
     setTasks(prev => prev.filter(t => t.id !== taskId));
     if (viewingTaskId === taskId) setViewingTaskId(null);
+
+    // 如果任务有后端 taskId，同步从数据库删除
+    if (taskToDelete?.taskId) {
+      try {
+        await adminDelete(supabase, 'ai_topic_generation_tasks', [
+          { col: 'id', op: 'eq', val: taskToDelete.taskId },
+        ]);
+      } catch (error) {
+        console.error('[AITopic] 从 DB 删除任务失败:', error);
+        // DB 删除失败不影响本地删除，但给用户提示
+        toast.error('任务已从列表移除，但服务器记录删除失败，刷新后可能重新出现');
+      }
+    }
   };
 
   // ─── 创建为专题草稿 ───────────────────────────────────────
@@ -723,14 +742,16 @@ export default function AITopicGenerationPage() {
     const startTime = Date.now();
 
     try {
-      // [BUG-03 修复] 生成 slug 并确保唯一性
-      // 使用 crypto.randomUUID 片段代替 Date.now().toString(36) 避免快速连续创建时碰撞
-      const slugBase = (editedResult.title_i18n?.zh || editedResult.title_i18n?.ru || 'topic')
+      // [BUG-FIX-3] 生成 slug 并确保唯一性
+      // slug 只允许小写英文字母、数字和连字符，不允许中文
+      // 优先使用俄语标题（可转写为拉丁字符），中文标题则跳过直接用 UUID
+      const rawTitle = editedResult.title_i18n?.ru || editedResult.title_i18n?.tg || '';
+      const slugBase = rawTitle
         .toLowerCase()
-        .replace(/[^a-z0-9\u4e00-\u9fff]/g, '-')
+        .replace(/[^a-z0-9]/g, '-')
         .replace(/-+/g, '-')
         .replace(/^-|-$/g, '')
-        .slice(0, 30);
+        .slice(0, 30) || 'topic';
       const uniqueSuffix = typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID().slice(0, 8)
         : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -750,26 +771,25 @@ export default function AITopicGenerationPage() {
             const uniqueKey = typeof crypto !== 'undefined' && crypto.randomUUID
               ? crypto.randomUUID().slice(0, 8)
               : `${Date.now().toString(36)}_${i}`;
+            // [BUG-FIX-4] 使用扁平格式 { zh, ru, tg } 而非嵌套 content_i18n，
+            // 与 HomepageTopicManagementPage 保存格式保持一致
             return {
               block_key: `section_${i}_${uniqueKey}`,
               block_type: 'paragraph' as string,
-              content_i18n: {
-                zh: section.story_text_i18n?.zh || '',
-                ru: section.story_text_i18n?.ru || '',
-                tg: section.story_text_i18n?.tg || '',
-              },
+              zh: section.story_text_i18n?.zh || '',
+              ru: section.story_text_i18n?.ru || '',
+              tg: section.story_text_i18n?.tg || '',
             };
           })
         : (editedResult.story_blocks_i18n || []).map((block, idx) => {
             const blockType = validBlockTypes.includes(block.block_type || '') ? block.block_type : 'paragraph';
+            // [BUG-FIX-4] 使用扁平格式，与 HomepageTopicManagementPage 保持一致
             return {
               block_key: block.block_key || `block_${idx}_${Date.now().toString(36)}`,
               block_type: blockType,
-              content_i18n: {
-                zh: block.zh || '',
-                ru: block.ru || '',
-                tg: block.tg || '',
-              },
+              zh: block.zh || '',
+              ru: block.ru || '',
+              tg: block.tg || '',
             };
           });
 
@@ -790,8 +810,12 @@ export default function AITopicGenerationPage() {
       };
 
       // v2: 封面图
+      // [BUG-FIX-2] AI生成的封面图同时写入 cover_image_url 和 cover_image_default，
+      // 确保专题管理页面能正确显示和使用封面图。
+      // cover_image_url 用于标记AI来源，cover_image_default 用于前端通用展示回退。
       if (editedResult.cover_image_url) {
         topicData.cover_image_url = editedResult.cover_image_url;
+        topicData.cover_image_default = editedResult.cover_image_url;
       }
 
       // [RLS 修复] 插入 homepage_topics
