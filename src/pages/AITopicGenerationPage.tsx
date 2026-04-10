@@ -818,6 +818,33 @@ export default function AITopicGenerationPage() {
         }
       }
 
+      // [v8 修复] 如果 sections 中没有商品（可能是旧格式），从 product_notes 补充
+      if (productInserts.length === 0 && (editedResult.product_notes || []).length > 0) {
+        // 构建占位符 → 真实 ID 映射
+        const pidMap: Record<string, string> = {};
+        task.request.selected_products.forEach((p, i) => {
+          pidMap[`商品${i + 1}`] = p.id;
+          pidMap[`product_${i + 1}`] = p.id;
+        });
+
+        for (const note of editedResult.product_notes) {
+          const realId = pidMap[note.product_id] || note.product_id;
+          // 验证 product_id 是否在选中商品列表中
+          const isValid = task.request.selected_products.some(p => p.id === realId);
+          if (isValid) {
+            productInserts.push({
+              topic_id: topicId,
+              product_id: realId,
+              sort_order: globalSortOrder++,
+              story_group: 0,
+              story_text_i18n: null,
+              note_i18n: note.note_i18n || null,
+              badge_text_i18n: note.badge_text_i18n || null,
+            });
+          }
+        }
+      }
+
       // 处理未分配到 section 的商品
       const sectionProductIds = new Set(productInserts.map(p => p.product_id));
       for (const p of task.request.selected_products) {
@@ -826,7 +853,7 @@ export default function AITopicGenerationPage() {
             topic_id: topicId,
             product_id: p.id,
             sort_order: globalSortOrder++,
-            story_group: sections.length,
+            story_group: sections.length || 0,
             note_i18n: null,
             badge_text_i18n: null,
           });
@@ -1477,13 +1504,69 @@ function TopicResultPreview({
   onDiscard: () => void;
   saving: boolean;
 }) {
-  // [BUG-24 修复 + v2] 深拷贝初始化，避免浅拷贝导致编辑时修改原始 result 对象
+  // [BUG-24 修复 + v2 + v8 向后兼容] 深拷贝初始化，自动从旧格式构建 sections
   const [editedResult, setEditedResult] = useState<AITopicDraftResult>(() => {
+    let parsed: AITopicDraftResult;
     try {
-      return JSON.parse(JSON.stringify(result));
+      parsed = JSON.parse(JSON.stringify(result));
     } catch {
-      return { ...result };
+      parsed = { ...result };
     }
+
+    // [v8 向后兼容] 如果 sections 为空，从 story_blocks_i18n + product_notes 自动构建
+    if (!parsed.sections || parsed.sections.length === 0) {
+      const blocks = parsed.story_blocks_i18n || [];
+      const notes = parsed.product_notes || [];
+
+      // 构建 "商品N" → 真实 ID 的映射表
+      const productIdMap: Record<string, string> = {};
+      (task.request.selected_products || []).forEach((p, i) => {
+        productIdMap[`商品${i + 1}`] = p.id;
+        productIdMap[`product_${i + 1}`] = p.id;
+      });
+
+      // 修复 product_notes 中的占位符 product_id
+      const fixedNotes = notes.map(n => ({
+        ...n,
+        product_id: productIdMap[n.product_id] || n.product_id,
+      }));
+
+      if (blocks.length > 0) {
+        const productsPerBlock = Math.ceil(fixedNotes.length / Math.max(blocks.length, 1));
+        parsed.sections = blocks.map((block, blockIdx) => {
+          const startIdx = blockIdx * productsPerBlock;
+          const endIdx = Math.min(startIdx + productsPerBlock, fixedNotes.length);
+          const blockProducts = fixedNotes.slice(startIdx, endIdx).map(note => ({
+            product_id: note.product_id,
+            note_i18n: note.note_i18n || {},
+            badge_text_i18n: note.badge_text_i18n || {},
+          }));
+          return {
+            story_text_i18n: {
+              zh: block.zh || '',
+              ru: block.ru || '',
+              tg: block.tg || '',
+            },
+            products: blockProducts,
+          };
+        });
+      } else if (fixedNotes.length > 0) {
+        // 没有段落但有商品备注，创建一个默认段落
+        parsed.sections = [{
+          story_text_i18n: { zh: '', ru: '', tg: '' },
+          products: fixedNotes.map(note => ({
+            product_id: note.product_id,
+            note_i18n: note.note_i18n || {},
+            badge_text_i18n: note.badge_text_i18n || {},
+          })),
+        }];
+      }
+
+      // 同时修复 product_notes
+      parsed.product_notes = fixedNotes;
+    }
+
+    return parsed;
   });
   const [activeSection, setActiveSection] = useState<'understanding' | 'content' | 'sections'>('content');
 
