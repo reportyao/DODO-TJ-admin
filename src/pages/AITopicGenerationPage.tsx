@@ -62,7 +62,7 @@ const STORAGE_KEY = 'ai_topic_tasks';
 // [修复] DB 轮询间隔（毫秒）
 const DB_POLL_INTERVAL = 5000;
 // [v4 修复] 任务超时时间（毫秒）—— 超过此时间仍在 processing 的任务将被强制检查
-const TASK_TIMEOUT_MS = 5 * 60 * 1000; // 5 分钟
+const TASK_TIMEOUT_MS = 15 * 60 * 1000; // 15 分钟
 
 // 预设选项
 const SCENE_PRESETS = [
@@ -394,7 +394,42 @@ export default function AITopicGenerationPage() {
                 }));
                 toast.error('生成失败: ' + (dbTask.error_message || '未知错误'));
               }
-              // 如果 DB 中仍然是 processing，继续轮询
+              // 如果 DB 中仍然是 processing，检查是否超过硬超时
+              if (dbTask.status === 'processing') {
+                const taskAge = now2 - new Date(dbTask.created_at || task.createdAt).getTime();
+                if (taskAge > TASK_TIMEOUT_MS) {
+                  // 硬超时：强制标记为 error
+                  console.warn('[AITopic] 任务超时，强制标记为失败:', taskId);
+                  const ctrl = abortControllersRef.current.get(task.id);
+                  if (ctrl) {
+                    ctrl.abort();
+                    abortControllersRef.current.delete(task.id);
+                  }
+                  // 更新 DB 中的状态
+                  try {
+                    await adminUpdate(supabase, 'ai_topic_generation_tasks', taskId, {
+                      status: 'error',
+                      error_message: '任务超时（超过15分钟未完成）',
+                      completed_at: new Date().toISOString(),
+                    });
+                  } catch (e) {
+                    console.error('[AITopic] 更新超时任务状态失败:', e);
+                  }
+                  setTasks(prev => prev.map(t => {
+                    if (t.taskId === taskId) {
+                      return {
+                        ...t,
+                        status: 'error',
+                        progress: 0,
+                        stage: '生成超时',
+                        errorMessage: '任务超时（超过15分钟未完成），请重新尝试',
+                      };
+                    }
+                    return t;
+                  }));
+                  toast.error('任务超时，请重新生成');
+                }
+              }
             }
           }
         } catch (error) {
