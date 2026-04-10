@@ -238,13 +238,40 @@ export default function AITopicGenerationPage() {
           return;
         }
 
+        // [自动清理] 彻底删除 error 状态超过 24 小时的任务，不占资源
+        const now = Date.now();
+        const ERROR_TTL_MS = 24 * 60 * 60 * 1000; // 24 小时
+        const expiredErrorIds: string[] = [];
+        for (const dbTask of dbTasks) {
+          if (dbTask.status === 'error') {
+            const taskAge = now - new Date(dbTask.completed_at || dbTask.created_at).getTime();
+            if (taskAge > ERROR_TTL_MS) {
+              expiredErrorIds.push(dbTask.id);
+            }
+          }
+        }
+        if (expiredErrorIds.length > 0) {
+          console.log(`[AITopic] 自动清理 ${expiredErrorIds.length} 个过期 error 任务`);
+          for (const eid of expiredErrorIds) {
+            try {
+              await adminDelete(supabase, 'ai_topic_generation_tasks', eid);
+            } catch (e) {
+              console.error('[AITopic] 删除过期任务失败:', eid, e);
+            }
+          }
+        }
+
         setTasks(prev => {
           const existingTaskIds = new Set(prev.map(t => t.taskId).filter(Boolean));
           const existingLocalIds = new Set(prev.map(t => t.id));
           const updated = [...prev];
 
+          // 已删除的过期 error 任务 ID 集合，不再加载
+          const deletedIds = new Set(expiredErrorIds);
+
           // 从 DB 加载本地不存在的已完成任务（跨设备/跨会话历史记录）
           for (const dbTask of dbTasks) {
+            if (deletedIds.has(dbTask.id)) continue;
             if (existingTaskIds.has(dbTask.id) || existingLocalIds.has(dbTask.id)) continue;
             if (dbTask.status !== 'done' && dbTask.status !== 'partial') continue;
             if (!dbTask.result_payload) continue;
