@@ -199,7 +199,7 @@ export const LotteryForm: React.FC = () => {
         // 解析比价清单数据
         let priceComparisons: PriceComparisonItem[] = [];
         try {
-          const rawComparisons = (data as any).price_comparisons;
+          const rawComparisons = data.price_comparisons;
           if (Array.isArray(rawComparisons)) {
             priceComparisons = rawComparisons;
           }
@@ -224,7 +224,7 @@ export const LotteryForm: React.FC = () => {
           inventory_product_id: data.inventory_product_id || null,
           full_purchase_enabled: data.full_purchase_enabled !== false,
           full_purchase_price: data.full_purchase_price || null,
-          ai_understanding: (data as any).ai_understanding || null,
+          ai_understanding: data.ai_understanding || null,
         });
       }
     } catch (error: any) {
