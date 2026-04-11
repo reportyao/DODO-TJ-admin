@@ -487,6 +487,11 @@ export default function AITopicGenerationPage() {
         status: 'processing',
         progress: 5,
         stage: '正在连接 AI 服务...',
+        taskId: undefined,
+        errorMessage: undefined,
+        result: undefined,
+        completedAt: undefined,
+        createdAt: new Date(),
       });
 
       const controller = adminSSEFetch(
@@ -752,12 +757,21 @@ export default function AITopicGenerationPage() {
 
   // ─── 重试失败任务 ──────────────────────────────────────────
   const handleRetry = (taskId: string) => {
+    const ctrl = abortControllersRef.current.get(taskId);
+    if (ctrl) {
+      ctrl.abort();
+      abortControllersRef.current.delete(taskId);
+    }
+    taskReceivedFinalEventRef.current.delete(taskId);
+
     updateTask(taskId, {
       status: 'queued',
       progress: 0,
       stage: '排队中（重试）...',
       errorMessage: undefined,
       result: undefined,
+      taskId: undefined,
+      completedAt: undefined,
     });
   };
 
