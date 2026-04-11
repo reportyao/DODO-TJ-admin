@@ -417,6 +417,15 @@ export default function HomepageTopicManagementPage() {
           { col: 'id', op: 'eq', val: editingItem.id },
         ]);
 
+        // [BUG-FIX] 同步更新该专题已有投放的 card_variant_name，
+        // 避免专题管理页修改 card_style 后，前端仍优先读取旧的投放样式导致展示不生效。
+        await adminUpdate(supabase, 'topic_placements', {
+          card_variant_name: formData.card_style,
+          updated_at: new Date().toISOString(),
+        }, [
+          { col: 'topic_id', op: 'eq', val: editingItem.id },
+        ]);
+
         // v2: 保存 sectionGroups 到 topic_products
         // [BUG-M1 修复] 先构建全部插入数据，再删除旧数据并批量插入，减少中间状态
         // [BUG-M2 修复] 空对象 {} 转为 null
@@ -457,6 +466,28 @@ export default function HomepageTopicManagementPage() {
         toast.success('专题更新成功');
       } else {
         const result = await adminInsert<{ id: string }>(supabase, 'homepage_topics', saveData);
+
+        // [BUG-FIX] 若创建后直接发布且尚无投放，则自动补一条默认首页投放，
+        // 并把 card_style 映射到投放级 card_variant_name，确保前台能立即生效。
+        if (result?.id && formData.status === 'published') {
+          const existingPlacements = await adminQuery<{ id: string }>(supabase, 'topic_placements', {
+            select: 'id',
+            filters: [{ col: 'topic_id', op: 'eq', val: result.id }],
+            limit: 1,
+          });
+
+          if (!existingPlacements || existingPlacements.length === 0) {
+            await adminInsert(supabase, 'topic_placements', {
+              topic_id: result.id,
+              placement_name: 'home_feed',
+              card_variant_name: formData.card_style,
+              feed_position: 3,
+              sort_order: 0,
+              is_active: true,
+              updated_at: new Date().toISOString(),
+            });
+          }
+        }
 
         // v2: 新建时也保存 sectionGroups
         // [BUG-M2 修复] 空对象 {} 转为 null

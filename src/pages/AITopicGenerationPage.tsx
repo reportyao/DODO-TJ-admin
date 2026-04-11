@@ -254,7 +254,9 @@ export default function AITopicGenerationPage() {
           console.log(`[AITopic] 自动清理 ${expiredErrorIds.length} 个过期 error 任务`);
           for (const eid of expiredErrorIds) {
             try {
-              await adminDelete(supabase, 'ai_topic_generation_tasks', eid);
+              await adminDelete(supabase, 'ai_topic_generation_tasks', [
+                { col: 'id', op: 'eq', val: eid },
+              ]);
             } catch (e) {
               console.error('[AITopic] 删除过期任务失败:', eid, e);
             }
@@ -434,11 +436,13 @@ export default function AITopicGenerationPage() {
                   }
                   // 更新 DB 中的状态
                   try {
-                    await adminUpdate(supabase, 'ai_topic_generation_tasks', taskId, {
+                    await adminUpdate(supabase, 'ai_topic_generation_tasks', {
                       status: 'error',
                       error_message: '任务超时（超过15分钟未完成）',
                       completed_at: new Date().toISOString(),
-                    });
+                    }, [
+                      { col: 'id', op: 'eq', val: taskId },
+                    ]);
                   } catch (e) {
                     console.error('[AITopic] 更新超时任务状态失败:', e);
                   }
