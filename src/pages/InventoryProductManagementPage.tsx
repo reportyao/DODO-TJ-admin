@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown, Sparkles, Brain, RefreshCw } from 'lucide-react';
+import { getSessionToken } from '@/lib/adminApi';
 import { MultiImageUpload } from '@/components/MultiImageUpload';
 import toast from 'react-hot-toast';
 import { useSupabase } from '@/contexts/SupabaseContext';
@@ -27,6 +28,16 @@ interface InventoryProduct {
   status: 'ACTIVE' | 'INACTIVE' | 'OUT_OF_STOCK';
   created_at: string;
   updated_at: string;
+  ai_understanding?: {
+    target_people?: string;
+    selling_angle?: string;
+    best_scene?: string;
+    local_life_connection?: string;
+    recommended_badge?: string;
+    generated_at?: string;
+    generated_by?: string;
+    model_used?: string;
+  } | null;
 }
 
 interface InventoryTransaction {
@@ -58,6 +69,10 @@ export default function InventoryProductManagementPage() {
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
   const [adjustQuantity, setAdjustQuantity] = useState<number>(0);
   const [adjustNotes, setAdjustNotes] = useState<string>('');
+  // AI 理解状态
+  const [aiGeneratingId, setAiGeneratingId] = useState<string | null>(null);
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiViewProduct, setAiViewProduct] = useState<InventoryProduct | null>(null);
   
   const [formData, setFormData] = useState({
     name_zh: '',
@@ -470,6 +485,59 @@ export default function InventoryProductManagementPage() {
     }
   };
 
+  // ─── AI 理解生成 ──────────────────────────────────────────
+  const handleGenerateAI = async (product: InventoryProduct, forceRegenerate = false) => {
+    setAiGeneratingId(product.id);
+    try {
+      const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
+      const anonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
+      const sessionToken = getSessionToken();
+      if (!sessionToken) {
+        toast.error('请先登录');
+        return;
+      }
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/ai-understanding-generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-session-token': sessionToken,
+          'Authorization': `Bearer ${anonKey}`,
+          'apikey': anonKey,
+        },
+        body: JSON.stringify({
+          product_id: product.id,
+          force_regenerate: forceRegenerate,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'AI 理解生成失败');
+      }
+
+      if (result.skipped) {
+        toast.success('该商品已有 AI 理解数据');
+      } else {
+        toast.success('AI 商品理解生成成功！');
+      }
+
+      // 刷新列表
+      fetchProducts();
+    } catch (error: any) {
+      console.error('AI 理解生成失败:', error);
+      toast.error(error.message || 'AI 理解生成失败');
+    } finally {
+      setAiGeneratingId(null);
+    }
+  };
+
+  const handleViewAI = (product: InventoryProduct) => {
+    setAiViewProduct(product);
+    setShowAiModal(true);
+  };
+
   const resetForm = () => {
     setFormData({
       name_zh: '',
@@ -634,6 +702,29 @@ export default function InventoryProductManagementPage() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex gap-2">
+                      {/* AI 理解按钮 */}
+                      {product.ai_understanding ? (
+                        <button
+                          onClick={() => handleViewAI(product)}
+                          className="text-amber-600 hover:text-amber-900"
+                          title="查看 AI 理解"
+                        >
+                          <Brain className="w-5 h-5" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleGenerateAI(product)}
+                          disabled={aiGeneratingId === product.id}
+                          className={`${aiGeneratingId === product.id ? 'text-gray-400 cursor-wait' : 'text-amber-500 hover:text-amber-700'}`}
+                          title="生成 AI 理解"
+                        >
+                          {aiGeneratingId === product.id ? (
+                            <RefreshCw className="w-5 h-5 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-5 h-5" />
+                          )}
+                        </button>
+                      )}
                       <button
                         onClick={() => handleShowAdjust(product)}
                         className="text-purple-600 hover:text-purple-900"
@@ -1026,6 +1117,94 @@ export default function InventoryProductManagementPage() {
                   className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600"
                 >
                   确认调整
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI 商品理解查看 Modal */}
+      {showAiModal && aiViewProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-lg w-full max-h-[80vh] overflow-y-auto">
+            <div className="p-6">
+              <h2 className="text-xl font-bold mb-1 flex items-center gap-2">
+                <Brain className="w-5 h-5 text-amber-600" />
+                AI 商品理解
+              </h2>
+              <p className="text-sm text-gray-500 mb-4">{aiViewProduct.name_i18n?.zh || aiViewProduct.name || '未命名商品'}</p>
+              
+              {aiViewProduct.ai_understanding ? (
+                <div className="space-y-4">
+                  {aiViewProduct.ai_understanding.target_people && (
+                    <div>
+                      <label className="text-xs font-medium text-amber-700">适合谁</label>
+                      <p className="text-sm text-gray-700 mt-1 bg-amber-50 rounded-lg p-3">{aiViewProduct.ai_understanding.target_people}</p>
+                    </div>
+                  )}
+                  {aiViewProduct.ai_understanding.selling_angle && (
+                    <div>
+                      <label className="text-xs font-medium text-rose-700">好在哪</label>
+                      <p className="text-sm text-gray-700 mt-1 bg-rose-50 rounded-lg p-3">{aiViewProduct.ai_understanding.selling_angle}</p>
+                    </div>
+                  )}
+                  {aiViewProduct.ai_understanding.best_scene && (
+                    <div>
+                      <label className="text-xs font-medium text-orange-700">使用场景</label>
+                      <p className="text-sm text-gray-700 mt-1 bg-orange-50 rounded-lg p-3">{aiViewProduct.ai_understanding.best_scene}</p>
+                    </div>
+                  )}
+                  {aiViewProduct.ai_understanding.local_life_connection && (
+                    <div>
+                      <label className="text-xs font-medium text-teal-700">本地关联</label>
+                      <p className="text-sm text-gray-700 mt-1 bg-teal-50 rounded-lg p-3">{aiViewProduct.ai_understanding.local_life_connection}</p>
+                    </div>
+                  )}
+                  {aiViewProduct.ai_understanding.recommended_badge && (
+                    <div>
+                      <label className="text-xs font-medium text-purple-700">推荐标签</label>
+                      <p className="mt-1">
+                        <span className="inline-block px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
+                          {aiViewProduct.ai_understanding.recommended_badge}
+                        </span>
+                      </p>
+                    </div>
+                  )}
+                  {aiViewProduct.ai_understanding.generated_at && (
+                    <p className="text-xs text-gray-400 pt-2 border-t">
+                      生成时间：{new Date(aiViewProduct.ai_understanding.generated_at).toLocaleString()}
+                      {aiViewProduct.ai_understanding.model_used && ` | 模型：${aiViewProduct.ai_understanding.model_used}`}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-400">
+                  <Sparkles className="w-12 h-12 mx-auto mb-2" />
+                  <p>该商品尚未生成 AI 理解</p>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowAiModal(false);
+                    handleGenerateAI(aiViewProduct, true);
+                  }}
+                  disabled={aiGeneratingId === aiViewProduct.id}
+                  className="flex items-center gap-1 px-4 py-2 text-sm bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50"
+                >
+                  {aiGeneratingId === aiViewProduct.id ? (
+                    <><RefreshCw className="w-4 h-4 animate-spin" /> 生成中...</>
+                  ) : (
+                    <><RefreshCw className="w-4 h-4" /> 重新生成</>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowAiModal(false)}
+                  className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+                >
+                  关闭
                 </button>
               </div>
             </div>

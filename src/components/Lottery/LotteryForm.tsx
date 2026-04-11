@@ -34,6 +34,7 @@ interface InventoryProduct {
   image_urls?: string[];
   category?: string;
   sku?: string;
+  ai_understanding?: Record<string, any> | null;
 }
 
 interface LotteryFormData {
@@ -52,6 +53,7 @@ interface LotteryFormData {
   inventory_product_id: string | null;
   full_purchase_enabled: boolean;
   full_purchase_price: number | null;
+  ai_understanding: Record<string, any> | null;
 }
 
 const initialFormData: LotteryFormData = {
@@ -70,6 +72,7 @@ const initialFormData: LotteryFormData = {
   inventory_product_id: null,
   full_purchase_enabled: true,
   full_purchase_price: null,
+  ai_understanding: null,
 };
 
 /**
@@ -105,7 +108,7 @@ export const LotteryForm: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from('inventory_products')
-        .select('id, name, name_i18n, description_i18n, original_price, stock, status, image_urls')
+        .select('id, name, name_i18n, description_i18n, original_price, stock, status, image_urls, ai_understanding')
         .eq('status', 'ACTIVE')
         .order('name', { ascending: true });
 
@@ -221,6 +224,7 @@ export const LotteryForm: React.FC = () => {
           inventory_product_id: data.inventory_product_id || null,
           full_purchase_enabled: data.full_purchase_enabled !== false,
           full_purchase_price: data.full_purchase_price || null,
+          ai_understanding: (data as any).ai_understanding || null,
         });
       }
     } catch (error: any) {
@@ -307,6 +311,8 @@ export const LotteryForm: React.FC = () => {
       ticket_price: prev.ticket_price === 0 ? 1 : prev.ticket_price,
       // 自动填充总票数（等于全款购买价格）
       total_tickets: prev.total_tickets === 0 ? Math.round(selectedProduct.original_price / 1) : prev.total_tickets,
+      // 自动同步 AI 理解数据
+      ai_understanding: selectedProduct.ai_understanding || null,
     }));
 
     toast.success('已自动填充商品信息！');
@@ -396,6 +402,7 @@ export const LotteryForm: React.FC = () => {
         full_purchase_enabled: formData.full_purchase_enabled,
         full_purchase_price: formData.full_purchase_price ? Number(formData.full_purchase_price) : null,
         original_price: formData.full_purchase_price ? Number(formData.full_purchase_price) : 0,
+        ai_understanding: formData.ai_understanding || null,
       };
 
       if (isEdit) {

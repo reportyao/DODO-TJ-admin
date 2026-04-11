@@ -256,6 +256,43 @@ export const TaskResultPreview: React.FC<TaskResultPreviewProps> = ({
             </div>
           )}
 
+          {/* AI 商品理解预览（只读展示） */}
+          {result.analysis?.ai_understanding && (
+            <div className="bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 rounded-xl p-4 space-y-3 border border-amber-100/50">
+              <p className="text-sm font-semibold text-amber-800">AI 商品理解（将保存到商品详情页）</p>
+              {result.analysis.ai_understanding.target_people && (
+                <div className="text-sm">
+                  <span className="font-medium text-amber-700">适合谁：</span>
+                  <span className="text-gray-700 ml-1">{result.analysis.ai_understanding.target_people}</span>
+                </div>
+              )}
+              {result.analysis.ai_understanding.selling_angle && (
+                <div className="text-sm">
+                  <span className="font-medium text-rose-700">好在哪：</span>
+                  <span className="text-gray-700 ml-1">{result.analysis.ai_understanding.selling_angle}</span>
+                </div>
+              )}
+              {result.analysis.ai_understanding.best_scene && (
+                <div className="text-sm">
+                  <span className="font-medium text-orange-700">使用场景：</span>
+                  <span className="text-gray-700 ml-1">{result.analysis.ai_understanding.best_scene}</span>
+                </div>
+              )}
+              {result.analysis.ai_understanding.local_life_connection && (
+                <div className="text-sm">
+                  <span className="font-medium text-teal-700">本地关联：</span>
+                  <span className="text-gray-700 ml-1">{result.analysis.ai_understanding.local_life_connection}</span>
+                </div>
+              )}
+              {result.analysis.ai_understanding.recommended_badge && (
+                <div className="text-sm">
+                  <span className="font-medium text-purple-700">推荐标签：</span>
+                  <span className="inline-block ml-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">{result.analysis.ai_understanding.recommended_badge}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 无背景图提示（partial 状态） */}
           {result.background_images.length === 0 && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">

@@ -28,6 +28,7 @@ export interface ProductPickerItem {
   original_price: number;
   status: string;
   sku?: string | null;
+  ai_understanding?: Record<string, any> | null;
 }
 
 interface CategoryItem {
@@ -129,7 +130,7 @@ export default function ProductPickerPanel({
 
       // 查询商品
       const data = await adminQuery<ProductPickerItem>(supabase, 'inventory_products', {
-        select: 'id, name_i18n, image_url, original_price, status, sku',
+        select: 'id, name_i18n, image_url, original_price, status, sku, ai_understanding',
         filters: filters as any,
         orFilters,
         orderBy: 'created_at',

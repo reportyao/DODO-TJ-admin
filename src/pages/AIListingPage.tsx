@@ -184,6 +184,8 @@ export default function AIListingPage() {
                 key_features: data.result?.analysis?.key_features,
                 use_scenes: data.result?.analysis?.use_scenes,
                 target_audience: data.result?.analysis?.target_audience,
+                selling_points: data.result?.analysis?.selling_points,
+                ai_understanding: data.result?.analysis?.ai_understanding || undefined,
               },
             };
 
@@ -378,6 +380,13 @@ export default function AIListingPage() {
         sku: null,
         barcode: null,
         status: 'ACTIVE',
+        // 新增：保存 AI 商品理解数据
+        ai_understanding: editedResult.analysis?.ai_understanding ? {
+          ...editedResult.analysis.ai_understanding,
+          generated_at: new Date().toISOString(),
+          generated_by: 'ai-listing-generate',
+          model_used: 'qwen3.5-plus',
+        } : null,
       };
 
       // [修复] 使用 adminInsert RPC 绕过 RLS 限制

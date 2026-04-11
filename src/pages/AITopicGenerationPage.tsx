@@ -695,6 +695,7 @@ export default function AITopicGenerationPage() {
         description_i18n: product.description_i18n || undefined,
         image_url: product.image_url,
         original_price: product.original_price,
+        ai_understanding: product.ai_understanding || undefined,
       });
     }
     if (newProducts.length > 0) {

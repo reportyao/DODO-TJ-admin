@@ -51,6 +51,14 @@ export interface AITopicProductInput {
   } | null;
   categories?: Array<{ code: string; name_i18n?: Record<string, string> | null }>;
   tags?: Array<{ code: string; name_i18n?: Record<string, string> | null }>;
+  /** 已有的 AI 商品理解数据（如果存在则复用，跳过重新生成） */
+  ai_understanding?: {
+    target_people?: string;
+    selling_angle?: string;
+    best_scene?: string;
+    local_life_connection?: string;
+    recommended_badge?: string;
+  } | null;
 }
 
 // ============================================================

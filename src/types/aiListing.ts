@@ -28,6 +28,16 @@ export interface AIListingResult {
     key_features?: string[];
     use_scenes?: string[];
     target_audience?: string;
+    // AI 商品理解数据（用于保存到 inventory_products.ai_understanding）
+    ai_understanding?: {
+      target_people?: string;
+      selling_angle?: string;
+      best_scene?: string;
+      local_life_connection?: string;
+      recommended_badge?: string;
+    };
+    // selling_points 从 Step A 透传
+    selling_points?: Array<{ zh: string; detail: string }>;
   };
 }
 

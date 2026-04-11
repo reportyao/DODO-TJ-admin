@@ -113,6 +113,13 @@ export type Database = {
           total_tickets: number
           sold_tickets: number
           updated_at: string
+          ai_understanding: Json | null
+          inventory_product_id: string | null
+          full_purchase_enabled: boolean
+          full_purchase_price: number | null
+          original_price: number
+          image_urls: string[] | null
+          price_comparisons: Json | null
         }
         Insert: {
           created_at?: string
@@ -134,6 +141,13 @@ export type Database = {
           total_tickets: number
           sold_tickets?: number
           updated_at?: string
+          ai_understanding?: Json | null
+          inventory_product_id?: string | null
+          full_purchase_enabled?: boolean
+          full_purchase_price?: number | null
+          original_price?: number
+          image_urls?: string[] | null
+          price_comparisons?: Json | null
         }
         Update: {
           created_at?: string
@@ -155,6 +169,13 @@ export type Database = {
           total_tickets?: number
           sold_tickets?: number
           updated_at?: string
+          ai_understanding?: Json | null
+          inventory_product_id?: string | null
+          full_purchase_enabled?: boolean
+          full_purchase_price?: number | null
+          original_price?: number
+          image_urls?: string[] | null
+          price_comparisons?: Json | null
         }
         Relationships: []
       }
