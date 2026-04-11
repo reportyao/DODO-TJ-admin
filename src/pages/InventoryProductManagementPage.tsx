@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown, Sparkles, Brain, RefreshCw } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown, Sparkles, Brain, RefreshCw, Zap, Loader2 } from 'lucide-react';
 import { getSessionToken } from '@/lib/adminApi';
 import { MultiImageUpload } from '@/components/MultiImageUpload';
 import toast from 'react-hot-toast';
@@ -73,6 +73,17 @@ export default function InventoryProductManagementPage() {
   const [aiGeneratingId, setAiGeneratingId] = useState<string | null>(null);
   const [showAiModal, setShowAiModal] = useState(false);
   const [aiViewProduct, setAiViewProduct] = useState<InventoryProduct | null>(null);
+  // 批量 AI 理解回填状态
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{
+    processed: number;
+    successCount: number;
+    errorCount: number;
+    totalRemaining: number;
+    currentBatch: number;
+  } | null>(null);
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchLog, setBatchLog] = useState<Array<{ name: string; status: string; error?: string }>>([]);
   
   const [formData, setFormData] = useState({
     name_zh: '',
@@ -533,6 +544,116 @@ export default function InventoryProductManagementPage() {
     }
   };
 
+  /**
+   * 批量 AI 理解回填：循环调用 ai-understanding-batch Edge Function，
+   * 每批处理 batch_size 个商品，直到所有商品都处理完毕。
+   */
+  const handleBatchAI = async () => {
+    setBatchRunning(true);
+    setBatchLog([]);
+    setBatchProgress(null);
+    setShowBatchModal(true);
+
+    const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
+    const anonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
+    const sessionToken = getSessionToken();
+    if (!sessionToken) {
+      toast.error('请先登录');
+      setBatchRunning(false);
+      return;
+    }
+
+    const BATCH_SIZE = 5;
+    let offset = 0;
+    let batchNum = 0;
+    let totalProcessed = 0;
+    let totalSuccess = 0;
+    let totalError = 0;
+
+    try {
+      while (true) {
+        batchNum++;
+        setBatchProgress(prev => ({
+          processed: totalProcessed,
+          successCount: totalSuccess,
+          errorCount: totalError,
+          totalRemaining: prev?.totalRemaining ?? 0,
+          currentBatch: batchNum,
+        }));
+
+        const response = await fetch(`${supabaseUrl}/functions/v1/ai-understanding-batch`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-session-token': sessionToken,
+            'Authorization': `Bearer ${anonKey}`,
+            'apikey': anonKey,
+          },
+          body: JSON.stringify({
+            batch_size: BATCH_SIZE,
+            offset: 0,  // 始终从 0 开始，因为已处理的商品不再是 NULL
+            delay_ms: 2000,
+          }),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || '批量处理失败');
+        }
+
+        // 没有更多商品需要处理
+        if (result.processed === 0) {
+          setBatchProgress({
+            processed: totalProcessed,
+            successCount: totalSuccess,
+            errorCount: totalError,
+            totalRemaining: 0,
+            currentBatch: batchNum,
+          });
+          break;
+        }
+
+        totalProcessed += result.processed;
+        totalSuccess += result.success_count;
+        totalError += result.error_count;
+
+        // 更新日志
+        setBatchLog(prev => [
+          ...prev,
+          ...result.results.map((r: any) => ({
+            name: r.name,
+            status: r.status,
+            error: r.error,
+          })),
+        ]);
+
+        setBatchProgress({
+          processed: totalProcessed,
+          successCount: totalSuccess,
+          errorCount: totalError,
+          totalRemaining: result.total_remaining,
+          currentBatch: batchNum,
+        });
+
+        // 如果没有剩余商品，结束循环
+        if (result.total_remaining <= 0) {
+          break;
+        }
+
+        // 批次间省略 offset，因为已处理的商品不再匹配 NULL 条件
+      }
+
+      toast.success(`批量回填完成！成功 ${totalSuccess} 个，失败 ${totalError} 个`);
+      fetchProducts();
+    } catch (error: any) {
+      console.error('批量 AI 理解失败:', error);
+      toast.error(error.message || '批量处理失败');
+    } finally {
+      setBatchRunning(false);
+    }
+  };
+
   const handleViewAI = (product: InventoryProduct) => {
     setAiViewProduct(product);
     setShowAiModal(true);
@@ -602,17 +723,31 @@ export default function InventoryProductManagementPage() {
           </h1>
           <p className="text-gray-500 text-sm mt-1">管理仓库实际库存，用于全款购买和一元购物中奖发货</p>
         </div>
-        <button
-          onClick={() => {
-            setEditingProduct(null);
-            resetForm();
-            setShowModal(true);
-          }}
-          className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
-        >
-          <Plus className="w-5 h-5" />
-          添加库存商品
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleBatchAI}
+            disabled={batchRunning}
+            className="flex items-center gap-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white px-4 py-2 rounded-lg hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {batchRunning ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Zap className="w-5 h-5" />
+            )}
+            {batchRunning ? '批量处理中...' : '批量 AI 理解'}
+          </button>
+          <button
+            onClick={() => {
+              setEditingProduct(null);
+              resetForm();
+              setShowModal(true);
+            }}
+            className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+          >
+            <Plus className="w-5 h-5" />
+            添加库存商品
+          </button>
+        </div>
       </div>
 
       {/* 筛选 Tab */}
@@ -1207,6 +1342,97 @@ export default function InventoryProductManagementPage() {
                   关闭
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 批量 AI 理解回填进度弹窗 */}
+      {showBatchModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col">
+            <div className="p-6 border-b">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Zap className="w-5 h-5 text-purple-500" />
+                批量 AI 商品理解回填
+              </h3>
+            </div>
+
+            <div className="p-6 flex-1 overflow-y-auto">
+              {/* 进度摘要 */}
+              {batchProgress && (
+                <div className="mb-4 p-4 bg-gray-50 rounded-lg space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>当前批次：第 {batchProgress.currentBatch} 批</span>
+                    <span className="text-gray-500">
+                      剩余 {batchProgress.totalRemaining} 个商品
+                    </span>
+                  </div>
+                  <div className="flex gap-4 text-sm">
+                    <span className="text-green-600">成功 {batchProgress.successCount}</span>
+                    <span className="text-red-600">失败 {batchProgress.errorCount}</span>
+                    <span className="text-gray-600">已处理 {batchProgress.processed}</span>
+                  </div>
+                  {batchRunning && (
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-500"
+                        style={{
+                          width: batchProgress.totalRemaining + batchProgress.processed > 0
+                            ? `${(batchProgress.processed / (batchProgress.totalRemaining + batchProgress.processed)) * 100}%`
+                            : '100%',
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 处理日志 */}
+              {batchLog.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-gray-500 mb-2">处理日志</p>
+                  {batchLog.map((log, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex items-center justify-between text-xs px-3 py-1.5 rounded ${
+                        log.status === 'success'
+                          ? 'bg-green-50 text-green-700'
+                          : 'bg-red-50 text-red-700'
+                      }`}
+                    >
+                      <span className="truncate flex-1">{log.name}</span>
+                      <span className="ml-2 flex-shrink-0">
+                        {log.status === 'success' ? '✓' : `✗ ${log.error || ''}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {batchRunning && batchLog.length === 0 && (
+                <div className="text-center py-8 text-gray-400">
+                  <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" />
+                  <p>正在初始化批量处理...</p>
+                </div>
+              )}
+
+              {!batchRunning && batchLog.length === 0 && (
+                <div className="text-center py-8 text-gray-400">
+                  <Sparkles className="w-8 h-8 mx-auto mb-2" />
+                  <p>所有商品已有 AI 理解数据，无需回填</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t flex justify-end">
+              <button
+                onClick={() => setShowBatchModal(false)}
+                disabled={batchRunning}
+                className="px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                {batchRunning ? '处理中...' : '关闭'}
+              </button>
             </div>
           </div>
         </div>
