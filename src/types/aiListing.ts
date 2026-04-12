@@ -1,12 +1,14 @@
 /**
  * AI 商品上架助手 — TypeScript 类型定义
  *
- * 定义了 AI 任务的状态流转、输入/输出结构、品类预设等核心类型。
+ * 定义 AI 任务状态流转、输入输出结构，以及 AI 商品理解在新架构下的多语言与事实层数据模型。
  * 状态枚举：queued → processing → done / partial / error
  */
 
 // AI 任务状态
 export type AITaskStatus = 'queued' | 'processing' | 'done' | 'partial' | 'error';
+
+export type LanguageCode = 'tg' | 'ru' | 'zh';
 
 export type LocalizedAIText = {
   ru?: string;
@@ -14,16 +16,35 @@ export type LocalizedAIText = {
   tg?: string;
 };
 
+export interface AISemanticFacts {
+  product_type?: string;
+  core_function?: string;
+  target_user_traits?: string[];
+  primary_pain_points?: string[];
+  usage_steps?: string[];
+  usage_tips?: string[];
+  usage_scenarios?: string[];
+  parameter_highlights?: string[];
+  local_context_signals?: string[];
+  trust_signals?: string[];
+  badge_candidates?: string[];
+}
+
 export interface AIUnderstandingI18n {
   target_people?: LocalizedAIText;
   selling_angle?: LocalizedAIText;
+  how_to_use?: LocalizedAIText;
   best_scene?: LocalizedAIText;
   local_life_connection?: LocalizedAIText;
   recommended_badge?: LocalizedAIText;
+  semantic_facts?: AISemanticFacts;
   generated_at?: string;
   generated_by?: string;
   model_used?: string;
-  source_language?: 'ru';
+  generation_mode?: string;
+  primary_market_language?: 'tg' | 'ru' | 'zh';
+  display_priority?: LanguageCode[];
+  source_language?: 'multi' | 'tg' | 'ru' | 'zh';
 }
 
 // AI 生成结果（来自 Edge Function SSE 的 result 字段）
@@ -46,6 +67,7 @@ export interface AIListingResult {
     key_features?: string[];
     use_scenes?: string[];
     target_audience?: string;
+    semantic_facts?: AISemanticFacts;
     // AI 商品理解数据（用于保存到 inventory_products.ai_understanding）
     ai_understanding?: AIUnderstandingI18n;
     // selling_points 从 Step A 透传

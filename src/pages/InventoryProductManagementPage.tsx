@@ -11,16 +11,28 @@ type LocalizedAIText = {
   tg: string;
 };
 
+type InventoryAIText = string | Partial<LocalizedAIText>;
+
+type InventorySemanticFacts = {
+  parameter_highlights?: string[];
+  usage_steps?: string[];
+  usage_scenarios?: string[];
+};
+
 type InventoryAIUnderstanding = {
-  target_people?: string | LocalizedAIText;
-  selling_angle?: string | LocalizedAIText;
-  best_scene?: string | LocalizedAIText;
-  local_life_connection?: string | LocalizedAIText;
-  recommended_badge?: string | LocalizedAIText;
+  target_people?: InventoryAIText;
+  selling_angle?: InventoryAIText;
+  how_to_use?: InventoryAIText;
+  best_scene?: InventoryAIText;
+  local_life_connection?: InventoryAIText;
+  recommended_badge?: InventoryAIText;
+  semantic_facts?: InventorySemanticFacts;
   generated_at?: string;
   generated_by?: string;
   model_used?: string;
-  source_language?: 'ru';
+  source_language?: 'multi' | 'tg' | 'ru' | 'zh';
+  primary_market_language?: 'tg' | 'ru' | 'zh';
+  display_priority?: Array<'tg' | 'ru' | 'zh'>;
 };
 
 interface InventoryProduct {
@@ -61,24 +73,39 @@ interface InventoryTransaction {
 }
 
 const emptyLocalizedAIText = (): LocalizedAIText => ({ zh: '', ru: '', tg: '' });
+const emptySemanticFacts = (): Required<InventorySemanticFacts> => ({
+  parameter_highlights: [],
+  usage_steps: [],
+  usage_scenarios: [],
+});
 
 const emptyAIUnderstandingForm = {
   target_people: emptyLocalizedAIText(),
   selling_angle: emptyLocalizedAIText(),
+  how_to_use: emptyLocalizedAIText(),
   best_scene: emptyLocalizedAIText(),
   local_life_connection: emptyLocalizedAIText(),
   recommended_badge: emptyLocalizedAIText(),
+  semantic_facts: emptySemanticFacts(),
   generated_at: '',
   generated_by: '',
   model_used: '',
-  source_language: 'ru' as const,
+  source_language: 'multi' as const,
+  primary_market_language: 'tg' as const,
+  display_priority: ['tg', 'ru', 'zh'] as Array<'tg' | 'ru' | 'zh'>,
 };
 
-const getAITextByLang = (value?: string | LocalizedAIText | null, lang: keyof LocalizedAIText = 'zh') => {
+const getAITextByLang = (value?: InventoryAIText | null, lang: keyof LocalizedAIText = 'zh') => {
   if (!value) return '';
   if (typeof value === 'string') return lang === 'ru' ? value : '';
   return value[lang] || '';
 };
+
+const normalizeFacts = (facts?: InventorySemanticFacts | null): Required<InventorySemanticFacts> => ({
+  parameter_highlights: Array.isArray(facts?.parameter_highlights) ? facts?.parameter_highlights.filter(Boolean) : [],
+  usage_steps: Array.isArray(facts?.usage_steps) ? facts?.usage_steps.filter(Boolean) : [],
+  usage_scenarios: Array.isArray(facts?.usage_scenarios) ? facts?.usage_scenarios.filter(Boolean) : [],
+});
 
 const normalizeAIUnderstandingForForm = (value?: InventoryAIUnderstanding | null) => ({
   target_people: {
@@ -90,6 +117,11 @@ const normalizeAIUnderstandingForForm = (value?: InventoryAIUnderstanding | null
     zh: getAITextByLang(value?.selling_angle, 'zh'),
     ru: getAITextByLang(value?.selling_angle, 'ru'),
     tg: getAITextByLang(value?.selling_angle, 'tg'),
+  },
+  how_to_use: {
+    zh: getAITextByLang(value?.how_to_use, 'zh'),
+    ru: getAITextByLang(value?.how_to_use, 'ru'),
+    tg: getAITextByLang(value?.how_to_use, 'tg'),
   },
   best_scene: {
     zh: getAITextByLang(value?.best_scene, 'zh'),
@@ -106,10 +138,13 @@ const normalizeAIUnderstandingForForm = (value?: InventoryAIUnderstanding | null
     ru: getAITextByLang(value?.recommended_badge, 'ru'),
     tg: getAITextByLang(value?.recommended_badge, 'tg'),
   },
+  semantic_facts: normalizeFacts(value?.semantic_facts),
   generated_at: value?.generated_at || '',
   generated_by: value?.generated_by || '',
   model_used: value?.model_used || '',
-  source_language: value?.source_language || 'ru' as const,
+  source_language: value?.source_language || 'multi' as const,
+  primary_market_language: value?.primary_market_language || 'tg' as const,
+  display_priority: value?.display_priority?.length ? value.display_priority : ['tg', 'ru', 'zh'],
 });
 
 export default function InventoryProductManagementPage() {
@@ -174,7 +209,7 @@ export default function InventoryProductManagementPage() {
   });
 
   const updateAIUnderstandingField = (
-    field: 'target_people' | 'selling_angle' | 'best_scene' | 'local_life_connection' | 'recommended_badge',
+    field: 'target_people' | 'selling_angle' | 'how_to_use' | 'best_scene' | 'local_life_connection' | 'recommended_badge',
     lang: keyof LocalizedAIText,
     value: string
   ) => {
@@ -254,8 +289,13 @@ export default function InventoryProductManagementPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const buildLocalizedField = (field: keyof typeof formData.ai_understanding) => {
-      const value = formData.ai_understanding[field as keyof Pick<typeof formData.ai_understanding, 'target_people' | 'selling_angle' | 'best_scene' | 'local_life_connection' | 'recommended_badge'>];
+    const buildLocalizedField = (
+      field: keyof Pick<
+        typeof formData.ai_understanding,
+        'target_people' | 'selling_angle' | 'how_to_use' | 'best_scene' | 'local_life_connection' | 'recommended_badge'
+      >
+    ) => {
+      const value = formData.ai_understanding[field];
       if (!value || typeof value === 'string') return null;
       const normalized = {
         zh: value.zh.trim(),
@@ -265,17 +305,29 @@ export default function InventoryProductManagementPage() {
       return normalized.zh || normalized.ru || normalized.tg ? normalized : null;
     };
 
+    const semanticFacts = {
+      parameter_highlights: formData.ai_understanding.semantic_facts.parameter_highlights.map((item) => item.trim()).filter(Boolean),
+      usage_steps: formData.ai_understanding.semantic_facts.usage_steps.map((item) => item.trim()).filter(Boolean),
+      usage_scenarios: formData.ai_understanding.semantic_facts.usage_scenarios.map((item) => item.trim()).filter(Boolean),
+    };
+
     const aiUnderstanding = Object.fromEntries(
       Object.entries({
         target_people: buildLocalizedField('target_people'),
         selling_angle: buildLocalizedField('selling_angle'),
+        how_to_use: buildLocalizedField('how_to_use'),
         best_scene: buildLocalizedField('best_scene'),
         local_life_connection: buildLocalizedField('local_life_connection'),
         recommended_badge: buildLocalizedField('recommended_badge'),
+        semantic_facts: semanticFacts.parameter_highlights.length || semanticFacts.usage_steps.length || semanticFacts.usage_scenarios.length
+          ? semanticFacts
+          : undefined,
         generated_at: formData.ai_understanding.generated_at || undefined,
         generated_by: formData.ai_understanding.generated_by || undefined,
         model_used: formData.ai_understanding.model_used || undefined,
-        source_language: formData.ai_understanding.source_language || 'ru',
+        source_language: formData.ai_understanding.source_language || 'multi',
+        primary_market_language: formData.ai_understanding.primary_market_language || 'tg',
+        display_priority: formData.ai_understanding.display_priority?.length ? formData.ai_understanding.display_priority : ['tg', 'ru', 'zh'],
       }).filter(([, value]) => value !== '' && value !== undefined && value !== null)
     );
 
@@ -1145,14 +1197,15 @@ export default function InventoryProductManagementPage() {
                         AI 商品理解（三语）
                       </h3>
                       <p className="text-xs text-amber-700 mt-1">
-                        俄语为主文案源，中文和塔吉克语以俄语为标准翻译后保存。这里支持手动校对三种语言内容。
+                        采用“语义事实层 + 塔吉克语/俄语直出 + 中文后台辅助翻译”的新方案。面向用户的目标人群、卖点与如何使用，优先保证塔吉克语表达自然、易懂、可直接转化。
                       </p>
                     </div>
                     {formData.ai_understanding.generated_at && (
                       <div className="text-right text-[11px] text-amber-700 shrink-0">
                         <div>生成时间：{new Date(formData.ai_understanding.generated_at).toLocaleString()}</div>
                         {formData.ai_understanding.model_used && <div>模型：{formData.ai_understanding.model_used}</div>}
-                        <div>源语言：{formData.ai_understanding.source_language || 'ru'}</div>
+                        <div>生成策略：{formData.ai_understanding.source_language || 'multi'}</div>
+                        <div>主市场语言：{formData.ai_understanding.primary_market_language || 'tg'}</div>
                       </div>
                     )}
                   </div>
@@ -1160,6 +1213,7 @@ export default function InventoryProductManagementPage() {
                   {[
                     ['target_people', '适合谁用', '例如：年轻妈妈、冬天手脚容易发凉、经常坐地垫陪孩子的人'],
                     ['selling_angle', '好在哪儿', '例如：比烧热水袋更快，插电一会儿就暖起来，陪娃和做家务都更舒服'],
+                    ['how_to_use', '如何使用', '例如：插电预热几分钟后再把脚放进去，久坐、看电视或陪孩子时使用更舒服'],
                     ['best_scene', '使用场景', '例如：晚上坐在地毯上陪孩子看动画，脚伸进去一会儿就热起来'],
                     ['local_life_connection', '本地关联', '例如：适合冬天供暖不稳定、家里常席地而坐喝茶的塔吉克家庭'],
                     ['recommended_badge', '推荐标签', '例如：冬天必备'],
@@ -1179,7 +1233,7 @@ export default function InventoryProductManagementPage() {
                             />
                           ) : (
                             <textarea
-                              value={formData.ai_understanding[field as 'target_people' | 'selling_angle' | 'best_scene' | 'local_life_connection'].zh}
+                              value={formData.ai_understanding[field as 'target_people' | 'selling_angle' | 'how_to_use' | 'best_scene' | 'local_life_connection'].zh}
                               onChange={(e) => updateAIUnderstandingField(field as any, 'zh', e.target.value)}
                               className="w-full border rounded px-3 py-2 bg-white"
                               rows={3}
@@ -1199,7 +1253,7 @@ export default function InventoryProductManagementPage() {
                             />
                           ) : (
                             <textarea
-                              value={formData.ai_understanding[field as 'target_people' | 'selling_angle' | 'best_scene' | 'local_life_connection'].ru}
+                              value={formData.ai_understanding[field as 'target_people' | 'selling_angle' | 'how_to_use' | 'best_scene' | 'local_life_connection'].ru}
                               onChange={(e) => updateAIUnderstandingField(field as any, 'ru', e.target.value)}
                               className="w-full border rounded px-3 py-2 bg-white"
                               rows={3}
@@ -1219,7 +1273,7 @@ export default function InventoryProductManagementPage() {
                             />
                           ) : (
                             <textarea
-                              value={formData.ai_understanding[field as 'target_people' | 'selling_angle' | 'best_scene' | 'local_life_connection'].tg}
+                              value={formData.ai_understanding[field as 'target_people' | 'selling_angle' | 'how_to_use' | 'best_scene' | 'local_life_connection'].tg}
                               onChange={(e) => updateAIUnderstandingField(field as any, 'tg', e.target.value)}
                               className="w-full border rounded px-3 py-2 bg-white"
                               rows={3}
@@ -1231,7 +1285,73 @@ export default function InventoryProductManagementPage() {
                     </div>
                   ))}
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="rounded-lg border border-amber-100 bg-white/70 p-3 space-y-3">
+                    <div className="text-sm font-medium text-amber-900">语义事实层（辅助校验，不直接给用户看）</div>
+                    <p className="text-xs text-amber-700">
+                      这里可补充参数亮点、使用步骤与典型场景，帮助后续重新生成或人工校对时保持三语内容一致、避免夸大和遗漏。
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">参数亮点（每行一条）</label>
+                        <textarea
+                          value={formData.ai_understanding.semantic_facts.parameter_highlights.join('\n')}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            ai_understanding: {
+                              ...formData.ai_understanding,
+                              semantic_facts: {
+                                ...formData.ai_understanding.semantic_facts,
+                                parameter_highlights: e.target.value.split('\n'),
+                              },
+                            },
+                          })}
+                          className="w-full border rounded px-3 py-2 bg-white"
+                          rows={4}
+                          placeholder="例如：加热更快｜可折叠收纳｜适合冬季久坐"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">使用步骤（每行一条）</label>
+                        <textarea
+                          value={formData.ai_understanding.semantic_facts.usage_steps.join('\n')}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            ai_understanding: {
+                              ...formData.ai_understanding,
+                              semantic_facts: {
+                                ...formData.ai_understanding.semantic_facts,
+                                usage_steps: e.target.value.split('\n'),
+                              },
+                            },
+                          })}
+                          className="w-full border rounded px-3 py-2 bg-white"
+                          rows={4}
+                          placeholder="例如：插电预热｜放脚进入｜久坐时持续保暖"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">典型场景（每行一条）</label>
+                        <textarea
+                          value={formData.ai_understanding.semantic_facts.usage_scenarios.join('\n')}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            ai_understanding: {
+                              ...formData.ai_understanding,
+                              semantic_facts: {
+                                ...formData.ai_understanding.semantic_facts,
+                                usage_scenarios: e.target.value.split('\n'),
+                              },
+                            },
+                          })}
+                          className="w-full border rounded px-3 py-2 bg-white"
+                          rows={4}
+                          placeholder="例如：冬天看电视｜地毯上陪孩子｜办公室久坐"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                     <div>
                       <label className="block text-sm font-medium mb-1 text-amber-900">生成来源</label>
                       <input
@@ -1253,13 +1373,42 @@ export default function InventoryProductManagementPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1 text-amber-900">源语言</label>
+                      <label className="block text-sm font-medium mb-1 text-amber-900">生成策略</label>
                       <input
                         type="text"
-                        value={formData.ai_understanding.source_language || 'ru'}
-                        onChange={(e) => setFormData({ ...formData, ai_understanding: { ...formData.ai_understanding, source_language: e.target.value as 'ru' } })}
+                        value={formData.ai_understanding.source_language || 'multi'}
+                        onChange={(e) => setFormData({ ...formData, ai_understanding: { ...formData.ai_understanding, source_language: e.target.value as 'multi' | 'tg' | 'ru' | 'zh' } })}
                         className="w-full border rounded px-3 py-2 bg-white"
-                        placeholder="ru"
+                        placeholder="multi"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1 text-amber-900">主市场语言</label>
+                      <input
+                        type="text"
+                        value={formData.ai_understanding.primary_market_language || 'tg'}
+                        onChange={(e) => setFormData({ ...formData, ai_understanding: { ...formData.ai_understanding, primary_market_language: e.target.value as 'tg' | 'ru' | 'zh' } })}
+                        className="w-full border rounded px-3 py-2 bg-white"
+                        placeholder="tg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1 text-amber-900">展示优先级</label>
+                      <input
+                        type="text"
+                        value={formData.ai_understanding.display_priority.join(', ')}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          ai_understanding: {
+                            ...formData.ai_understanding,
+                            display_priority: e.target.value
+                              .split(',')
+                              .map((item) => item.trim())
+                              .filter((item): item is 'tg' | 'ru' | 'zh' => ['tg', 'ru', 'zh'].includes(item)),
+                          },
+                        })}
+                        className="w-full border rounded px-3 py-2 bg-white"
+                        placeholder="tg, ru, zh"
                       />
                     </div>
                   </div>
@@ -1508,9 +1657,13 @@ export default function InventoryProductManagementPage() {
               
               {aiViewProduct.ai_understanding ? (
                 <div className="space-y-4">
+                  <div className="rounded-lg border border-amber-100 bg-amber-50/70 p-3 text-xs text-amber-800">
+                    当前采用“语义事实层 + 塔吉克语/俄语直出 + 中文后台辅助翻译”的策略，用户面向文案优先保证塔吉克语自然易懂。
+                  </div>
                   {[
                     ['target_people', '适合谁', 'amber'],
                     ['selling_angle', '好在哪', 'rose'],
+                    ['how_to_use', '如何使用', 'blue'],
                     ['best_scene', '使用场景', 'orange'],
                     ['local_life_connection', '本地关联', 'teal'],
                     ['recommended_badge', '推荐标签', 'purple'],
@@ -1525,9 +1678,19 @@ export default function InventoryProductManagementPage() {
                       <div key={field}>
                         <label className={`text-xs font-medium text-${color}-700`}>{label}</label>
                         <div className={`mt-1 rounded-lg bg-${color}-50 p-3 space-y-2`}>
+                          {tg && (
+                            <div>
+                              <div className="text-[11px] uppercase tracking-wide text-gray-500">塔吉克语优先文案</div>
+                              {field === 'recommended_badge' ? (
+                                <span className={`inline-block mt-1 px-3 py-1 bg-${color}-100 text-${color}-700 rounded-full text-sm font-medium`}>{tg}</span>
+                              ) : (
+                                <p className="text-sm text-gray-700 mt-1">{tg}</p>
+                              )}
+                            </div>
+                          )}
                           {ru && (
                             <div>
-                              <div className="text-[11px] uppercase tracking-wide text-gray-500">俄语主文案</div>
+                              <div className="text-[11px] uppercase tracking-wide text-gray-500">俄语直出文案</div>
                               {field === 'recommended_badge' ? (
                                 <span className={`inline-block mt-1 px-3 py-1 bg-${color}-100 text-${color}-700 rounded-full text-sm font-medium`}>{ru}</span>
                               ) : (
@@ -1537,25 +1700,52 @@ export default function InventoryProductManagementPage() {
                           )}
                           {zh && (
                             <div>
-                              <div className="text-[11px] uppercase tracking-wide text-gray-500">中文</div>
+                              <div className="text-[11px] uppercase tracking-wide text-gray-500">中文后台参考</div>
                               <p className="text-sm text-gray-700 mt-1">{zh}</p>
-                            </div>
-                          )}
-                          {tg && (
-                            <div>
-                              <div className="text-[11px] uppercase tracking-wide text-gray-500">塔吉克语</div>
-                              <p className="text-sm text-gray-700 mt-1">{tg}</p>
                             </div>
                           )}
                         </div>
                       </div>
                     );
                   })}
-                  {aiViewProduct.ai_understanding.generated_at && (
+                  {aiViewProduct.ai_understanding.semantic_facts && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-3">
+                      <div className="text-sm font-medium text-slate-800">语义事实层</div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-slate-700">
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">参数亮点</div>
+                          <ul className="list-disc pl-5 space-y-1">
+                            {(aiViewProduct.ai_understanding.semantic_facts.parameter_highlights || []).map((item, index) => (
+                              <li key={`parameter-${index}`}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">使用步骤</div>
+                          <ul className="list-disc pl-5 space-y-1">
+                            {(aiViewProduct.ai_understanding.semantic_facts.usage_steps || []).map((item, index) => (
+                              <li key={`step-${index}`}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">典型场景</div>
+                          <ul className="list-disc pl-5 space-y-1">
+                            {(aiViewProduct.ai_understanding.semantic_facts.usage_scenarios || []).map((item, index) => (
+                              <li key={`scenario-${index}`}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {(aiViewProduct.ai_understanding.generated_at || aiViewProduct.ai_understanding.primary_market_language || aiViewProduct.ai_understanding.display_priority?.length) && (
                     <p className="text-xs text-gray-400 pt-2 border-t">
-                      生成时间：{new Date(aiViewProduct.ai_understanding.generated_at).toLocaleString()}
+                      {aiViewProduct.ai_understanding.generated_at && `生成时间：${new Date(aiViewProduct.ai_understanding.generated_at).toLocaleString()}`}
                       {aiViewProduct.ai_understanding.model_used && ` | 模型：${aiViewProduct.ai_understanding.model_used}`}
-                      {aiViewProduct.ai_understanding.source_language && ` | 源语言：${aiViewProduct.ai_understanding.source_language}`}
+                      {aiViewProduct.ai_understanding.source_language && ` | 生成策略：${aiViewProduct.ai_understanding.source_language}`}
+                      {aiViewProduct.ai_understanding.primary_market_language && ` | 主市场语言：${aiViewProduct.ai_understanding.primary_market_language}`}
+                      {aiViewProduct.ai_understanding.display_priority?.length && ` | 展示优先级：${aiViewProduct.ai_understanding.display_priority.join(' > ')}`}
                     </p>
                   )}
                 </div>

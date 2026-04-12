@@ -268,21 +268,39 @@ export const TaskResultPreview: React.FC<TaskResultPreviewProps> = ({
           {/* AI 商品理解预览（只读展示） */}
           {result.analysis?.ai_understanding && (
             <div className="bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 rounded-xl p-4 space-y-4 border border-amber-100/50">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
                 <p className="text-sm font-semibold text-amber-800">AI 商品理解（将保存到商品详情页）</p>
-                <span className="text-xs text-amber-700">
-                  基准语言：{result.analysis.ai_understanding.source_language === 'ru' ? '俄语' : '历史数据'}
-                </span>
+                <div className="flex items-center gap-2 flex-wrap text-xs text-amber-700">
+                  <span>
+                    生成模式：{result.analysis.ai_understanding.source_language === 'multi'
+                      ? '事实层 + 多语言直出'
+                      : result.analysis.ai_understanding.source_language === 'tg'
+                        ? '塔语直出'
+                        : result.analysis.ai_understanding.source_language === 'ru'
+                          ? '俄语直出'
+                          : '兼容旧数据'}
+                  </span>
+                  {result.analysis.ai_understanding.primary_market_language && (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                      主市场语言：{result.analysis.ai_understanding.primary_market_language === 'tg'
+                        ? '塔吉克语'
+                        : result.analysis.ai_understanding.primary_market_language === 'ru'
+                          ? '俄语'
+                          : '中文'}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 {LANGUAGES.map((lang) => {
                   const targetPeople = getLocalizedAIText(result.analysis?.ai_understanding?.target_people, lang.code);
                   const sellingAngle = getLocalizedAIText(result.analysis?.ai_understanding?.selling_angle, lang.code);
+                  const howToUse = getLocalizedAIText(result.analysis?.ai_understanding?.how_to_use, lang.code);
                   const bestScene = getLocalizedAIText(result.analysis?.ai_understanding?.best_scene, lang.code);
                   const localLifeConnection = getLocalizedAIText(result.analysis?.ai_understanding?.local_life_connection, lang.code);
                   const recommendedBadge = getLocalizedAIText(result.analysis?.ai_understanding?.recommended_badge, lang.code);
-                  const hasContent = targetPeople || sellingAngle || bestScene || localLifeConnection || recommendedBadge;
+                  const hasContent = targetPeople || sellingAngle || howToUse || bestScene || localLifeConnection || recommendedBadge;
 
                   if (!hasContent) return null;
 
@@ -299,14 +317,20 @@ export const TaskResultPreview: React.FC<TaskResultPreviewProps> = ({
 
                       {targetPeople && (
                         <div className="text-sm">
-                          <span className="font-medium text-amber-700">适合谁：</span>
+                          <span className="font-medium text-amber-700">目标人群：</span>
                           <span className="text-gray-700 ml-1">{targetPeople}</span>
                         </div>
                       )}
                       {sellingAngle && (
                         <div className="text-sm">
-                          <span className="font-medium text-rose-700">好在哪：</span>
+                          <span className="font-medium text-rose-700">卖点：</span>
                           <span className="text-gray-700 ml-1">{sellingAngle}</span>
+                        </div>
+                      )}
+                      {howToUse && (
+                        <div className="text-sm">
+                          <span className="font-medium text-sky-700">如何使用：</span>
+                          <span className="text-gray-700 ml-1">{howToUse}</span>
                         </div>
                       )}
                       {bestScene && (
@@ -325,6 +349,30 @@ export const TaskResultPreview: React.FC<TaskResultPreviewProps> = ({
                   );
                 })}
               </div>
+
+              {result.analysis.ai_understanding.semantic_facts && (
+                <div className="rounded-lg border border-dashed border-amber-200 bg-white/60 p-3 space-y-2">
+                  <p className="text-xs font-semibold tracking-wide text-amber-800 uppercase">Semantic Facts</p>
+                  {result.analysis.ai_understanding.semantic_facts.parameter_highlights?.length ? (
+                    <div className="text-sm text-gray-700">
+                      <span className="font-medium text-gray-900">参数亮点：</span>
+                      <span className="ml-1">{result.analysis.ai_understanding.semantic_facts.parameter_highlights.join('；')}</span>
+                    </div>
+                  ) : null}
+                  {result.analysis.ai_understanding.semantic_facts.usage_scenarios?.length ? (
+                    <div className="text-sm text-gray-700">
+                      <span className="font-medium text-gray-900">典型场景：</span>
+                      <span className="ml-1">{result.analysis.ai_understanding.semantic_facts.usage_scenarios.join('；')}</span>
+                    </div>
+                  ) : null}
+                  {result.analysis.ai_understanding.semantic_facts.usage_steps?.length ? (
+                    <div className="text-sm text-gray-700">
+                      <span className="font-medium text-gray-900">使用提示：</span>
+                      <span className="ml-1">{result.analysis.ai_understanding.semantic_facts.usage_steps.join('；')}</span>
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
           )}
 
