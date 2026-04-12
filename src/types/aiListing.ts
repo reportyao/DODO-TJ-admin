@@ -8,6 +8,24 @@
 // AI 任务状态
 export type AITaskStatus = 'queued' | 'processing' | 'done' | 'partial' | 'error';
 
+export type LocalizedAIText = {
+  ru?: string;
+  zh?: string;
+  tg?: string;
+};
+
+export interface AIUnderstandingI18n {
+  target_people?: LocalizedAIText;
+  selling_angle?: LocalizedAIText;
+  best_scene?: LocalizedAIText;
+  local_life_connection?: LocalizedAIText;
+  recommended_badge?: LocalizedAIText;
+  generated_at?: string;
+  generated_by?: string;
+  model_used?: string;
+  source_language?: 'ru';
+}
+
 // AI 生成结果（来自 Edge Function SSE 的 result 字段）
 export interface AIListingResult {
   title_ru: string;
@@ -29,13 +47,7 @@ export interface AIListingResult {
     use_scenes?: string[];
     target_audience?: string;
     // AI 商品理解数据（用于保存到 inventory_products.ai_understanding）
-    ai_understanding?: {
-      target_people?: string;
-      selling_angle?: string;
-      best_scene?: string;
-      local_life_connection?: string;
-      recommended_badge?: string;
-    };
+    ai_understanding?: AIUnderstandingI18n;
     // selling_points 从 Step A 透传
     selling_points?: Array<{ zh: string; detail: string }>;
   };

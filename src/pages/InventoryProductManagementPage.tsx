@@ -5,6 +5,24 @@ import { MultiImageUpload } from '@/components/MultiImageUpload';
 import toast from 'react-hot-toast';
 import { useSupabase } from '@/contexts/SupabaseContext';
 
+type LocalizedAIText = {
+  zh: string;
+  ru: string;
+  tg: string;
+};
+
+type InventoryAIUnderstanding = {
+  target_people?: string | LocalizedAIText;
+  selling_angle?: string | LocalizedAIText;
+  best_scene?: string | LocalizedAIText;
+  local_life_connection?: string | LocalizedAIText;
+  recommended_badge?: string | LocalizedAIText;
+  generated_at?: string;
+  generated_by?: string;
+  model_used?: string;
+  source_language?: 'ru';
+};
+
 interface InventoryProduct {
   id: string;
   name: string;
@@ -28,16 +46,7 @@ interface InventoryProduct {
   status: 'ACTIVE' | 'INACTIVE' | 'OUT_OF_STOCK';
   created_at: string;
   updated_at: string;
-  ai_understanding?: {
-    target_people?: string;
-    selling_angle?: string;
-    best_scene?: string;
-    local_life_connection?: string;
-    recommended_badge?: string;
-    generated_at?: string;
-    generated_by?: string;
-    model_used?: string;
-  } | null;
+  ai_understanding?: InventoryAIUnderstanding | null;
 }
 
 interface InventoryTransaction {
@@ -51,16 +60,57 @@ interface InventoryTransaction {
   created_at: string;
 }
 
+const emptyLocalizedAIText = (): LocalizedAIText => ({ zh: '', ru: '', tg: '' });
+
 const emptyAIUnderstandingForm = {
-  target_people: '',
-  selling_angle: '',
-  best_scene: '',
-  local_life_connection: '',
-  recommended_badge: '',
+  target_people: emptyLocalizedAIText(),
+  selling_angle: emptyLocalizedAIText(),
+  best_scene: emptyLocalizedAIText(),
+  local_life_connection: emptyLocalizedAIText(),
+  recommended_badge: emptyLocalizedAIText(),
   generated_at: '',
   generated_by: '',
   model_used: '',
+  source_language: 'ru' as const,
 };
+
+const getAITextByLang = (value?: string | LocalizedAIText | null, lang: keyof LocalizedAIText = 'zh') => {
+  if (!value) return '';
+  if (typeof value === 'string') return lang === 'ru' ? value : '';
+  return value[lang] || '';
+};
+
+const normalizeAIUnderstandingForForm = (value?: InventoryAIUnderstanding | null) => ({
+  target_people: {
+    zh: getAITextByLang(value?.target_people, 'zh'),
+    ru: getAITextByLang(value?.target_people, 'ru'),
+    tg: getAITextByLang(value?.target_people, 'tg'),
+  },
+  selling_angle: {
+    zh: getAITextByLang(value?.selling_angle, 'zh'),
+    ru: getAITextByLang(value?.selling_angle, 'ru'),
+    tg: getAITextByLang(value?.selling_angle, 'tg'),
+  },
+  best_scene: {
+    zh: getAITextByLang(value?.best_scene, 'zh'),
+    ru: getAITextByLang(value?.best_scene, 'ru'),
+    tg: getAITextByLang(value?.best_scene, 'tg'),
+  },
+  local_life_connection: {
+    zh: getAITextByLang(value?.local_life_connection, 'zh'),
+    ru: getAITextByLang(value?.local_life_connection, 'ru'),
+    tg: getAITextByLang(value?.local_life_connection, 'tg'),
+  },
+  recommended_badge: {
+    zh: getAITextByLang(value?.recommended_badge, 'zh'),
+    ru: getAITextByLang(value?.recommended_badge, 'ru'),
+    tg: getAITextByLang(value?.recommended_badge, 'tg'),
+  },
+  generated_at: value?.generated_at || '',
+  generated_by: value?.generated_by || '',
+  model_used: value?.model_used || '',
+  source_language: value?.source_language || 'ru' as const,
+});
 
 export default function InventoryProductManagementPage() {
   const { supabase } = useSupabase();
@@ -123,12 +173,19 @@ export default function InventoryProductManagementPage() {
     ai_understanding: { ...emptyAIUnderstandingForm },
   });
 
-  const updateAIUnderstandingField = (field: keyof typeof emptyAIUnderstandingForm, value: string) => {
+  const updateAIUnderstandingField = (
+    field: 'target_people' | 'selling_angle' | 'best_scene' | 'local_life_connection' | 'recommended_badge',
+    lang: keyof LocalizedAIText,
+    value: string
+  ) => {
     setFormData((prev) => ({
       ...prev,
       ai_understanding: {
         ...prev.ai_understanding,
-        [field]: value,
+        [field]: {
+          ...prev.ai_understanding[field],
+          [lang]: value,
+        },
       },
     }));
   };
@@ -197,16 +254,28 @@ export default function InventoryProductManagementPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const buildLocalizedField = (field: keyof typeof formData.ai_understanding) => {
+      const value = formData.ai_understanding[field as keyof Pick<typeof formData.ai_understanding, 'target_people' | 'selling_angle' | 'best_scene' | 'local_life_connection' | 'recommended_badge'>];
+      if (!value || typeof value === 'string') return null;
+      const normalized = {
+        zh: value.zh.trim(),
+        ru: value.ru.trim(),
+        tg: value.tg.trim(),
+      };
+      return normalized.zh || normalized.ru || normalized.tg ? normalized : null;
+    };
+
     const aiUnderstanding = Object.fromEntries(
       Object.entries({
-        target_people: formData.ai_understanding.target_people.trim(),
-        selling_angle: formData.ai_understanding.selling_angle.trim(),
-        best_scene: formData.ai_understanding.best_scene.trim(),
-        local_life_connection: formData.ai_understanding.local_life_connection.trim(),
-        recommended_badge: formData.ai_understanding.recommended_badge.trim(),
+        target_people: buildLocalizedField('target_people'),
+        selling_angle: buildLocalizedField('selling_angle'),
+        best_scene: buildLocalizedField('best_scene'),
+        local_life_connection: buildLocalizedField('local_life_connection'),
+        recommended_badge: buildLocalizedField('recommended_badge'),
         generated_at: formData.ai_understanding.generated_at || undefined,
         generated_by: formData.ai_understanding.generated_by || undefined,
         model_used: formData.ai_understanding.model_used || undefined,
+        source_language: formData.ai_understanding.source_language || 'ru',
       }).filter(([, value]) => value !== '' && value !== undefined && value !== null)
     );
 
@@ -307,16 +376,7 @@ export default function InventoryProductManagementPage() {
       sku: product.sku || '',
       barcode: product.barcode || '',
       status: product.status || 'ACTIVE',
-      ai_understanding: {
-        target_people: product.ai_understanding?.target_people || '',
-        selling_angle: product.ai_understanding?.selling_angle || '',
-        best_scene: product.ai_understanding?.best_scene || '',
-        local_life_connection: product.ai_understanding?.local_life_connection || '',
-        recommended_badge: product.ai_understanding?.recommended_badge || '',
-        generated_at: product.ai_understanding?.generated_at || '',
-        generated_by: product.ai_understanding?.generated_by || '',
-        model_used: product.ai_understanding?.model_used || '',
-      },
+      ai_understanding: normalizeAIUnderstandingForForm(product.ai_understanding),
     });
     setShowModal(true);
   };
@@ -730,7 +790,7 @@ export default function InventoryProductManagementPage() {
       sku: '',
       barcode: '',
       status: 'ACTIVE',
-      ai_understanding: { ...emptyAIUnderstandingForm },
+      ai_understanding: normalizeAIUnderstandingForForm(null),
     });
   };
 
@@ -1082,80 +1142,102 @@ export default function InventoryProductManagementPage() {
                     <div>
                       <h3 className="text-sm font-semibold text-amber-900 flex items-center gap-2">
                         <Brain className="w-4 h-4" />
-                        AI 商品理解
+                        AI 商品理解（三语）
                       </h3>
                       <p className="text-xs text-amber-700 mt-1">
-                        这里会展示并允许你修改“适合谁用”“好在哪儿”等说人话文案，避免编辑商品时看不到已生成的数据。
+                        俄语为主文案源，中文和塔吉克语以俄语为标准翻译后保存。这里支持手动校对三种语言内容。
                       </p>
                     </div>
                     {formData.ai_understanding.generated_at && (
                       <div className="text-right text-[11px] text-amber-700 shrink-0">
                         <div>生成时间：{new Date(formData.ai_understanding.generated_at).toLocaleString()}</div>
                         {formData.ai_understanding.model_used && <div>模型：{formData.ai_understanding.model_used}</div>}
+                        <div>源语言：{formData.ai_understanding.source_language || 'ru'}</div>
                       </div>
                     )}
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1 text-amber-900">适合谁用</label>
-                      <textarea
-                        value={formData.ai_understanding.target_people}
-                        onChange={(e) => updateAIUnderstandingField('target_people', e.target.value)}
-                        className="w-full border rounded px-3 py-2 bg-white"
-                        rows={3}
-                        placeholder="例如：年轻妈妈、冬天手脚容易发凉、经常坐地垫陪孩子的人"
-                      />
+                  {[
+                    ['target_people', '适合谁用', '例如：年轻妈妈、冬天手脚容易发凉、经常坐地垫陪孩子的人'],
+                    ['selling_angle', '好在哪儿', '例如：比烧热水袋更快，插电一会儿就暖起来，陪娃和做家务都更舒服'],
+                    ['best_scene', '使用场景', '例如：晚上坐在地毯上陪孩子看动画，脚伸进去一会儿就热起来'],
+                    ['local_life_connection', '本地关联', '例如：适合冬天供暖不稳定、家里常席地而坐喝茶的塔吉克家庭'],
+                    ['recommended_badge', '推荐标签', '例如：冬天必备'],
+                  ].map(([field, label, placeholder]) => (
+                    <div key={field} className="rounded-lg border border-amber-100 bg-white/70 p-3 space-y-3">
+                      <label className="block text-sm font-medium text-amber-900">{label}</label>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">中文</label>
+                          {field === 'recommended_badge' ? (
+                            <input
+                              type="text"
+                              value={formData.ai_understanding[field as 'recommended_badge'].zh}
+                              onChange={(e) => updateAIUnderstandingField(field as any, 'zh', e.target.value)}
+                              className="w-full border rounded px-3 py-2 bg-white"
+                              placeholder={placeholder}
+                            />
+                          ) : (
+                            <textarea
+                              value={formData.ai_understanding[field as 'target_people' | 'selling_angle' | 'best_scene' | 'local_life_connection'].zh}
+                              onChange={(e) => updateAIUnderstandingField(field as any, 'zh', e.target.value)}
+                              className="w-full border rounded px-3 py-2 bg-white"
+                              rows={3}
+                              placeholder={placeholder}
+                            />
+                          )}
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">俄语</label>
+                          {field === 'recommended_badge' ? (
+                            <input
+                              type="text"
+                              value={formData.ai_understanding[field as 'recommended_badge'].ru}
+                              onChange={(e) => updateAIUnderstandingField(field as any, 'ru', e.target.value)}
+                              className="w-full border rounded px-3 py-2 bg-white"
+                              placeholder="俄语主文案"
+                            />
+                          ) : (
+                            <textarea
+                              value={formData.ai_understanding[field as 'target_people' | 'selling_angle' | 'best_scene' | 'local_life_connection'].ru}
+                              onChange={(e) => updateAIUnderstandingField(field as any, 'ru', e.target.value)}
+                              className="w-full border rounded px-3 py-2 bg-white"
+                              rows={3}
+                              placeholder="俄语主文案"
+                            />
+                          )}
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">塔吉克语</label>
+                          {field === 'recommended_badge' ? (
+                            <input
+                              type="text"
+                              value={formData.ai_understanding[field as 'recommended_badge'].tg}
+                              onChange={(e) => updateAIUnderstandingField(field as any, 'tg', e.target.value)}
+                              className="w-full border rounded px-3 py-2 bg-white"
+                              placeholder="塔吉克语翻译"
+                            />
+                          ) : (
+                            <textarea
+                              value={formData.ai_understanding[field as 'target_people' | 'selling_angle' | 'best_scene' | 'local_life_connection'].tg}
+                              onChange={(e) => updateAIUnderstandingField(field as any, 'tg', e.target.value)}
+                              className="w-full border rounded px-3 py-2 bg-white"
+                              rows={3}
+                              placeholder="塔吉克语翻译"
+                            />
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1 text-amber-900">好在哪儿</label>
-                      <textarea
-                        value={formData.ai_understanding.selling_angle}
-                        onChange={(e) => updateAIUnderstandingField('selling_angle', e.target.value)}
-                        className="w-full border rounded px-3 py-2 bg-white"
-                        rows={3}
-                        placeholder="例如：比烧热水袋更快，插电一会儿就暖起来，陪娃和做家务都更舒服"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1 text-amber-900">使用场景</label>
-                      <textarea
-                        value={formData.ai_understanding.best_scene}
-                        onChange={(e) => updateAIUnderstandingField('best_scene', e.target.value)}
-                        className="w-full border rounded px-3 py-2 bg-white"
-                        rows={3}
-                        placeholder="例如：晚上坐在地毯上陪孩子看动画，脚伸进去一会儿就热起来"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1 text-amber-900">本地关联</label>
-                      <textarea
-                        value={formData.ai_understanding.local_life_connection}
-                        onChange={(e) => updateAIUnderstandingField('local_life_connection', e.target.value)}
-                        className="w-full border rounded px-3 py-2 bg-white"
-                        rows={3}
-                        placeholder="例如：适合冬天供暖不稳定、家里常席地而坐喝茶的塔吉克家庭"
-                      />
-                    </div>
-                  </div>
+                  ))}
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1 text-amber-900">推荐标签</label>
-                      <input
-                        type="text"
-                        value={formData.ai_understanding.recommended_badge}
-                        onChange={(e) => updateAIUnderstandingField('recommended_badge', e.target.value)}
-                        className="w-full border rounded px-3 py-2 bg-white"
-                        placeholder="例如：冬天必备"
-                      />
-                    </div>
                     <div>
                       <label className="block text-sm font-medium mb-1 text-amber-900">生成来源</label>
                       <input
                         type="text"
                         value={formData.ai_understanding.generated_by}
-                        onChange={(e) => updateAIUnderstandingField('generated_by', e.target.value)}
+                        onChange={(e) => setFormData({ ...formData, ai_understanding: { ...formData.ai_understanding, generated_by: e.target.value } })}
                         className="w-full border rounded px-3 py-2 bg-white"
                         placeholder="例如：ai-listing-generate"
                       />
@@ -1165,9 +1247,19 @@ export default function InventoryProductManagementPage() {
                       <input
                         type="text"
                         value={formData.ai_understanding.model_used}
-                        onChange={(e) => updateAIUnderstandingField('model_used', e.target.value)}
+                        onChange={(e) => setFormData({ ...formData, ai_understanding: { ...formData.ai_understanding, model_used: e.target.value } })}
                         className="w-full border rounded px-3 py-2 bg-white"
-                        placeholder="例如：qwen3.5-plus"
+                        placeholder="例如：qwen-vl-max -&gt; qwen3.5-plus"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1 text-amber-900">源语言</label>
+                      <input
+                        type="text"
+                        value={formData.ai_understanding.source_language || 'ru'}
+                        onChange={(e) => setFormData({ ...formData, ai_understanding: { ...formData.ai_understanding, source_language: e.target.value as 'ru' } })}
+                        className="w-full border rounded px-3 py-2 bg-white"
+                        placeholder="ru"
                       />
                     </div>
                   </div>
@@ -1416,44 +1508,54 @@ export default function InventoryProductManagementPage() {
               
               {aiViewProduct.ai_understanding ? (
                 <div className="space-y-4">
-                  {aiViewProduct.ai_understanding.target_people && (
-                    <div>
-                      <label className="text-xs font-medium text-amber-700">适合谁</label>
-                      <p className="text-sm text-gray-700 mt-1 bg-amber-50 rounded-lg p-3">{aiViewProduct.ai_understanding.target_people}</p>
-                    </div>
-                  )}
-                  {aiViewProduct.ai_understanding.selling_angle && (
-                    <div>
-                      <label className="text-xs font-medium text-rose-700">好在哪</label>
-                      <p className="text-sm text-gray-700 mt-1 bg-rose-50 rounded-lg p-3">{aiViewProduct.ai_understanding.selling_angle}</p>
-                    </div>
-                  )}
-                  {aiViewProduct.ai_understanding.best_scene && (
-                    <div>
-                      <label className="text-xs font-medium text-orange-700">使用场景</label>
-                      <p className="text-sm text-gray-700 mt-1 bg-orange-50 rounded-lg p-3">{aiViewProduct.ai_understanding.best_scene}</p>
-                    </div>
-                  )}
-                  {aiViewProduct.ai_understanding.local_life_connection && (
-                    <div>
-                      <label className="text-xs font-medium text-teal-700">本地关联</label>
-                      <p className="text-sm text-gray-700 mt-1 bg-teal-50 rounded-lg p-3">{aiViewProduct.ai_understanding.local_life_connection}</p>
-                    </div>
-                  )}
-                  {aiViewProduct.ai_understanding.recommended_badge && (
-                    <div>
-                      <label className="text-xs font-medium text-purple-700">推荐标签</label>
-                      <p className="mt-1">
-                        <span className="inline-block px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
-                          {aiViewProduct.ai_understanding.recommended_badge}
-                        </span>
-                      </p>
-                    </div>
-                  )}
+                  {[
+                    ['target_people', '适合谁', 'amber'],
+                    ['selling_angle', '好在哪', 'rose'],
+                    ['best_scene', '使用场景', 'orange'],
+                    ['local_life_connection', '本地关联', 'teal'],
+                    ['recommended_badge', '推荐标签', 'purple'],
+                  ].map(([field, label, color]) => {
+                    const value = aiViewProduct.ai_understanding?.[field as keyof InventoryAIUnderstanding];
+                    const zh = getAITextByLang(value, 'zh');
+                    const ru = getAITextByLang(value, 'ru');
+                    const tg = getAITextByLang(value, 'tg');
+                    if (!zh && !ru && !tg) return null;
+
+                    return (
+                      <div key={field}>
+                        <label className={`text-xs font-medium text-${color}-700`}>{label}</label>
+                        <div className={`mt-1 rounded-lg bg-${color}-50 p-3 space-y-2`}>
+                          {ru && (
+                            <div>
+                              <div className="text-[11px] uppercase tracking-wide text-gray-500">俄语主文案</div>
+                              {field === 'recommended_badge' ? (
+                                <span className={`inline-block mt-1 px-3 py-1 bg-${color}-100 text-${color}-700 rounded-full text-sm font-medium`}>{ru}</span>
+                              ) : (
+                                <p className="text-sm text-gray-700 mt-1">{ru}</p>
+                              )}
+                            </div>
+                          )}
+                          {zh && (
+                            <div>
+                              <div className="text-[11px] uppercase tracking-wide text-gray-500">中文</div>
+                              <p className="text-sm text-gray-700 mt-1">{zh}</p>
+                            </div>
+                          )}
+                          {tg && (
+                            <div>
+                              <div className="text-[11px] uppercase tracking-wide text-gray-500">塔吉克语</div>
+                              <p className="text-sm text-gray-700 mt-1">{tg}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                   {aiViewProduct.ai_understanding.generated_at && (
                     <p className="text-xs text-gray-400 pt-2 border-t">
                       生成时间：{new Date(aiViewProduct.ai_understanding.generated_at).toLocaleString()}
                       {aiViewProduct.ai_understanding.model_used && ` | 模型：${aiViewProduct.ai_understanding.model_used}`}
+                      {aiViewProduct.ai_understanding.source_language && ` | 源语言：${aiViewProduct.ai_understanding.source_language}`}
                     </p>
                   )}
                 </div>

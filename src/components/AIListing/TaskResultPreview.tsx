@@ -44,6 +44,15 @@ const LANGUAGES = [
 
 type LangCode = 'ru' | 'zh' | 'tg';
 
+const getLocalizedAIText = (
+  value: string | { ru?: string; zh?: string; tg?: string } | undefined,
+  lang: LangCode
+): string => {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  return value[lang] || value.ru || value.zh || value.tg || '';
+};
+
 export const TaskResultPreview: React.FC<TaskResultPreviewProps> = ({
   result,
   onSave,
@@ -258,38 +267,64 @@ export const TaskResultPreview: React.FC<TaskResultPreviewProps> = ({
 
           {/* AI 商品理解预览（只读展示） */}
           {result.analysis?.ai_understanding && (
-            <div className="bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 rounded-xl p-4 space-y-3 border border-amber-100/50">
-              <p className="text-sm font-semibold text-amber-800">AI 商品理解（将保存到商品详情页）</p>
-              {result.analysis.ai_understanding.target_people && (
-                <div className="text-sm">
-                  <span className="font-medium text-amber-700">适合谁：</span>
-                  <span className="text-gray-700 ml-1">{result.analysis.ai_understanding.target_people}</span>
-                </div>
-              )}
-              {result.analysis.ai_understanding.selling_angle && (
-                <div className="text-sm">
-                  <span className="font-medium text-rose-700">好在哪：</span>
-                  <span className="text-gray-700 ml-1">{result.analysis.ai_understanding.selling_angle}</span>
-                </div>
-              )}
-              {result.analysis.ai_understanding.best_scene && (
-                <div className="text-sm">
-                  <span className="font-medium text-orange-700">使用场景：</span>
-                  <span className="text-gray-700 ml-1">{result.analysis.ai_understanding.best_scene}</span>
-                </div>
-              )}
-              {result.analysis.ai_understanding.local_life_connection && (
-                <div className="text-sm">
-                  <span className="font-medium text-teal-700">本地关联：</span>
-                  <span className="text-gray-700 ml-1">{result.analysis.ai_understanding.local_life_connection}</span>
-                </div>
-              )}
-              {result.analysis.ai_understanding.recommended_badge && (
-                <div className="text-sm">
-                  <span className="font-medium text-purple-700">推荐标签：</span>
-                  <span className="inline-block ml-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">{result.analysis.ai_understanding.recommended_badge}</span>
-                </div>
-              )}
+            <div className="bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 rounded-xl p-4 space-y-4 border border-amber-100/50">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-amber-800">AI 商品理解（将保存到商品详情页）</p>
+                <span className="text-xs text-amber-700">
+                  基准语言：{result.analysis.ai_understanding.source_language === 'ru' ? '俄语' : '历史数据'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {LANGUAGES.map((lang) => {
+                  const targetPeople = getLocalizedAIText(result.analysis?.ai_understanding?.target_people, lang.code);
+                  const sellingAngle = getLocalizedAIText(result.analysis?.ai_understanding?.selling_angle, lang.code);
+                  const bestScene = getLocalizedAIText(result.analysis?.ai_understanding?.best_scene, lang.code);
+                  const localLifeConnection = getLocalizedAIText(result.analysis?.ai_understanding?.local_life_connection, lang.code);
+                  const recommendedBadge = getLocalizedAIText(result.analysis?.ai_understanding?.recommended_badge, lang.code);
+                  const hasContent = targetPeople || sellingAngle || bestScene || localLifeConnection || recommendedBadge;
+
+                  if (!hasContent) return null;
+
+                  return (
+                    <div key={lang.code} className="rounded-lg border border-white/70 bg-white/70 p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-gray-800">{lang.label}</p>
+                        {recommendedBadge && (
+                          <span className="inline-block px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
+                            {recommendedBadge}
+                          </span>
+                        )}
+                      </div>
+
+                      {targetPeople && (
+                        <div className="text-sm">
+                          <span className="font-medium text-amber-700">适合谁：</span>
+                          <span className="text-gray-700 ml-1">{targetPeople}</span>
+                        </div>
+                      )}
+                      {sellingAngle && (
+                        <div className="text-sm">
+                          <span className="font-medium text-rose-700">好在哪：</span>
+                          <span className="text-gray-700 ml-1">{sellingAngle}</span>
+                        </div>
+                      )}
+                      {bestScene && (
+                        <div className="text-sm">
+                          <span className="font-medium text-orange-700">使用场景：</span>
+                          <span className="text-gray-700 ml-1">{bestScene}</span>
+                        </div>
+                      )}
+                      {localLifeConnection && (
+                        <div className="text-sm">
+                          <span className="font-medium text-teal-700">本地关联：</span>
+                          <span className="text-gray-700 ml-1">{localLifeConnection}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
