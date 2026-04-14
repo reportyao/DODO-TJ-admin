@@ -1,76 +1,126 @@
+/**
+ * 管理后台主入口
+ *
+ * [v2 性能优化]
+ * 原实现：60+ 个页面组件全部同步 import，导致初始 JS bundle 巨大，
+ * 首次加载需要下载和解析所有页面代码（即使用户只访问仪表盘）。
+ *
+ * 优化：
+ * - 所有页面改为 React.lazy() 动态导入
+ * - 仅保留 Layout 壳组件（Router, Sidebar, Header）同步加载
+ * - 添加 Suspense fallback 加载指示器
+ * - 首屏 JS 体积预计减少 60-70%
+ */
 import { BrowserRouter as Router, Routes, Route, Link, useNavigate } from 'react-router-dom'
-import { LotteryForm } from './components/Lottery/LotteryForm'
-import { LotteryListPage } from './components/Lottery/LotteryListPage'
-import { LotteryDetailPage } from './components/Lottery/LotteryDetailPage'
-import { UserListPage } from './components/User/UserListPage'
-import UserManagementPage from './pages/UserManagementPage'
-import { UserDetailsPage } from './components/User/UserDetailsPage'
-import UserFinancialPage from './components/User/UserFinancialPage'
-import { OrderListPage } from './components/Order/OrderListPage'
-import { DepositReviewPage } from './components/Finance/DepositReviewPage'
-import { PaymentConfigPage } from './pages/PaymentConfigPage'
-import AlgorithmConfigPage from './pages/AlgorithmConfigPage'
-import { WithdrawalReviewPage } from './components/Finance/WithdrawalReviewPage'
-import { ShippingManagementPage } from './components/Order/ShippingManagementPage'
-import { ShowoffReviewPage } from './components/Showoff/ShowoffReviewPage'
-import { OperationalShowoffCreatePage } from './components/Showoff/OperationalShowoffCreatePage'
-import { OperationalShowoffManagementPage } from './components/Showoff/OperationalShowoffManagementPage'
 import { Toaster } from 'react-hot-toast'
-import { useState } from 'react'
+import React, { useState, Suspense } from 'react'
 import ProtectedRoute from './components/ProtectedRoute'
-import { UnauthorizedPage } from './components/UnauthorizedPage'
-import { ForbiddenPage } from './components/ForbiddenPage'
-import ResaleManagementPage from './pages/ResaleManagementPage';
-import AdminManagementPage from './pages/AdminManagementPage';
-import PermissionManagementPage from './pages/PermissionManagementPage';
-import DrawLogsPage from './pages/DrawLogsPage';
-import CommissionConfigPage from './pages/CommissionConfigPage';
-import CommissionRecordsPage from './pages/CommissionRecordsPage';
-import ReferralManagementPage from './pages/ReferralManagementPage';
-import DashboardPage from './pages/DashboardPage';
-import GroupBuyProductManagementPage from './pages/GroupBuyProductManagementPage';
-import GroupBuySessionManagementPage from './pages/GroupBuySessionManagementPage';
-import BannerManagementPage from './pages/BannerManagementPage';
-import AIManagementPage from './pages/AIManagementPage';
-import PickupVerificationPage from './pages/PickupVerificationPage';
-import PickupPointsPage from './pages/PickupPointsPage';
-import PickupStatsPage from './pages/PickupStatsPage';
-import PendingPickupsPage from './pages/PendingPickupsPage';
-import PickupStaffManagementPage from './pages/PickupStaffManagementPage';
-import InventoryProductManagementPage from './pages/InventoryProductManagementPage';
-import ShipmentBatchManagementPage from './pages/ShipmentBatchManagementPage';
-import OrderShipmentPage from './pages/OrderShipmentPage';
-import BatchArrivalConfirmPage from './pages/BatchArrivalConfirmPage';
-import BatchStatisticsPage from './pages/BatchStatisticsPage';
-import ErrorLogsPage from './pages/ErrorLogsPage';
-import AuditLogsPage from './pages/AuditLogsPage';
-import AIListingPage from './pages/AIListingPage';
-
-// ==================== 地推管理模块 ====================
-import PromoterDashboardPage from './pages/PromoterDashboardPage';
-import PromoterManagementPage from './pages/PromoterManagementPage';
-import PromoterReportsPage from './pages/PromoterReportsPage';
-import DepositAlertsPage from './pages/DepositAlertsPage';
-import PromotionPointsManagementPage from './pages/PromotionPointsManagementPage';
-import ChannelAnalyticsPage from './pages/ChannelAnalyticsPage';
-import PromoterDepositManagementPage from './pages/PromoterDepositManagementPage';
-import PromoterSettlementPage from './pages/PromoterSettlementPage';
-
-// ==================== 首页场景化管理模块 ====================
-import HomepageCategoryManagementPage from './pages/HomepageCategoryManagementPage';
-import HomepageTagManagementPage from './pages/HomepageTagManagementPage';
-import HomepageTopicManagementPage from './pages/HomepageTopicManagementPage';
-import TopicPlacementManagementPage from './pages/TopicPlacementManagementPage';
-import LocalizationLexiconPage from './pages/LocalizationLexiconPage';
-import ProductTaxonomyManagementPage from './pages/ProductTaxonomyManagementPage';
-import BehaviorDashboardPage from './pages/BehaviorDashboardPage';
-import AITopicGenerationPage from './pages/AITopicGenerationPage';
-
 import { AdminAuthProvider, useAdminAuth } from './contexts/AdminAuthContext';
-import LoginPage from './pages/LoginPage';
 import { AdminDebugPanel } from './components/Debug/AdminDebugPanel';
 
-// Header Component with Logout
+// ============================================================
+// 懒加载页面组件
+// ============================================================
+
+// 登录页（高优先级，保持同步导入）
+import LoginPage from './pages/LoginPage';
+
+// 核心页面
+const DashboardPage = React.lazy(() => import('./pages/DashboardPage'));
+
+// 用户管理
+const UserListPage = React.lazy(() => import('./components/User/UserListPage').then(m => ({ default: m.UserListPage })));
+const UserDetailsPage = React.lazy(() => import('./components/User/UserDetailsPage').then(m => ({ default: m.UserDetailsPage })));
+const UserFinancialPage = React.lazy(() => import('./components/User/UserFinancialPage'));
+const UserManagementPage = React.lazy(() => import('./pages/UserManagementPage'));
+const ReferralManagementPage = React.lazy(() => import('./pages/ReferralManagementPage'));
+
+// 商品 & 活动
+const InventoryProductManagementPage = React.lazy(() => import('./pages/InventoryProductManagementPage'));
+const AIListingPage = React.lazy(() => import('./pages/AIListingPage'));
+const LotteryListPage = React.lazy(() => import('./components/Lottery/LotteryListPage').then(m => ({ default: m.LotteryListPage })));
+const LotteryDetailPage = React.lazy(() => import('./components/Lottery/LotteryDetailPage').then(m => ({ default: m.LotteryDetailPage })));
+const LotteryForm = React.lazy(() => import('./components/Lottery/LotteryForm').then(m => ({ default: m.LotteryForm })));
+const GroupBuyProductManagementPage = React.lazy(() => import('./pages/GroupBuyProductManagementPage'));
+const GroupBuySessionManagementPage = React.lazy(() => import('./pages/GroupBuySessionManagementPage'));
+
+// 订单 & 物流
+const OrderListPage = React.lazy(() => import('./components/Order/OrderListPage').then(m => ({ default: m.OrderListPage })));
+const DepositReviewPage = React.lazy(() => import('./components/Finance/DepositReviewPage').then(m => ({ default: m.DepositReviewPage })));
+const WithdrawalReviewPage = React.lazy(() => import('./components/Finance/WithdrawalReviewPage').then(m => ({ default: m.WithdrawalReviewPage })));
+const ShippingManagementPage = React.lazy(() => import('./components/Order/ShippingManagementPage').then(m => ({ default: m.ShippingManagementPage })));
+const ShipmentBatchManagementPage = React.lazy(() => import('./pages/ShipmentBatchManagementPage'));
+const OrderShipmentPage = React.lazy(() => import('./pages/OrderShipmentPage'));
+const BatchArrivalConfirmPage = React.lazy(() => import('./pages/BatchArrivalConfirmPage'));
+const BatchStatisticsPage = React.lazy(() => import('./pages/BatchStatisticsPage'));
+
+// 自提 & 核销
+const PickupVerificationPage = React.lazy(() => import('./pages/PickupVerificationPage'));
+const PickupPointsPage = React.lazy(() => import('./pages/PickupPointsPage'));
+const PickupStatsPage = React.lazy(() => import('./pages/PickupStatsPage'));
+const PendingPickupsPage = React.lazy(() => import('./pages/PendingPickupsPage'));
+const PickupStaffManagementPage = React.lazy(() => import('./pages/PickupStaffManagementPage'));
+
+// 晒单 & 转售
+const ShowoffReviewPage = React.lazy(() => import('./components/Showoff/ShowoffReviewPage').then(m => ({ default: m.ShowoffReviewPage })));
+const OperationalShowoffCreatePage = React.lazy(() => import('./components/Showoff/OperationalShowoffCreatePage').then(m => ({ default: m.OperationalShowoffCreatePage })));
+const OperationalShowoffManagementPage = React.lazy(() => import('./components/Showoff/OperationalShowoffManagementPage').then(m => ({ default: m.OperationalShowoffManagementPage })));
+const ResaleManagementPage = React.lazy(() => import('./pages/ResaleManagementPage'));
+
+// 地推管理
+const PromoterDashboardPage = React.lazy(() => import('./pages/PromoterDashboardPage'));
+const PromoterManagementPage = React.lazy(() => import('./pages/PromoterManagementPage'));
+const PromoterReportsPage = React.lazy(() => import('./pages/PromoterReportsPage'));
+const DepositAlertsPage = React.lazy(() => import('./pages/DepositAlertsPage'));
+const PromotionPointsManagementPage = React.lazy(() => import('./pages/PromotionPointsManagementPage'));
+const ChannelAnalyticsPage = React.lazy(() => import('./pages/ChannelAnalyticsPage'));
+const PromoterDepositManagementPage = React.lazy(() => import('./pages/PromoterDepositManagementPage'));
+const PromoterSettlementPage = React.lazy(() => import('./pages/PromoterSettlementPage'));
+
+// 首页场景化管理
+const HomepageCategoryManagementPage = React.lazy(() => import('./pages/HomepageCategoryManagementPage'));
+const HomepageTagManagementPage = React.lazy(() => import('./pages/HomepageTagManagementPage'));
+const HomepageTopicManagementPage = React.lazy(() => import('./pages/HomepageTopicManagementPage'));
+const TopicPlacementManagementPage = React.lazy(() => import('./pages/TopicPlacementManagementPage'));
+const ProductTaxonomyManagementPage = React.lazy(() => import('./pages/ProductTaxonomyManagementPage'));
+const LocalizationLexiconPage = React.lazy(() => import('./pages/LocalizationLexiconPage'));
+const AITopicGenerationPage = React.lazy(() => import('./pages/AITopicGenerationPage'));
+const BehaviorDashboardPage = React.lazy(() => import('./pages/BehaviorDashboardPage'));
+
+// 系统配置
+const PaymentConfigPage = React.lazy(() => import('./pages/PaymentConfigPage').then(m => ({ default: m.PaymentConfigPage })));
+const AlgorithmConfigPage = React.lazy(() => import('./pages/AlgorithmConfigPage'));
+const CommissionConfigPage = React.lazy(() => import('./pages/CommissionConfigPage'));
+const CommissionRecordsPage = React.lazy(() => import('./pages/CommissionRecordsPage'));
+const DrawLogsPage = React.lazy(() => import('./pages/DrawLogsPage'));
+const AdminManagementPage = React.lazy(() => import('./pages/AdminManagementPage'));
+const PermissionManagementPage = React.lazy(() => import('./pages/PermissionManagementPage'));
+const BannerManagementPage = React.lazy(() => import('./pages/BannerManagementPage'));
+const AIManagementPage = React.lazy(() => import('./pages/AIManagementPage'));
+const ErrorLogsPage = React.lazy(() => import('./pages/ErrorLogsPage'));
+const AuditLogsPage = React.lazy(() => import('./pages/AuditLogsPage'));
+
+// 静态页面（保持同步导入，体积极小）
+import { UnauthorizedPage } from './components/UnauthorizedPage';
+import { ForbiddenPage } from './components/ForbiddenPage';
+
+// ============================================================
+// 加载指示器
+// ============================================================
+function PageLoadingFallback() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <span className="text-sm text-gray-500">加载中...</span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Header Component
+// ============================================================
 function AppHeader({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; setSidebarOpen: (open: boolean) => void }): JSX.Element {
   const { admin, logout } = useAdminAuth();
   const navigate = useNavigate();
@@ -103,7 +153,9 @@ function AppHeader({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; setS
   );
 }
 
-// Simplified Admin Dashboard
+// ============================================================
+// Main App
+// ============================================================
 function App(): JSX.Element {
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
@@ -125,9 +177,6 @@ function App(): JSX.Element {
             <NavLink to="/inventory-products" label="库存商品" icon="📦" />
             <NavLink to="/ai-listing" label="AI上架助手" icon="✨" />
             <NavLink to="/lotteries" label="商城活动" icon="🎰" />
-            {/* 拼团功能已隐藏 - 保留路由以兼容历史数据 */}
-            {/* <NavLink to="/group-buy-products" label="拼团商品" icon="🛒" /> */}
-            {/* <NavLink to="/group-buy-sessions" label="拼团会话" icon="👥" /> */}
             <NavLink to="/orders" label="订单管理" icon="📦" />
             <NavLink to="/deposit-review" label="充值审核" icon="💰" />
             <NavLink to="/withdrawal-review" label="提现审核" icon="💸" />
@@ -189,78 +238,78 @@ function App(): JSX.Element {
           {/* Header */}
           <AppHeader sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
 
-          {/* Content */}
+          {/* Content - 包裹在 Suspense 中支持懒加载 */}
           <div className="flex-1 overflow-auto p-6">
-            <Routes>
-          <Route path="/login" element={<LoginPage />} />
-              <Route path="/" element={<ProtectedRoute element={<DashboardPage />} />} />
-              <Route path="/users" element={<ProtectedRoute element={<UserListPage />} requiredRole="admin" />} />
-              <Route path="/users/:id" element={<ProtectedRoute element={<UserDetailsPage />} requiredRole="admin" />} />
-              <Route path="/users/:userId/financial" element={<ProtectedRoute element={<UserFinancialPage />} requiredRole="admin" />} />
-              <Route path="/user-management" element={<ProtectedRoute element={<UserManagementPage />} requiredRole="admin" />} />
-              <Route path="/referral-management" element={<ProtectedRoute element={<ReferralManagementPage />} requiredRole="admin" />} />
-              <Route path="/inventory-products" element={<ProtectedRoute element={<InventoryProductManagementPage />} requiredRole="admin" />} />
-              <Route path="/ai-listing" element={<ProtectedRoute element={<AIListingPage />} requiredRole="admin" />} />
-              <Route path="/lotteries" element={<ProtectedRoute element={<LotteryListPage />} requiredRole="admin" />} />
-              <Route path="/lotteries/new" element={<ProtectedRoute element={<LotteryForm />} requiredRole="admin" />} />
-              <Route path="/lotteries/:id/detail" element={<ProtectedRoute element={<LotteryDetailPage />} requiredRole="admin" />} />
-              <Route path="/lotteries/:id" element={<ProtectedRoute element={<LotteryForm />} requiredRole="admin" />} />
-              <Route path="/group-buy-products" element={<ProtectedRoute element={<GroupBuyProductManagementPage />} requiredRole="admin" />} />
-              <Route path="/group-buy-sessions" element={<ProtectedRoute element={<GroupBuySessionManagementPage />} requiredRole="admin" />} />
-              <Route path="/orders" element={<ProtectedRoute element={<OrderListPage />} requiredRole="admin" />} />
-              <Route path="/deposit-review" element={<ProtectedRoute element={<DepositReviewPage />} requiredRole="admin" />} />
-              <Route path="/withdrawal-review" element={<ProtectedRoute element={<WithdrawalReviewPage />} requiredRole="admin" />} />
-              <Route path="/shipping-management" element={<ProtectedRoute element={<ShippingManagementPage />} requiredRole="admin" />} />
-              <Route path="/shipment-batches" element={<ProtectedRoute element={<ShipmentBatchManagementPage />} requiredRole="admin" />} />
-              <Route path="/order-shipment" element={<ProtectedRoute element={<OrderShipmentPage />} requiredRole="admin" />} />
-              <Route path="/batch-arrival-confirm/:id" element={<ProtectedRoute element={<BatchArrivalConfirmPage />} requiredRole="admin" />} />
-              <Route path="/batch-statistics" element={<ProtectedRoute element={<BatchStatisticsPage />} requiredRole="admin" />} />
-              <Route path="/pickup-verification" element={<ProtectedRoute element={<PickupVerificationPage />} requiredRole="admin" />} />
-              <Route path="/pickup-points" element={<ProtectedRoute element={<PickupPointsPage />} requiredRole="admin" />} />
-              <Route path="/pickup-stats" element={<ProtectedRoute element={<PickupStatsPage />} requiredRole="admin" />} />
-              <Route path="/pending-pickups" element={<ProtectedRoute element={<PendingPickupsPage />} requiredRole="admin" />} />
-              <Route path="/pickup-staff" element={<ProtectedRoute element={<PickupStaffManagementPage />} requiredRole="admin" />} />
-              <Route path="/showoff-review" element={<ProtectedRoute element={<ShowoffReviewPage />} requiredRole="admin" />} />
-              <Route path="/showoff-create" element={<ProtectedRoute element={<OperationalShowoffCreatePage />} requiredRole="admin" />} />
-              <Route path="/showoff-management" element={<ProtectedRoute element={<OperationalShowoffManagementPage />} requiredRole="admin" />} />
-              <Route path="/resale-management" element={<ProtectedRoute element={<ResaleManagementPage />} requiredRole="admin" />} />
-          <Route path="/admin-management" element={<ProtectedRoute element={<AdminManagementPage />} requiredRole="super_admin" />} />
-          <Route path="/permission-management" element={<ProtectedRoute element={<PermissionManagementPage />} requiredRole="super_admin" />} />
-              <Route path="/payment-config" element={<ProtectedRoute element={<PaymentConfigPage />} requiredRole="admin" />} />
+            <Suspense fallback={<PageLoadingFallback />}>
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/" element={<ProtectedRoute element={<DashboardPage />} />} />
+                <Route path="/users" element={<ProtectedRoute element={<UserListPage />} requiredRole="admin" />} />
+                <Route path="/users/:id" element={<ProtectedRoute element={<UserDetailsPage />} requiredRole="admin" />} />
+                <Route path="/users/:userId/financial" element={<ProtectedRoute element={<UserFinancialPage />} requiredRole="admin" />} />
+                <Route path="/user-management" element={<ProtectedRoute element={<UserManagementPage />} requiredRole="admin" />} />
+                <Route path="/referral-management" element={<ProtectedRoute element={<ReferralManagementPage />} requiredRole="admin" />} />
+                <Route path="/inventory-products" element={<ProtectedRoute element={<InventoryProductManagementPage />} requiredRole="admin" />} />
+                <Route path="/ai-listing" element={<ProtectedRoute element={<AIListingPage />} requiredRole="admin" />} />
+                <Route path="/lotteries" element={<ProtectedRoute element={<LotteryListPage />} requiredRole="admin" />} />
+                <Route path="/lotteries/new" element={<ProtectedRoute element={<LotteryForm />} requiredRole="admin" />} />
+                <Route path="/lotteries/:id/detail" element={<ProtectedRoute element={<LotteryDetailPage />} requiredRole="admin" />} />
+                <Route path="/lotteries/:id" element={<ProtectedRoute element={<LotteryForm />} requiredRole="admin" />} />
+                <Route path="/group-buy-products" element={<ProtectedRoute element={<GroupBuyProductManagementPage />} requiredRole="admin" />} />
+                <Route path="/group-buy-sessions" element={<ProtectedRoute element={<GroupBuySessionManagementPage />} requiredRole="admin" />} />
+                <Route path="/orders" element={<ProtectedRoute element={<OrderListPage />} requiredRole="admin" />} />
+                <Route path="/deposit-review" element={<ProtectedRoute element={<DepositReviewPage />} requiredRole="admin" />} />
+                <Route path="/withdrawal-review" element={<ProtectedRoute element={<WithdrawalReviewPage />} requiredRole="admin" />} />
+                <Route path="/shipping-management" element={<ProtectedRoute element={<ShippingManagementPage />} requiredRole="admin" />} />
+                <Route path="/shipment-batches" element={<ProtectedRoute element={<ShipmentBatchManagementPage />} requiredRole="admin" />} />
+                <Route path="/order-shipment" element={<ProtectedRoute element={<OrderShipmentPage />} requiredRole="admin" />} />
+                <Route path="/batch-arrival-confirm/:id" element={<ProtectedRoute element={<BatchArrivalConfirmPage />} requiredRole="admin" />} />
+                <Route path="/batch-statistics" element={<ProtectedRoute element={<BatchStatisticsPage />} requiredRole="admin" />} />
+                <Route path="/pickup-verification" element={<ProtectedRoute element={<PickupVerificationPage />} requiredRole="admin" />} />
+                <Route path="/pickup-points" element={<ProtectedRoute element={<PickupPointsPage />} requiredRole="admin" />} />
+                <Route path="/pickup-stats" element={<ProtectedRoute element={<PickupStatsPage />} requiredRole="admin" />} />
+                <Route path="/pending-pickups" element={<ProtectedRoute element={<PendingPickupsPage />} requiredRole="admin" />} />
+                <Route path="/pickup-staff" element={<ProtectedRoute element={<PickupStaffManagementPage />} requiredRole="admin" />} />
+                <Route path="/showoff-review" element={<ProtectedRoute element={<ShowoffReviewPage />} requiredRole="admin" />} />
+                <Route path="/showoff-create" element={<ProtectedRoute element={<OperationalShowoffCreatePage />} requiredRole="admin" />} />
+                <Route path="/showoff-management" element={<ProtectedRoute element={<OperationalShowoffManagementPage />} requiredRole="admin" />} />
+                <Route path="/resale-management" element={<ProtectedRoute element={<ResaleManagementPage />} requiredRole="admin" />} />
+                <Route path="/admin-management" element={<ProtectedRoute element={<AdminManagementPage />} requiredRole="super_admin" />} />
+                <Route path="/permission-management" element={<ProtectedRoute element={<PermissionManagementPage />} requiredRole="super_admin" />} />
+                <Route path="/payment-config" element={<ProtectedRoute element={<PaymentConfigPage />} requiredRole="admin" />} />
+                <Route path="/commission-config" element={<ProtectedRoute element={<CommissionConfigPage />} requiredRole="admin" />} />
+                <Route path="/commission-records" element={<ProtectedRoute element={<CommissionRecordsPage />} requiredRole="admin" />} />
+                <Route path="/algorithm-config" element={<ProtectedRoute element={<AlgorithmConfigPage />} requiredRole="admin" />} />
+                <Route path="/draw-logs" element={<ProtectedRoute element={<DrawLogsPage />} requiredRole="admin" />} />
+                <Route path="/banner-management" element={<ProtectedRoute element={<BannerManagementPage />} requiredRole="admin" />} />
+                <Route path="/ai-management" element={<ProtectedRoute element={<AIManagementPage />} requiredRole="admin" />} />
+                <Route path="/error-logs" element={<ProtectedRoute element={<ErrorLogsPage />} requiredRole="admin" />} />
+                <Route path="/audit-logs" element={<ProtectedRoute element={<AuditLogsPage />} requiredRole="admin" />} />
 
-              <Route path="/commission-config" element={<ProtectedRoute element={<CommissionConfigPage />} requiredRole="admin" />} />
-              <Route path="/commission-records" element={<ProtectedRoute element={<CommissionRecordsPage />} requiredRole="admin" />} />
+                {/* ==================== 首页场景化管理路由 ==================== */}
+                <Route path="/homepage-categories" element={<ProtectedRoute element={<HomepageCategoryManagementPage />} requiredRole="admin" />} />
+                <Route path="/homepage-tags" element={<ProtectedRoute element={<HomepageTagManagementPage />} requiredRole="admin" />} />
+                <Route path="/homepage-topics" element={<ProtectedRoute element={<HomepageTopicManagementPage />} requiredRole="admin" />} />
+                <Route path="/topic-placements" element={<ProtectedRoute element={<TopicPlacementManagementPage />} requiredRole="admin" />} />
+                <Route path="/product-taxonomy" element={<ProtectedRoute element={<ProductTaxonomyManagementPage />} requiredRole="admin" />} />
+                <Route path="/localization-lexicon" element={<ProtectedRoute element={<LocalizationLexiconPage />} requiredRole="admin" />} />
+                <Route path="/ai-topic-generate" element={<ProtectedRoute element={<AITopicGenerationPage />} requiredRole="admin" />} />
+                <Route path="/behavior-dashboard" element={<ProtectedRoute element={<BehaviorDashboardPage />} requiredRole="admin" />} />
 
-              <Route path="/algorithm-config" element={<ProtectedRoute element={<AlgorithmConfigPage />} requiredRole="admin" />} />
-              <Route path="/draw-logs" element={<ProtectedRoute element={<DrawLogsPage />} requiredRole="admin" />} />
-              <Route path="/banner-management" element={<ProtectedRoute element={<BannerManagementPage />} requiredRole="admin" />} />
-              <Route path="/ai-management" element={<ProtectedRoute element={<AIManagementPage />} requiredRole="admin" />} />
-              <Route path="/error-logs" element={<ProtectedRoute element={<ErrorLogsPage />} requiredRole="admin" />} />
-              <Route path="/audit-logs" element={<ProtectedRoute element={<AuditLogsPage />} requiredRole="admin" />} />
+                {/* ==================== 地推管理模块路由 ==================== */}
+                <Route path="/promoter-dashboard" element={<ProtectedRoute element={<PromoterDashboardPage />} requiredRole="admin" />} />
+                <Route path="/promoter-management" element={<ProtectedRoute element={<PromoterManagementPage />} requiredRole="admin" />} />
+                <Route path="/promotion-points" element={<ProtectedRoute element={<PromotionPointsManagementPage />} requiredRole="admin" />} />
+                <Route path="/channel-analytics" element={<ProtectedRoute element={<ChannelAnalyticsPage />} requiredRole="admin" />} />
+                <Route path="/promoter-reports" element={<ProtectedRoute element={<PromoterReportsPage />} requiredRole="admin" />} />
+                <Route path="/deposit-alerts" element={<ProtectedRoute element={<DepositAlertsPage />} requiredRole="admin" />} />
+                <Route path="/promoter-deposits" element={<ProtectedRoute element={<PromoterDepositManagementPage />} requiredRole="admin" />} />
+                <Route path="/promoter-settlement" element={<ProtectedRoute element={<PromoterSettlementPage />} requiredRole="admin" />} />
 
-              {/* ==================== 首页场景化管理路由 ==================== */}
-              <Route path="/homepage-categories" element={<ProtectedRoute element={<HomepageCategoryManagementPage />} requiredRole="admin" />} />
-              <Route path="/homepage-tags" element={<ProtectedRoute element={<HomepageTagManagementPage />} requiredRole="admin" />} />
-              <Route path="/homepage-topics" element={<ProtectedRoute element={<HomepageTopicManagementPage />} requiredRole="admin" />} />
-              <Route path="/topic-placements" element={<ProtectedRoute element={<TopicPlacementManagementPage />} requiredRole="admin" />} />
-              <Route path="/product-taxonomy" element={<ProtectedRoute element={<ProductTaxonomyManagementPage />} requiredRole="admin" />} />
-              <Route path="/localization-lexicon" element={<ProtectedRoute element={<LocalizationLexiconPage />} requiredRole="admin" />} />
-              <Route path="/ai-topic-generate" element={<ProtectedRoute element={<AITopicGenerationPage />} requiredRole="admin" />} />
-              <Route path="/behavior-dashboard" element={<ProtectedRoute element={<BehaviorDashboardPage />} requiredRole="admin" />} />
-
-              {/* ==================== 地推管理模块路由 ==================== */}
-              <Route path="/promoter-dashboard" element={<ProtectedRoute element={<PromoterDashboardPage />} requiredRole="admin" />} />
-              <Route path="/promoter-management" element={<ProtectedRoute element={<PromoterManagementPage />} requiredRole="admin" />} />
-              <Route path="/promotion-points" element={<ProtectedRoute element={<PromotionPointsManagementPage />} requiredRole="admin" />} />
-              <Route path="/channel-analytics" element={<ProtectedRoute element={<ChannelAnalyticsPage />} requiredRole="admin" />} />
-              <Route path="/promoter-reports" element={<ProtectedRoute element={<PromoterReportsPage />} requiredRole="admin" />} />
-              <Route path="/deposit-alerts" element={<ProtectedRoute element={<DepositAlertsPage />} requiredRole="admin" />} />
-              <Route path="/promoter-deposits" element={<ProtectedRoute element={<PromoterDepositManagementPage />} requiredRole="admin" />} />
-              <Route path="/promoter-settlement" element={<ProtectedRoute element={<PromoterSettlementPage />} requiredRole="admin" />} />
-
-              <Route path="/unauthorized" element={<UnauthorizedPage />} />
-              <Route path="/forbidden" element={<ForbiddenPage />} />
-            </Routes>
+                <Route path="/unauthorized" element={<UnauthorizedPage />} />
+                <Route path="/forbidden" element={<ForbiddenPage />} />
+              </Routes>
+            </Suspense>
           </div>
         </div>
       </div>
@@ -287,19 +336,6 @@ function NavSection({ label }: { label: string }): JSX.Element {
   return (
     <div className="pt-4 pb-1 px-3">
       <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{label}</div>
-    </div>
-  )
-}
-
-// Dashboard component moved to pages/DashboardPage.tsx
-
-function PagePlaceholder({ title }: { title: string }): JSX.Element {
-  return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h1 className="text-3xl font-bold mb-4">{title}</h1>
-      <div className="bg-gray-50 rounded p-4 text-center text-gray-500">
-        <p>页面内容即将推出...</p>
-      </div>
     </div>
   )
 }
