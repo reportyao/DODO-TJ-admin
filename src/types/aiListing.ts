@@ -6,7 +6,8 @@
  */
 
 // AI 任务状态
-export type AITaskStatus = 'queued' | 'processing' | 'done' | 'partial' | 'error';
+// v2.0 新增 processing_images：文案已完成，后台营销海报由 pg_cron + processor 逐张陆续推送
+export type AITaskStatus = 'queued' | 'processing' | 'processing_images' | 'done' | 'partial' | 'error';
 
 export type LanguageCode = 'tg' | 'ru' | 'zh';
 
@@ -47,6 +48,15 @@ export interface AIUnderstandingI18n {
   source_language?: 'multi' | 'tg' | 'ru' | 'zh';
 }
 
+// 单张营销海报（伴有俄文文案）
+export interface MarketingImage {
+  id: string;                    // 对应 ai_image_tasks.id
+  url: string;                   // 最终合成后的 JPEG 图 URL
+  ru_caption?: string;
+  display_order: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+}
+
 // AI 生成结果（来自 Edge Function SSE 的 result 字段）
 export interface AIListingResult {
   title_ru: string;
@@ -58,7 +68,17 @@ export interface AIListingResult {
   description_ru: string;
   description_zh: string;
   description_tg: string;
-  background_images: string[];  // Supabase Storage 永久 URL
+  background_images: string[];  // 下向兼容：旧背景图数组（或空数组）
+  // v2.0 新增：带俄文文案的营销海报（Realtime 逐张填充）
+  marketing_images?: MarketingImage[];
+  // v2.0 后台任务 parent id，供 Realtime 订阅使用
+  parent_task_id?: string | null;
+  // 已入队的待生图总数
+  enqueued_images?: number;
+  // 抠图后的透明底图原图（降级时也可用于上架）
+  segmented_image?: string | null;
+  // 用户上传的原图
+  original_images?: string[];
   // Step A 分析结果（用于入库时填充 material 等字段）
   analysis?: {
     product_type?: string;
@@ -101,7 +121,7 @@ export interface AITask {
 
 // SSE 事件数据结构（来自 Edge Function）
 export interface SSEEventData {
-  status: 'processing' | 'done' | 'partial' | 'error';
+  status: 'processing' | 'processing_images' | 'done' | 'partial' | 'error';
   progress: number;
   stage?: string;
   result?: AIListingResult;
