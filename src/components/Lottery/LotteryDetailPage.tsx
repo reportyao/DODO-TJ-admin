@@ -48,6 +48,8 @@ const getStatusColor = (status: string) => {
       return 'bg-purple-100 text-purple-800';
     case 'CANCELLED':
       return 'bg-red-100 text-red-800';
+    case 'EXPIRED':
+      return 'bg-orange-100 text-orange-800';
     default:
       return 'bg-gray-100 text-gray-800';
   }
@@ -261,7 +263,7 @@ export const LotteryDetailPage: React.FC = () => {
             <div>
               <div className="text-sm text-gray-500">状态</div>
               <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(lottery.status)}`}>
-                {lottery.status === 'ACTIVE' ? '进行中' : lottery.status === 'COMPLETED' ? '已完成' : lottery.status === 'PENDING' ? '待开始' : lottery.status === 'DRAWING' ? '开奖中' : lottery.status === 'CANCELLED' ? '已取消' : lottery.status}
+                {lottery.status === 'ACTIVE' ? '进行中' : lottery.status === 'COMPLETED' ? '已完成' : lottery.status === 'PENDING' ? '待开始' : lottery.status === 'DRAWING' ? '开奖中' : lottery.status === 'CANCELLED' ? '已取消' : lottery.status === 'EXPIRED' ? '已过期' : lottery.status}
               </span>
             </div>
             <div>
