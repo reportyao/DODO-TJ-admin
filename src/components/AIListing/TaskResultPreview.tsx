@@ -126,12 +126,20 @@ export const TaskResultPreview: React.FC<TaskResultPreviewProps> = ({
     });
   }, []);
 
-  // ─── 提交 ──────────────────────────────────────────────────────
+  // ─── 提交 ───────────────────────────────────────────────
   const handleSave = useCallback(() => {
-    const selected = result.background_images.filter((_, i) => selectedImages.has(i));
-    if (selected.length === 0 && result.background_images.length > 0) {
-      // 如果有背景图但一张都没选，提示用户
-      if (!window.confirm('您没有选择任何背景图，确定只保存文案吗？')) return;
+    const selectedBg = result.background_images.filter((_, i) => selectedImages.has(i));
+    // v2.0：俄文营销海报一律默认入库（仅合成成功的）
+    const marketingUrls = (result.marketing_images || [])
+      .filter((m) => m.status === 'completed' && m.url)
+      .map((m) => m.url);
+    const selectedAll = [...selectedBg, ...marketingUrls];
+
+    if (
+      selectedAll.length === 0 &&
+      (result.background_images.length > 0 || (result.marketing_images?.length ?? 0) > 0)
+    ) {
+      if (!window.confirm('您没有选择任何图片，确定只保存文案吗？')) return;
     }
 
     const editedResult: AIListingResult = {
@@ -144,11 +152,16 @@ export const TaskResultPreview: React.FC<TaskResultPreviewProps> = ({
       description_ru: descriptions.ru,
       description_zh: descriptions.zh,
       description_tg: descriptions.tg,
-      background_images: selected,
+      background_images: selectedBg,
+      marketing_images: result.marketing_images,
+      parent_task_id: result.parent_task_id,
+      enqueued_images: result.enqueued_images,
+      segmented_image: result.segmented_image,
+      original_images: result.original_images,
       analysis: result.analysis,
     };
 
-    onSave(editedResult, selected);
+    onSave(editedResult, selectedAll);
   }, [titles, bullets, descriptions, selectedImages, result, onSave]);
 
   return (
@@ -215,7 +228,64 @@ export const TaskResultPreview: React.FC<TaskResultPreviewProps> = ({
             ))}
           </Tabs>
 
-          {/* ─── 背景图选择 ─────────────────────────────────── */}
+          {/* ─── v2.0 俄文营销海报画廒 ───────────────────────── */}
+          {(result.marketing_images && result.marketing_images.length > 0) && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1">
+                <ImageIcon className="w-4 h-4" />
+                俄文营销海报（后台逐张生成，点击放大）
+              </Label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {result.marketing_images.map((mi, idx) => {
+                  const isReady = mi.status === 'completed' && mi.url;
+                  const isFailed = mi.status === 'failed';
+                  return (
+                    <div
+                      key={mi.id || idx}
+                      className={`relative rounded-lg overflow-hidden border-2 aspect-square ${
+                        isReady ? 'border-purple-300' : 'border-gray-200'
+                      } bg-gray-50 flex items-center justify-center`}
+                    >
+                      {isReady ? (
+                        <>
+                          <img
+                            src={mi.url}
+                            alt={`营销海报 ${idx + 1}`}
+                            className="w-full h-full object-cover cursor-pointer"
+                            onClick={() => setPreviewImage(mi.url)}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setPreviewImage(mi.url)}
+                            className="absolute top-2 right-2 p-1.5 bg-black bg-opacity-50 rounded-full text-white hover:bg-opacity-70 z-10"
+                          >
+                            <ZoomIn className="w-4 h-4" />
+                          </button>
+                          {mi.ru_caption && (
+                            <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-60 px-2 py-1 text-[11px] leading-tight text-white line-clamp-2">
+                              {mi.ru_caption}
+                            </div>
+                          )}
+                        </>
+                      ) : isFailed ? (
+                        <div className="text-xs text-red-500 text-center px-2">生成失败</div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-2 text-xs text-gray-400">
+                          <div className="w-8 h-8 border-2 border-purple-300 border-t-transparent rounded-full animate-spin" />
+                          <span>后台生成中…</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-gray-500">
+                已完成 {result.marketing_images.filter((m) => m.status === 'completed').length} / {result.marketing_images.length} 张（保存时会将成功的海报一同写入商品图库）
+              </p>
+            </div>
+          )}
+
+          {/* ─── 旧次背景图选择（向下兼容） ───────────────────────────────────────── */}
           {result.background_images.length > 0 && (
             <div className="space-y-2">
               <Label className="flex items-center gap-1">

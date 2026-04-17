@@ -122,13 +122,88 @@ export default function AIListingPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [tasks]);
 
-  // ─── 组件卸载时中止所有 SSE 连接 ─────────────────────────
+    // ─── 组件卸载时中止所有 SSE 连接 ─────────────────────
   useEffect(() => {
     return () => {
       abortControllersRef.current.forEach((ctrl) => ctrl.abort());
       abortControllersRef.current.clear();
     };
   }, []);
+
+  // ─── v2.0: 订阅 ai_image_tasks 表的 Realtime 变更 ─────────────────────
+  //   将后台陆续生成的营销海报实时推入对应任务的 marketing_images
+  //   完成条件：任务下的所有行均 completed/failed → status 升级为 done
+  useEffect(() => {
+    if (!supabase) {return;}
+    // 收集当前需要监听的 parent_task_id（状态是 processing_images、done、partial 且未入库）
+    const watchingIds = new Set<string>();
+    tasks.forEach((t) => {
+      const pid = t.result?.parent_task_id;
+      if (pid && (t.status === 'processing_images' || t.status === 'done' || t.status === 'partial')) {
+        watchingIds.add(pid);
+      }
+    });
+    if (watchingIds.size === 0) {return;}
+
+    const channel = supabase
+      .channel(`ai_image_tasks_${Date.now()}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'ai_image_tasks' },
+        (payload: any) => {
+          const row = payload?.new;
+          if (!row || !row.parent_task_id || !watchingIds.has(row.parent_task_id)) {return;}
+
+          setTasks((prev) => prev.map((tk) => {
+            if (tk.result?.parent_task_id !== row.parent_task_id) {return tk;}
+            const prevImgs = tk.result?.marketing_images ? [...tk.result.marketing_images] : [];
+            // 用 display_order 对齐更新
+            const idx = prevImgs.findIndex(
+              (m) => m.id === row.id || m.display_order === row.display_order
+            );
+            const updatedItem = {
+              id: row.id,
+              url: row.marketing_image_url || '',
+              ru_caption: row.ru_caption,
+              display_order: row.display_order ?? 0,
+              status: row.status as 'pending' | 'processing' | 'completed' | 'failed',
+            };
+            if (idx >= 0) {prevImgs[idx] = updatedItem;} else {prevImgs.push(updatedItem);}
+            prevImgs.sort((a, b) => a.display_order - b.display_order);
+
+            // 如果所有已报回的行都是 completed/failed 且数量达到 enqueued → 可升级为 done
+            const enqueued = tk.result?.enqueued_images || prevImgs.length;
+            const terminalCount = prevImgs.filter(
+              (m) => m.status === 'completed' || m.status === 'failed'
+            ).length;
+            const allDone = terminalCount >= enqueued && enqueued > 0;
+
+            const nextStatus: AITask['status'] = allDone
+              ? (prevImgs.some((m) => m.status === 'completed') ? 'done' : 'partial')
+              : 'processing_images';
+
+            return {
+              ...tk,
+              status: nextStatus,
+              stage: allDone
+                ? (nextStatus === 'done' ? '全部完成' : '部分完成')
+                : `后台海报生成中（${
+                    prevImgs.filter((m) => m.status === 'completed').length
+                  }/${enqueued}）…`,
+              completedAt: allDone ? new Date() : tk.completedAt,
+              result: tk.result
+                ? { ...tk.result, marketing_images: prevImgs }
+                : tk.result,
+            };
+          }));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      try { supabase.removeChannel(channel); } catch { /* ignore */ }
+    };
+  }, [supabase, tasks]);
 
   // ─── 更新单个任务 ──────────────────────────────────────────
   const updateTask = useCallback((taskId: string, updates: Partial<AITask>) => {
@@ -165,50 +240,77 @@ export default function AIListingPage() {
               progress: data.progress || 0,
               stage: data.stage || '处理中...',
             });
-          } else if (data.status === 'done' || data.status === 'partial') {
+          } else if (
+            data.status === 'done' ||
+            data.status === 'partial' ||
+            data.status === 'processing_images'
+          ) {
+            const r = data.result;
+            const enqueued = r?.enqueued_images || 0;
+            // v2.0：根据 enqueued_images 初始化 marketing_images 占位行，方便 UI 展示进度
+            const initialMarketingImages: NonNullable<AIListingResult['marketing_images']> =
+              Array.isArray(r?.marketing_images) && r?.marketing_images.length > 0
+                ? r!.marketing_images!
+                : Array.from({ length: enqueued }, (_, i) => ({
+                    id: `placeholder-${i}`,
+                    url: '',
+                    display_order: i,
+                    status: 'pending' as const,
+                  }));
+
             const result: AIListingResult = {
-              title_ru: data.result?.title_ru || '',
-              title_zh: data.result?.title_zh || '',
-              title_tg: data.result?.title_tg || '',
-              bullets_ru: data.result?.bullets_ru || [],
-              bullets_zh: data.result?.bullets_zh || [],
-              bullets_tg: data.result?.bullets_tg || [],
-              description_ru: data.result?.description_ru || '',
-              description_zh: data.result?.description_zh || '',
-              description_tg: data.result?.description_tg || '',
-              background_images: data.result?.background_images || [],
+              title_ru: r?.title_ru || '',
+              title_zh: r?.title_zh || '',
+              title_tg: r?.title_tg || '',
+              bullets_ru: r?.bullets_ru || [],
+              bullets_zh: r?.bullets_zh || [],
+              bullets_tg: r?.bullets_tg || [],
+              description_ru: r?.description_ru || '',
+              description_zh: r?.description_zh || '',
+              description_tg: r?.description_tg || '',
+              background_images: r?.background_images || [],
+              marketing_images: initialMarketingImages,
+              parent_task_id: r?.parent_task_id || null,
+              enqueued_images: enqueued,
+              segmented_image: r?.segmented_image || null,
+              original_images: r?.original_images || [],
               analysis: {
-                product_type: data.result?.analysis?.product_type,
-                main_color: data.result?.analysis?.main_color,
-                material_guess: data.result?.material_guess || data.result?.analysis?.material_guess || null,
-                key_features: data.result?.analysis?.key_features,
-                use_scenes: data.result?.analysis?.use_scenes,
-                target_audience: data.result?.analysis?.target_audience,
-                selling_points: data.result?.analysis?.selling_points,
-                ai_understanding: data.result?.analysis?.ai_understanding || undefined,
+                product_type: r?.analysis?.product_type,
+                main_color: r?.analysis?.main_color,
+                material_guess: (r as any)?.material_guess || r?.analysis?.material_guess || null,
+                key_features: r?.analysis?.key_features,
+                use_scenes: r?.analysis?.use_scenes,
+                target_audience: r?.analysis?.target_audience,
+                selling_points: r?.analysis?.selling_points,
+                ai_understanding: r?.analysis?.ai_understanding || undefined,
               },
             };
 
+            const isImageProcessing = data.status === 'processing_images';
             updateTask(task.id, {
-              status: data.status,
-              progress: 100,
-              stage: data.status === 'done' ? '全部完成' : '部分完成（仅文案）',
+              status: isImageProcessing ? 'processing_images' : (data.status as any),
+              progress: isImageProcessing ? 100 : 100,
+              stage: isImageProcessing
+                ? `文案完成，正在后台生成 ${enqueued} 张俄文营销海报…`
+                : (data.status === 'done' ? '全部完成' : '部分完成（仅文案）'),
               result,
-              completedAt: new Date(),
+              completedAt: isImageProcessing ? undefined : new Date(),
             });
 
-            // 清理 controller，减少计数
+            // 清理 SSE controller，减少占用（无论是否 processing_images，后台均由 Realtime 接手）
             abortControllersRef.current.delete(task.id);
             processingCountRef.current = Math.max(0, processingCountRef.current - 1);
 
-            // 触发下一个任务
             processNextTask();
 
-            // [修复] 添加完成通知
             if (data.status === 'done') {
               toast.success(`"${task.productName}" AI 生成完成！`);
-            } else {
+            } else if (data.status === 'partial') {
               toast(`"${task.productName}" 部分完成`, { icon: '⚠️' });
+            } else {
+              toast.success(
+                `"${task.productName}" 文案已完成，正在后台生成 ${enqueued} 张俄文海报`
+              );
             }
           } else if (data.status === 'error') {
             updateTask(task.id, {
