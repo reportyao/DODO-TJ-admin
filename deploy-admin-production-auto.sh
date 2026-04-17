@@ -85,21 +85,23 @@ fi
 
 # 7. 备份当前部署
 echo -e "${YELLOW}[7/9] 备份当前部署...${NC}"
+mkdir -p "$BACKUP_DIR"
 if [ -d "$DEPLOY_DIR" ]; then
-    mkdir -p "$BACKUP_DIR"
-    BACKUP_NAME="admin.backup.$(date +%Y%m%d%H%M%S)"
-    mv "$DEPLOY_DIR" "$BACKUP_DIR/$BACKUP_NAME"
+    BACKUP_NAME="admin.backup.$(date +%Y%m%d%H%M%S).tar.gz"
+    tar -czf "$BACKUP_DIR/$BACKUP_NAME" -C "$DEPLOY_DIR" .
     echo -e "${GREEN}已备份到: $BACKUP_DIR/$BACKUP_NAME${NC}"
-    
+
     # 只保留最近5个备份
     cd "$BACKUP_DIR"
-    ls -t | tail -n +6 | xargs -r rm -rf
+    ls -t | tail -n +6 | xargs -r rm -f
     cd "$PROJECT_DIR"
 fi
 
 # 8. 部署新构建
 echo -e "${YELLOW}[8/9] 部署新构建...${NC}"
 mkdir -p "$DEPLOY_DIR"
+find "$DEPLOY_DIR" -maxdepth 1 -type f -delete
+find "$DEPLOY_DIR" -maxdepth 1 -mindepth 1 -type d ! -name assets -exec rm -rf {} +
 cp -r dist/* "$DEPLOY_DIR/"
 
 # 9. 设置权限

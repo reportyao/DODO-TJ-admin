@@ -65,7 +65,8 @@ fi
 
 echo -e "${YELLOW}Step 7: Deploying to web directory...${NC}"
 mkdir -p "$DEPLOY_DIR"
-rm -rf "$DEPLOY_DIR"/*
+find "$DEPLOY_DIR" -maxdepth 1 -type f -delete
+find "$DEPLOY_DIR" -maxdepth 1 -mindepth 1 -type d ! -name assets -exec rm -rf {} +
 cp -r dist/* "$DEPLOY_DIR"/
 echo -e "${GREEN}✓ Files deployed to $DEPLOY_DIR${NC}"
 
