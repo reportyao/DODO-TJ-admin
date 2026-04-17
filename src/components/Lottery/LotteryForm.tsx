@@ -131,7 +131,7 @@ export const LotteryForm: React.FC = () => {
         .from('lotteries')
         .select('id', { count: 'exact', head: true })
         .eq('inventory_product_id', inventoryProductId)
-        .eq('status', 'ACTIVE');
+        .in('status', ['ACTIVE', 'SOLD_OUT']);
 
       if (countError) {
         throw countError;
@@ -430,7 +430,7 @@ export const LotteryForm: React.FC = () => {
           .from('lotteries')
           .select('id', { count: 'exact', head: true })
           .eq('inventory_product_id', formData.inventory_product_id)
-          .eq('status', 'ACTIVE');
+          .in('status', ['ACTIVE', 'SOLD_OUT']);
 
         if (isEdit && id) {
           activeLotteryCountQuery = activeLotteryCountQuery.neq('id', id);
