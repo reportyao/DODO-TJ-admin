@@ -123,6 +123,34 @@ export const LotteryForm: React.FC = () => {
     loadInventoryProducts();
   }, [loadInventoryProducts]);
 
+  const syncReservedStockForInventoryIds = useCallback(async (inventoryProductIds: Array<string | null | undefined>) => {
+    const ids = Array.from(new Set(inventoryProductIds.filter((value): value is string => Boolean(value))));
+
+    for (const inventoryProductId of ids) {
+      const { count, error: countError } = await supabase
+        .from('lotteries')
+        .select('id', { count: 'exact', head: true })
+        .eq('inventory_product_id', inventoryProductId)
+        .eq('status', 'ACTIVE');
+
+      if (countError) {
+        throw countError;
+      }
+
+      const { error: updateInventoryError } = await supabase
+        .from('inventory_products')
+        .update({
+          reserved_stock: count || 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', inventoryProductId);
+
+      if (updateInventoryError) {
+        throw updateInventoryError;
+      }
+    }
+  }, [supabase]);
+
   // 筛选和搜索库存商品
   const filteredProducts = useMemo(() => {
     let filtered = inventoryProducts;
@@ -355,13 +383,21 @@ export const LotteryForm: React.FC = () => {
       }
 
       // 修复 A04-3: 编辑模式下防止修改已售彩票的关键字段
-      if (isEdit && lotteryRound === null) {
-        // 获取当前已售票数
-        const { data: currentLottery } = await supabase
+      let currentLottery: {
+        sold_tickets?: number;
+        inventory_product_id?: string | null;
+        status?: LotteryStatus;
+      } | null = null;
+
+      if (isEdit) {
+        // 检查 total_tickets 是否小于已售票数
+        const { data } = await supabase
           .from('lotteries')
-          .select('sold_tickets')
+          .select('sold_tickets, inventory_product_id, status')
           .eq('id', id)
           .single();
+
+        currentLottery = data;
 
         if (currentLottery && currentLottery.sold_tickets > 0) {
           if (Number(formData.total_tickets) < currentLottery.sold_tickets) {
@@ -372,12 +408,44 @@ export const LotteryForm: React.FC = () => {
         }
       }
 
-      // 计算结束时间和开奖时间（售罄后180秒自动开奖）
+      // 只保留开始时间；活动不再按固定时间到期，开奖时间由售罄流程自动写入
       const startTime = new Date(formData.start_time);
-      // 结束时间设置为开始后7天（或根据业务需求调整）
-      const endTime = new Date(startTime.getTime() + 7 * 24 * 60 * 60 * 1000);
-      // 开奖时间 = 结束时间 + 180秒
-      const drawTime = new Date(endTime.getTime() + 180 * 1000);
+
+      if (formData.status === 'ACTIVE' && formData.inventory_product_id) {
+        const { data: inventoryProduct, error: inventoryError } = await supabase
+          .from('inventory_products')
+          .select('id, stock, status')
+          .eq('id', formData.inventory_product_id)
+          .single();
+
+        if (inventoryError || !inventoryProduct) {
+          throw inventoryError || new Error('关联库存商品不存在');
+        }
+
+        if (inventoryProduct.status !== 'ACTIVE') {
+          throw new Error('关联库存商品未启用，无法创建在售活动');
+        }
+
+        let activeLotteryCountQuery = supabase
+          .from('lotteries')
+          .select('id', { count: 'exact', head: true })
+          .eq('inventory_product_id', formData.inventory_product_id)
+          .eq('status', 'ACTIVE');
+
+        if (isEdit && id) {
+          activeLotteryCountQuery = activeLotteryCountQuery.neq('id', id);
+        }
+
+        const { count: activeLotteryCount, error: activeLotteryCountError } = await activeLotteryCountQuery;
+        if (activeLotteryCountError) {
+          throw activeLotteryCountError;
+        }
+
+        const requiredReservedUnits = (activeLotteryCount || 0) + 1;
+        if ((inventoryProduct.stock || 0) < requiredReservedUnits) {
+          throw new Error(`库存不足：当前库存 ${inventoryProduct.stock}，不足以支撑 ${requiredReservedUnits} 个在售活动`);
+        }
+      }
 
       // 显式构建 Payload，只包含数据库中存在的字段，彻底移除 details_i18n
       const payload: any = {
@@ -394,8 +462,6 @@ export const LotteryForm: React.FC = () => {
         image_url: formData.image_urls[0] || null,
         image_urls: formData.image_urls,
         start_time: startTime.toISOString(),
-        end_time: endTime.toISOString(),
-        draw_time: drawTime.toISOString(),
         updated_at: new Date().toISOString(),
         price_comparisons: formData.price_comparisons,
         inventory_product_id: formData.inventory_product_id || null,
@@ -410,6 +476,11 @@ export const LotteryForm: React.FC = () => {
       } else {
         await adminInsert(supabase, 'lotteries', payload);
       }
+
+      await syncReservedStockForInventoryIds([
+        currentLottery?.inventory_product_id,
+        payload.inventory_product_id,
+      ]);
 
       toast.success(isEdit ? '商城信息更新成功!' : '商城创建成功!');
       navigate('/lotteries');
@@ -558,7 +629,7 @@ export const LotteryForm: React.FC = () => {
                     💡 选择商品后将自动填充：标题、描述、图片、价格等信息
                   </p>
                   <p className="text-xs text-gray-500">
-                    📦 关联库存商品后，全款购买将从该库存商品扣减库存，不影响一元购物的份数
+                    📦 关联库存商品后，全款购买与一元夺宝将共享同一库存池：当前活动售罄后会消耗 1 件库存，剩余库存才可继续新开活动或全款购买
                   </p>
                 </div>
 

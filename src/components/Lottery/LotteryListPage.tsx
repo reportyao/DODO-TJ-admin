@@ -138,11 +138,9 @@ export const LotteryListPage: React.FC = () => {
       // 生成新期号（使用与创建时相同的算法）
       const newPeriod = generatePeriod();
 
-      // 计算新的开始和结束时间（保持原有时长，从现在开始）
+      // 新活动不再设置固定到期时间，只重置开始时间
       const now = new Date();
-      const originalDuration = new Date(originalLottery.end_time).getTime() - new Date(originalLottery.start_time).getTime();
       const newStartTime = now.toISOString();
-      const newEndTime = new Date(now.getTime() + originalDuration).toISOString();
       
       // 复制商城数据（重置所有状态相关字段）
       // 修复 A03-2: 复制后状态改为 PENDING，需管理员审核后手动发布
@@ -157,7 +155,7 @@ export const LotteryListPage: React.FC = () => {
         draw_time: null,
         actual_draw_time: null,
         start_time: newStartTime,
-        end_time: newEndTime,
+        end_time: null,
         vrf_proof: null,
         vrf_timestamp: null,
         winning_numbers: null,
