@@ -309,7 +309,7 @@ export default function DepositAlertsPage() {
           </h1>
           <p className="text-gray-600 mt-1">
             实时监控待审充值状态，识别异常和地推相关充值 ·
-            <span className="text-blue-600 hover:underline ml-1 cursor-pointer" onClick={() => navigate('/admin/deposit-review')}>
+            <span className="text-blue-600 hover:underline ml-1 cursor-pointer" onClick={() => navigate('/deposit-review')}>
               前往充值审核页面处理 <ExternalLink className="w-3 h-3 inline" />
             </span>
           </p>

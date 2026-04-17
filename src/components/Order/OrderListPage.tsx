@@ -25,12 +25,14 @@ interface OrderWithDetails extends Order {
 
 const LIMIT = 20;
 
-const getStatusColor = (status: OrderStatus) => {
+const getStatusColor = (status: OrderStatus | string) => {
   switch (status) {
     case 'PENDING': return 'bg-yellow-100 text-yellow-800';
     case 'PAID': return 'bg-green-100 text-green-800';
+    case 'COMPLETED': return 'bg-green-100 text-green-800';
     case 'SHIPPED': return 'bg-blue-100 text-blue-800';
     case 'DELIVERED': return 'bg-purple-100 text-purple-800';
+    case 'REFUND_PENDING': return 'bg-orange-100 text-orange-800';
     case 'CANCELLED': return 'bg-red-100 text-red-800';
     default: return 'bg-gray-100 text-gray-800';
   }
@@ -40,8 +42,10 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'ALL', label: '全部' },
   { value: 'PENDING', label: '待支付' },
   { value: 'PAID', label: '已支付' },
+  { value: 'COMPLETED', label: '已完成' },
   { value: 'SHIPPED', label: '已发货' },
   { value: 'DELIVERED', label: '已送达' },
+  { value: 'REFUND_PENDING', label: '待退款' },
   { value: 'CANCELLED', label: '已取消' },
 ];
 
@@ -128,7 +132,7 @@ export const OrderListPage: React.FC = () => {
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-2xl font-bold">订单管理</CardTitle>
           <div className="flex space-x-2">
-            <Button variant="outline" size="sm" onClick={() => navigate('/shipping')}>
+            <Button variant="outline" size="sm" onClick={() => navigate('/shipping-management')}>
               物流管理
             </Button>
           </div>

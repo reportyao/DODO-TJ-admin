@@ -97,17 +97,11 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-
-          {/* 提示信息 */}
-          <div className="mt-6 text-center text-sm text-gray-500">
-            <p>默认账户：admin / admin123</p>
-            <p className="mt-1">首次登录后请及时修改密码</p>
-          </div>
         </div>
 
         {/* 版权信息 */}
         <div className="text-center mt-8 text-sm text-gray-600">
-          <p>© 2026 DODO.TJ. All rights reserved.</p>
+          <p>&copy; 2026 DODO.TJ. All rights reserved.</p>
         </div>
       </div>
     </div>

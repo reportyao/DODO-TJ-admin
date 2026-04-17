@@ -211,7 +211,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div 
           className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md transition-shadow"
-          onClick={() => navigate('/admin/deposits')}
+          onClick={() => navigate('/deposit-review')}
         >
           <div className="flex items-center justify-between">
             <div>
@@ -225,7 +225,7 @@ export default function DashboardPage() {
         </div>
         <div 
           className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md transition-shadow"
-          onClick={() => navigate('/admin/withdrawals')}
+          onClick={() => navigate('/withdrawal-review')}
         >
           <div className="flex items-center justify-between">
             <div>
@@ -246,22 +246,22 @@ export default function DashboardPage() {
           <QuickAction
             title="创建活动"
             icon={<Gift className="w-6 h-6" />}
-            onClick={() => navigate('/admin/lotteries/create')}
+            onClick={() => navigate('/lotteries/new')}
           />
           <QuickAction
             title="用户管理"
             icon={<Users className="w-6 h-6" />}
-            onClick={() => navigate('/admin/users')}
+            onClick={() => navigate('/users')}
           />
           <QuickAction
             title="充值审核"
             icon={<DollarSign className="w-6 h-6" />}
-            onClick={() => navigate('/admin/deposits')}
+            onClick={() => navigate('/deposit-review')}
           />
           <QuickAction
             title="提现审核"
             icon={<TrendingUp className="w-6 h-6" />}
-            onClick={() => navigate('/admin/withdrawals')}
+            onClick={() => navigate('/withdrawal-review')}
           />
         </div>
       </div>
