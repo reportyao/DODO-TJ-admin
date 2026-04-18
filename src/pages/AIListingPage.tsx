@@ -39,7 +39,7 @@ import {
 import { Sparkles, ListTodo, Trash2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-import { adminSSEFetch, adminInsert } from '@/lib/adminApi';
+import { adminSSEFetch, adminInsert, adminDelete } from '@/lib/adminApi';
 import { auditLog } from '@/lib/auditLogger';
 import { TaskCreationForm } from '@/components/AIListing/TaskCreationForm';
 import { TaskProgressCard } from '@/components/AIListing/TaskProgressCard';
@@ -482,18 +482,27 @@ export default function AIListingPage() {
         sku: null,
         barcode: null,
         status: 'ACTIVE',
-        // 新增：保存 AI 商品理解数据
-        ai_understanding: editedResult.analysis?.ai_understanding ? {
-          ...editedResult.analysis.ai_understanding,
-          generated_at: new Date().toISOString(),
-          generated_by: 'ai-listing-generate',
-          model_used: 'qwen3.5-plus',
-        } : null,
+        // 新增：保存 AI 商品理解数据（直接使用 Edge Function 返回的完整数据，不再覆盖元数据）
+        ai_understanding: editedResult.analysis?.ai_understanding || null,
       };
 
       // [修复] 使用 adminInsert RPC 绕过 RLS 限制
       const insertResult = await adminInsert(supabase, 'inventory_products', productData);
       const insertedId = insertResult?.id || (Array.isArray(insertResult) ? insertResult[0]?.id : null) || 'unknown';
+
+      // [v2.1] 创建 product_categories 关联（如果有分类 ID）
+      if (task.categoryId && insertedId !== 'unknown') {
+        try {
+          await adminInsert(supabase, 'product_categories', {
+            product_id: insertedId,
+            category_id: task.categoryId,
+          });
+          console.log(`[AIListing] 已创建 product_categories 关联: product=${insertedId}, category=${task.categoryId}`);
+        } catch (catErr: any) {
+          // 分类关联失败不影响主流程，仅记录警告
+          console.warn('[AIListing] 创建 product_categories 关联失败:', catErr.message);
+        }
+      }
 
       const duration = Date.now() - startTime;
 
@@ -510,7 +519,7 @@ export default function AIListingPage() {
           product_name: task.productName,
           ai_images_count: selectedImages.length,
           original_images_count: task.imageUrls.length,
-          ai_model_used: 'qwen-vl-max + qwen-plus + wanx-background-generation-v2',
+          ai_model_used: 'qwen3-vl-max + qwen3-max + wanx-background-generation-v2',
           generation_duration_ms: task.completedAt
             ? task.completedAt.getTime() - task.createdAt.getTime()
             : undefined,

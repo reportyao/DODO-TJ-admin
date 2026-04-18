@@ -103,7 +103,8 @@ export interface AITask {
   stage: string;                 // 当前阶段描述
   // 输入
   imageUrls: string[];           // 已上传到 Storage 的图片 URL
-  category: string;
+  category: string;              // 分类名称（用于AI分析和显示）
+  categoryId?: string;           // [v2.1] homepage_categories 表的 ID（用于入库时创建 product_categories 关联）
   productName: string;
   specs: string;
   price: number;
@@ -128,16 +129,6 @@ export interface SSEEventData {
   error?: string;
 }
 
-// 品类预设列表
-export const CATEGORY_OPTIONS = [
-  '服装',
-  '鞋靴',
-  '箱包',
-  '美妆',
-  '家居',
-  '数码',
-  '食品',
-  '母婴',
-] as const;
-
-export type CategoryOption = (typeof CATEGORY_OPTIONS)[number];
+// [v2.1 修复] 品类不再硬编码，改为从 homepage_categories 表动态获取
+// 旧的 CATEGORY_OPTIONS 已废弃，分类数据统一使用首页场景化分类管理
+// 参见 TaskCreationForm.tsx 中的 fetchCategories()

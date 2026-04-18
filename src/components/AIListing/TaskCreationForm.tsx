@@ -9,7 +9,7 @@
  * UI 风格：与现有管理后台一致（Card 容器 + TailwindCSS）
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,8 +25,17 @@ import {
 import { Upload, X, Loader2, GripVertical, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { uploadImage } from '@/lib/uploadImage';
-import { CATEGORY_OPTIONS } from '@/types/aiListing';
+import { useSupabase } from '@/contexts/SupabaseContext';
+import { adminQuery } from '@/lib/adminApi';
 import type { AITask } from '@/types/aiListing';
+import type { I18nText } from '@/types/homepage';
+
+// 动态分类项类型（来自 homepage_categories 表）
+interface HomepageCategoryItem {
+  id: string;
+  code: string;
+  name_i18n: I18nText;
+}
 
 interface TaskCreationFormProps {
   onSubmit: (task: AITask) => void;
@@ -37,6 +46,32 @@ export const TaskCreationForm: React.FC<TaskCreationFormProps> = ({
   onSubmit,
   disabled = false,
 }) => {
+  const { supabase } = useSupabase();
+
+  // [v2.1] 动态分类数据（来自 homepage_categories 表）
+  const [categories, setCategories] = useState<HomepageCategoryItem[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const data = await adminQuery<HomepageCategoryItem>(supabase, 'homepage_categories', {
+          select: 'id, code, name_i18n',
+          filters: [{ col: 'is_active', op: 'eq', val: true }],
+          orderBy: 'sort_order',
+          orderAsc: true,
+        });
+        setCategories(data || []);
+      } catch (error) {
+        console.error('Failed to fetch homepage categories:', error);
+        toast.error('获取分类列表失败');
+      } finally {
+        setCategoriesLoading(false);
+      }
+    };
+    fetchCategories();
+  }, [supabase]);
+
   // 图片状态
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -217,6 +252,11 @@ export const TaskCreationForm: React.FC<TaskCreationFormProps> = ({
       return;
     }
 
+    // 查找匹配的分类 ID（用于入库时创建 product_categories 关联）
+    const matchedCategory = categories.find(
+      (cat) => (cat.name_i18n?.zh || cat.code) === finalCategory
+    );
+
     // 构造 AITask
     const task: AITask = {
       id: crypto.randomUUID(),
@@ -225,6 +265,7 @@ export const TaskCreationForm: React.FC<TaskCreationFormProps> = ({
       stage: '排队中...',
       imageUrls,
       category: finalCategory,
+      categoryId: matchedCategory?.id,
       productName: productName.trim(),
       specs: specs.trim(),
       price: priceNum,
@@ -244,7 +285,7 @@ export const TaskCreationForm: React.FC<TaskCreationFormProps> = ({
     setStock('');
     setNotes('');
     toast.success('任务已添加到队列');
-  }, [imageUrls, category, customCategory, productName, specs, price, stock, notes, onSubmit]);
+  }, [imageUrls, category, customCategory, productName, specs, price, stock, notes, categories, onSubmit]);
 
   return (
     <Card>
@@ -375,16 +416,18 @@ export const TaskCreationForm: React.FC<TaskCreationFormProps> = ({
 
         {/* ─── 基础信息表单 ─────────────────────────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* 品类 */}
+          {/* 品类（动态加载自首页场景化分类管理） */}
           <div className="space-y-2">
             <Label>品类 <span className="text-red-500">*</span></Label>
-            <Select value={category} onValueChange={setCategory}>
+            <Select value={category} onValueChange={setCategory} disabled={categoriesLoading}>
               <SelectTrigger>
-                <SelectValue placeholder="选择品类" />
+                <SelectValue placeholder={categoriesLoading ? '加载分类中...' : '选择品类'} />
               </SelectTrigger>
               <SelectContent>
-                {CATEGORY_OPTIONS.map((cat) => (
-                  <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                {categories.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.name_i18n?.zh || cat.code}>
+                    {cat.name_i18n?.zh || cat.code}
+                  </SelectItem>
                 ))}
                 <SelectItem value="__other__">其他（手动输入）</SelectItem>
               </SelectContent>
