@@ -519,7 +519,7 @@ export default function AIListingPage() {
           product_name: task.productName,
           ai_images_count: selectedImages.length,
           original_images_count: task.imageUrls.length,
-          ai_model_used: 'qwen3-vl-max + qwen3-max + wanx-background-generation-v2',
+          ai_model_used: (task.result?.analysis?.ai_understanding?.model_used || 'qwen3.6-plus(fallback)') + ' + wanx-background-generation-v2',
           generation_duration_ms: task.completedAt
             ? task.completedAt.getTime() - task.createdAt.getTime()
             : undefined,
