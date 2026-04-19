@@ -113,6 +113,8 @@ export interface AITask {
   // 输出
   result?: AIListingResult;
   errorMessage?: string;
+  // 服务端持久化任务 ID（用于 SSE 中断后从 DB 恢复）
+  taskId?: string;
   // 入库状态
   savedToInventory: boolean;
   // 时间
@@ -127,6 +129,7 @@ export interface SSEEventData {
   stage?: string;
   result?: AIListingResult;
   error?: string;
+  task_id?: string;
 }
 
 // [v2.1 修复] 品类不再硬编码，改为从 homepage_categories 表动态获取

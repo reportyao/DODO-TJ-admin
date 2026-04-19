@@ -39,7 +39,7 @@ import {
 import { Sparkles, ListTodo, Trash2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-import { adminSSEFetch, adminInsert, adminDelete } from '@/lib/adminApi';
+import { adminSSEFetch, adminInsert, adminDelete, adminQuery, adminUpdate } from '@/lib/adminApi';
 import { auditLog } from '@/lib/auditLogger';
 import { TaskCreationForm } from '@/components/AIListing/TaskCreationForm';
 import { TaskProgressCard } from '@/components/AIListing/TaskProgressCard';
@@ -52,6 +52,8 @@ const EDGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/ai-listing-generate`;
 // [修复] 使用 localStorage 替代 sessionStorage
 const STORAGE_KEY = 'ai_listing_tasks';
 const MAX_CONCURRENT = 2; // 最多同时处理 2 个任务
+const DB_POLL_INTERVAL = 5000;
+const TASK_TIMEOUT_MS = 15 * 60 * 1000;
 
 // ============================================================
 // 主组件
@@ -68,15 +70,22 @@ export default function AIListingPage() {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved) as any[];
-        return parsed.map((t: any) => ({
-          ...t,
-          createdAt: new Date(t.createdAt),
-          completedAt: t.completedAt ? new Date(t.completedAt) : undefined,
-          // [修复] 恢复时将 processing 状态重置为 queued（自动重新执行）
-          status: t.status === 'processing' ? 'queued' : t.status,
-          progress: t.status === 'processing' ? 0 : t.progress,
-          stage: t.status === 'processing' ? '排队中（自动恢复）...' : t.stage,
-        }));
+        return parsed.map((t: any) => {
+          const hasServerTask = !!t.taskId;
+          const shouldRecoverFromServer = t.status === 'processing' && hasServerTask;
+          const shouldRequeue = t.status === 'processing' && !hasServerTask;
+
+          return {
+            ...t,
+            createdAt: new Date(t.createdAt),
+            completedAt: t.completedAt ? new Date(t.completedAt) : undefined,
+            status: shouldRecoverFromServer ? 'processing' : (shouldRequeue ? 'queued' : t.status),
+            progress: shouldRecoverFromServer ? (t.progress || 0) : (shouldRequeue ? 0 : t.progress),
+            stage: shouldRecoverFromServer
+              ? '正在从服务器恢复任务状态...'
+              : (shouldRequeue ? '排队中（自动恢复）...' : t.stage),
+          };
+        });
       }
     } catch {
       // 解析失败忽略
@@ -93,6 +102,18 @@ export default function AIListingPage() {
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
   // 当前正在处理的任务数量
   const processingCountRef = useRef(0);
+  // 使用 ref 持有最新任务，避免 SSE 回调闭包陈旧
+  const tasksRef = useRef<AITask[]>(tasks);
+  // 标记是否已收到当前任务的 SSE 终态（done / partial / processing_images / error）
+  const taskReceivedFinalEventRef = useRef<Set<string>>(new Set());
+  // 标记当前是否仍占用并发槽位，避免重复释放导致计数异常
+  const activeExecutionIdsRef = useRef<Set<string>>(new Set());
+  // SSE 中断后使用 DB 轮询恢复任务状态
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
 
   // ─── [修复] 持久化到 localStorage ─────────────────────────
   useEffect(() => {
@@ -110,7 +131,7 @@ export default function AIListingPage() {
         (t) => (t.status === 'done' || t.status === 'partial') && !t.savedToInventory
       );
       const hasProcessing = tasks.some(
-        (t) => t.status === 'processing' || t.status === 'queued'
+        (t) => t.status === 'processing' || t.status === 'processing_images' || t.status === 'queued'
       );
       if (hasUnsaved || hasProcessing) {
         e.preventDefault();
@@ -127,6 +148,10 @@ export default function AIListingPage() {
     return () => {
       abortControllersRef.current.forEach((ctrl) => ctrl.abort());
       abortControllersRef.current.clear();
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -212,14 +237,211 @@ export default function AIListingPage() {
     );
   }, []);
 
+  const normalizeListingResult = useCallback((raw: any): AIListingResult => {
+    const enqueued = raw?.enqueued_images || 0;
+    const initialMarketingImages: NonNullable<AIListingResult['marketing_images']> =
+      Array.isArray(raw?.marketing_images) && raw?.marketing_images.length > 0
+        ? raw.marketing_images
+        : Array.from({ length: enqueued }, (_, i) => ({
+            id: `placeholder-${i}`,
+            url: '',
+            display_order: i,
+            status: 'pending' as const,
+          }));
+
+    return {
+      title_ru: raw?.title_ru || '',
+      title_zh: raw?.title_zh || '',
+      title_tg: raw?.title_tg || '',
+      bullets_ru: raw?.bullets_ru || [],
+      bullets_zh: raw?.bullets_zh || [],
+      bullets_tg: raw?.bullets_tg || [],
+      description_ru: raw?.description_ru || '',
+      description_zh: raw?.description_zh || '',
+      description_tg: raw?.description_tg || '',
+      background_images: raw?.background_images || [],
+      marketing_images: initialMarketingImages,
+      parent_task_id: raw?.parent_task_id || null,
+      enqueued_images: enqueued,
+      segmented_image: raw?.segmented_image || null,
+      original_images: raw?.original_images || [],
+      analysis: {
+        product_type: raw?.analysis?.product_type,
+        main_color: raw?.analysis?.main_color,
+        material_guess: raw?.material_guess || raw?.analysis?.material_guess || null,
+        key_features: raw?.analysis?.key_features,
+        use_scenes: raw?.analysis?.use_scenes,
+        target_audience: raw?.analysis?.target_audience,
+        selling_points: raw?.analysis?.selling_points,
+        ai_understanding: raw?.analysis?.ai_understanding || undefined,
+      },
+    };
+  }, []);
+
+  useEffect(() => {
+    const now = Date.now();
+    const needsPoll = tasks.some((t) => {
+      if (t.status !== 'processing' || !t.taskId) return false;
+      const noSSE = !abortControllersRef.current.has(t.id);
+      const timedOut = (now - new Date(t.createdAt).getTime()) > TASK_TIMEOUT_MS;
+      return noSSE || timedOut;
+    });
+
+    if (!needsPoll) {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+      return;
+    }
+
+    if (!pollTimerRef.current) {
+      const pollFn = async () => {
+        const currentTasks = tasksRef.current;
+        const now2 = Date.now();
+        const pollCandidates = currentTasks.filter((t) => {
+          if (t.status !== 'processing' || !t.taskId) return false;
+          const noSSE = !abortControllersRef.current.has(t.id);
+          const timedOut = (now2 - new Date(t.createdAt).getTime()) > TASK_TIMEOUT_MS;
+          return noSSE || timedOut;
+        });
+
+        if (pollCandidates.length === 0) {
+          if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
+          }
+          return;
+        }
+
+        try {
+          for (const task of pollCandidates) {
+            const dbTasks = await adminQuery<any>(supabase, 'ai_listing_generation_tasks', {
+              select: 'id, status, result_payload, error_message, completed_at, created_at',
+              filters: [{ col: 'id', op: 'eq', val: task.taskId! }],
+              limit: 1,
+            });
+
+            if (!dbTasks || dbTasks.length === 0) continue;
+
+            const dbTask = dbTasks[0];
+            if (dbTask.status === 'done' || dbTask.status === 'partial') {
+              updateTask(task.id, {
+                status: dbTask.status,
+                progress: 100,
+                stage: dbTask.status === 'done' ? '全部完成' : '部分完成（仅文案）',
+                result: normalizeListingResult(dbTask.result_payload || {}),
+                completedAt: dbTask.completed_at ? new Date(dbTask.completed_at) : new Date(),
+              });
+              if (activeExecutionIdsRef.current.has(task.id)) {
+                activeExecutionIdsRef.current.delete(task.id);
+                abortControllersRef.current.delete(task.id);
+                processingCountRef.current = Math.max(0, processingCountRef.current - 1);
+              }
+              toast.success(`"${task.productName}" AI 生成完成！`);
+              continue;
+            }
+
+            if (dbTask.status === 'processing_images') {
+              const recoveredResult = normalizeListingResult(dbTask.result_payload || {});
+              updateTask(task.id, {
+                status: 'processing_images',
+                progress: 100,
+                stage: `文案完成，正在后台生成 ${recoveredResult.enqueued_images || 0} 张俄文营销海报…`,
+                result: recoveredResult,
+              });
+              if (activeExecutionIdsRef.current.has(task.id)) {
+                activeExecutionIdsRef.current.delete(task.id);
+                abortControllersRef.current.delete(task.id);
+                processingCountRef.current = Math.max(0, processingCountRef.current - 1);
+              }
+              continue;
+            }
+
+            if (dbTask.status === 'error') {
+              updateTask(task.id, {
+                status: 'error',
+                progress: 0,
+                stage: '生成失败',
+                errorMessage: dbTask.error_message || '未知错误',
+                completedAt: dbTask.completed_at ? new Date(dbTask.completed_at) : new Date(),
+              });
+              if (activeExecutionIdsRef.current.has(task.id)) {
+                activeExecutionIdsRef.current.delete(task.id);
+                abortControllersRef.current.delete(task.id);
+                processingCountRef.current = Math.max(0, processingCountRef.current - 1);
+              }
+              toast.error(`"${task.productName}" 生成失败`);
+              continue;
+            }
+
+            if (dbTask.status === 'processing') {
+              const taskAge = now2 - new Date(dbTask.created_at || task.createdAt).getTime();
+              if (taskAge > TASK_TIMEOUT_MS) {
+                try {
+                  await adminUpdate(supabase, 'ai_listing_generation_tasks', {
+                    status: 'error',
+                    error_message: '任务超时（超过15分钟未完成）',
+                    completed_at: new Date().toISOString(),
+                  }, [
+                    { col: 'id', op: 'eq', val: task.taskId! },
+                  ]);
+                } catch (persistError) {
+                  console.error('[AIListing] 更新超时任务状态失败:', persistError);
+                }
+
+                updateTask(task.id, {
+                  status: 'error',
+                  progress: 0,
+                  stage: '生成超时',
+                  errorMessage: '任务超时（超过15分钟未完成），请重新尝试',
+                });
+                if (activeExecutionIdsRef.current.has(task.id)) {
+                  activeExecutionIdsRef.current.delete(task.id);
+                  abortControllersRef.current.delete(task.id);
+                  processingCountRef.current = Math.max(0, processingCountRef.current - 1);
+                }
+                toast.error(`"${task.productName}" 生成超时，请重试`);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('[AIListing] DB 轮询失败:', error);
+        }
+      };
+
+      pollTimerRef.current = setInterval(pollFn, DB_POLL_INTERVAL);
+      pollFn();
+    }
+
+    return () => {
+      // 由上方定时器统一管理生命周期
+    };
+  }, [tasks, supabase, normalizeListingResult, updateTask]);
+
+  const finalizeTaskExecution = useCallback((taskId: string) => {
+    if (!activeExecutionIdsRef.current.has(taskId)) {
+      return;
+    }
+
+    activeExecutionIdsRef.current.delete(taskId);
+    abortControllersRef.current.delete(taskId);
+    processingCountRef.current = Math.max(0, processingCountRef.current - 1);
+  }, []);
+
   // ─── SSE 执行单个任务 ──────────────────────────────────────
   const executeTask = useCallback(
     (task: AITask) => {
-      // 标记为 processing
+      taskReceivedFinalEventRef.current.delete(task.id);
+      activeExecutionIdsRef.current.add(task.id);
+
       updateTask(task.id, {
         status: 'processing',
         progress: 5,
         stage: '正在连接 AI 服务...',
+        errorMessage: undefined,
+        taskId: undefined,
+        completedAt: undefined,
       });
 
       const controller = adminSSEFetch(
@@ -235,72 +457,40 @@ export default function AIListingPage() {
         // onEvent
         (data: SSEEventData) => {
           if (data.status === 'processing') {
-            updateTask(task.id, {
+            const updates: Partial<AITask> = {
               status: 'processing',
               progress: data.progress || 0,
               stage: data.stage || '处理中...',
-            });
-          } else if (
+            };
+            if (data.task_id) {
+              updates.taskId = data.task_id;
+            }
+            updateTask(task.id, updates);
+            return;
+          }
+
+          if (
             data.status === 'done' ||
             data.status === 'partial' ||
             data.status === 'processing_images'
           ) {
-            const r = data.result;
-            const enqueued = r?.enqueued_images || 0;
-            // v2.0：根据 enqueued_images 初始化 marketing_images 占位行，方便 UI 展示进度
-            const initialMarketingImages: NonNullable<AIListingResult['marketing_images']> =
-              Array.isArray(r?.marketing_images) && r?.marketing_images.length > 0
-                ? r!.marketing_images!
-                : Array.from({ length: enqueued }, (_, i) => ({
-                    id: `placeholder-${i}`,
-                    url: '',
-                    display_order: i,
-                    status: 'pending' as const,
-                  }));
+            taskReceivedFinalEventRef.current.add(task.id);
 
-            const result: AIListingResult = {
-              title_ru: r?.title_ru || '',
-              title_zh: r?.title_zh || '',
-              title_tg: r?.title_tg || '',
-              bullets_ru: r?.bullets_ru || [],
-              bullets_zh: r?.bullets_zh || [],
-              bullets_tg: r?.bullets_tg || [],
-              description_ru: r?.description_ru || '',
-              description_zh: r?.description_zh || '',
-              description_tg: r?.description_tg || '',
-              background_images: r?.background_images || [],
-              marketing_images: initialMarketingImages,
-              parent_task_id: r?.parent_task_id || null,
-              enqueued_images: enqueued,
-              segmented_image: r?.segmented_image || null,
-              original_images: r?.original_images || [],
-              analysis: {
-                product_type: r?.analysis?.product_type,
-                main_color: r?.analysis?.main_color,
-                material_guess: (r as any)?.material_guess || r?.analysis?.material_guess || null,
-                key_features: r?.analysis?.key_features,
-                use_scenes: r?.analysis?.use_scenes,
-                target_audience: r?.analysis?.target_audience,
-                selling_points: r?.analysis?.selling_points,
-                ai_understanding: r?.analysis?.ai_understanding || undefined,
-              },
-            };
-
+            const result = normalizeListingResult(data.result || {});
+            const enqueued = result.enqueued_images || 0;
             const isImageProcessing = data.status === 'processing_images';
             updateTask(task.id, {
               status: isImageProcessing ? 'processing_images' : (data.status as any),
-              progress: isImageProcessing ? 100 : 100,
+              progress: 100,
               stage: isImageProcessing
                 ? `文案完成，正在后台生成 ${enqueued} 张俄文营销海报…`
                 : (data.status === 'done' ? '全部完成' : '部分完成（仅文案）'),
               result,
+              taskId: data.task_id,
               completedAt: isImageProcessing ? undefined : new Date(),
             });
 
-            // 清理 SSE controller，减少占用（无论是否 processing_images，后台均由 Realtime 接手）
-            abortControllersRef.current.delete(task.id);
-            processingCountRef.current = Math.max(0, processingCountRef.current - 1);
-
+            finalizeTaskExecution(task.id);
             processNextTask();
 
             if (data.status === 'done') {
@@ -308,52 +498,107 @@ export default function AIListingPage() {
             } else if (data.status === 'partial') {
               toast(`"${task.productName}" 部分完成`, { icon: '⚠️' });
             } else {
-              toast.success(
-                `"${task.productName}" 文案已完成，正在后台生成 ${enqueued} 张俄文海报`
-              );
+              toast.success(`"${task.productName}" 文案已完成，后台海报正在继续生成`);
             }
-          } else if (data.status === 'error') {
+            return;
+          }
+
+          if (data.status === 'error') {
+            taskReceivedFinalEventRef.current.add(task.id);
+
             updateTask(task.id, {
               status: 'error',
               progress: 0,
               stage: '生成失败',
               errorMessage: data.error || '未知错误',
+              taskId: data.task_id,
             });
 
-            abortControllersRef.current.delete(task.id);
-            processingCountRef.current = Math.max(0, processingCountRef.current - 1);
+            finalizeTaskExecution(task.id);
             processNextTask();
-
             toast.error(`"${task.productName}" 生成失败`);
           }
         },
         // onError
         (error: Error) => {
+          const currentTask = tasksRef.current.find((t) => t.id === task.id);
+
+          if (currentTask?.result?.parent_task_id || currentTask?.status === 'processing_images') {
+            updateTask(task.id, {
+              status: 'processing_images',
+              progress: 100,
+              stage: 'SSE 连接中断，后台海报仍在生成中…',
+            });
+          } else if (currentTask?.taskId) {
+            updateTask(task.id, {
+              status: 'processing',
+              stage: '连接中断，正在从服务器恢复结果...',
+            });
+          } else {
+            updateTask(task.id, {
+              status: 'error',
+              progress: 0,
+              stage: '连接失败',
+              errorMessage: error.message || '网络连接中断，请重试',
+            });
+            toast.error(`"${task.productName}" 连接失败`);
+          }
+
+          finalizeTaskExecution(task.id);
+          processNextTask();
+        },
+        // onStreamEnd
+        () => {
+          const currentTask = tasksRef.current.find((t) => t.id === task.id);
+          const receivedFinal = taskReceivedFinalEventRef.current.has(task.id);
+
+          finalizeTaskExecution(task.id);
+          processNextTask();
+
+          if (receivedFinal) {
+            return;
+          }
+
+          if (currentTask?.result?.parent_task_id || currentTask?.status === 'processing_images') {
+            updateTask(task.id, {
+              status: 'processing_images',
+              progress: 100,
+              stage: '连接已关闭，后台海报仍在生成中，等待实时回传…',
+            });
+            return;
+          }
+
+          if (currentTask?.taskId) {
+            updateTask(task.id, {
+              status: 'processing',
+              stage: 'SSE 连接已关闭，正在从服务器查询结果...',
+            });
+            return;
+          }
+
           updateTask(task.id, {
             status: 'error',
             progress: 0,
-            stage: '连接失败',
-            errorMessage: error.message || '网络连接中断，请重试',
+            stage: '生成失败',
+            errorMessage: '服务器连接已关闭但未返回结果，请重试',
           });
-
-          abortControllersRef.current.delete(task.id);
-          processingCountRef.current = Math.max(0, processingCountRef.current - 1);
-          processNextTask();
+          toast.error(`"${task.productName}" 未收到最终结果，请重试`);
         }
       );
 
       abortControllersRef.current.set(task.id, controller);
     },
-    [updateTask]
+    [updateTask, finalizeTaskExecution, normalizeListingResult]
   );
 
   // ─── 处理队列中的下一个任务（支持 2 并发） ─────────────────
+
   const processNextTask = useCallback(() => {
     // 如果已达到最大并发数，不启动新任务
     if (processingCountRef.current >= MAX_CONCURRENT) return;
 
     setTasks((prev) => {
-      const queuedTasks = prev.filter((t) => t.status === 'queued');
+      const queuedTasks = prev.filter((t) => t.status === 'queued' && !activeExecutionIdsRef.current.has(t.id));
       // 可以启动的任务数量
       const slotsAvailable = MAX_CONCURRENT - processingCountRef.current;
       const tasksToStart = queuedTasks.slice(0, slotsAvailable);
@@ -637,7 +882,7 @@ export default function AIListingPage() {
   const stats = {
     total: tasks.length,
     queued: tasks.filter((t) => t.status === 'queued').length,
-    processing: tasks.filter((t) => t.status === 'processing').length,
+    processing: tasks.filter((t) => t.status === 'processing' || t.status === 'processing_images').length,
     done: tasks.filter((t) => t.status === 'done' || t.status === 'partial').length,
     error: tasks.filter((t) => t.status === 'error').length,
     saved: tasks.filter((t) => t.savedToInventory).length,
