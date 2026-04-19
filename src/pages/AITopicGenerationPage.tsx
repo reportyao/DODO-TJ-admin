@@ -1817,7 +1817,7 @@ function TopicResultPreview({
             <div className="flex gap-3 overflow-x-auto pb-2">
               {editedResult.cover_image_urls.map((url, i) => (
                 <button
-                  key={i}
+                  key={url}
                   onClick={() => selectCoverImage(url)}
                   className={`relative flex-shrink-0 rounded-lg overflow-hidden border-2 transition-all ${
                     editedResult.cover_image_url === url

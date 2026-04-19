@@ -181,7 +181,7 @@ export const MultiImageUpload: React.FC<MultiImageUploadProps> = ({
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4">
           {safeImageUrls.map((url, index) => (
             <div
-              key={`image-${index}-${url.slice(-20)}`}
+              key={url}
               className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${
                 dragOverIndex === index ? 'border-blue-500 scale-105' : 'border-gray-300'
               } ${draggedIndex === index ? 'opacity-50' : ''}`}

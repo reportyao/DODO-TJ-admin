@@ -790,9 +790,17 @@ export default function AIListingPage() {
       setSaving(true);
       try {
         await saveTaskToInventory(task, editedResult, selectedImages);
-        updateTask(viewingTaskId, { savedToInventory: true });
+
+        // 先关闭 Dialog，再延迟更新任务状态，避免 React 列表重渲染与 Radix Portal 卸载竞争
+        // 导致 removeChild / insertBefore 一类 DOM 异常。
         setViewingTaskId(null);
         toast.success(`"${task.productName}" 已成功入库！`);
+
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            updateTask(viewingTaskId, { savedToInventory: true });
+          }, 300);
+        });
       } catch (error: any) {
         console.error('[AIListing] 入库失败:', error);
         toast.error('入库失败: ' + (error.message || '未知错误'));
