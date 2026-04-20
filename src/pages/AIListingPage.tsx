@@ -101,7 +101,11 @@ export default function AIListingPage() {
   });
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
+  const [previewTask, setPreviewTask] = useState<{
+    id: string;
+    productName: string;
+    result: AIListingResult;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [batchSaving, setBatchSaving] = useState(false);
 
@@ -660,7 +664,19 @@ export default function AIListingPage() {
 
   // ─── 查看结果 ──────────────────────────────────────────────
   const handleViewResult = useCallback((taskId: string) => {
-    setViewingTaskId(taskId);
+    const task = tasksRef.current.find((t) => t.id === taskId);
+    if (!task?.result) {
+      toast.error('该任务暂无可查看结果');
+      return;
+    }
+
+    // 使用快照驱动弹窗，避免任务列表后续重渲染直接改写 Dialog 子树，
+    // 从而降低 React 19 + Radix Portal 在卸载阶段触发 removeChild 的概率。
+    setPreviewTask({
+      id: task.id,
+      productName: task.productName,
+      result: task.result,
+    });
   }, []);
 
   // ─── 选择/取消选择任务 ─────────────────────────────────────
@@ -802,9 +818,10 @@ export default function AIListingPage() {
   // ─── 从预览弹窗入库 ────────────────────────────────────────
   const handleSaveFromPreview = useCallback(
     async (editedResult: AIListingResult, selectedImages: string[]) => {
-      if (!viewingTaskId) return;
+      if (!previewTask) return;
 
-      const task = tasks.find((t) => t.id === viewingTaskId);
+      const previewTaskId = previewTask.id;
+      const task = tasks.find((t) => t.id === previewTaskId);
       if (!task) return;
 
       setSaving(true);
@@ -813,12 +830,12 @@ export default function AIListingPage() {
 
         // 先关闭 Dialog，再延迟更新任务状态，避免 React 列表重渲染与 Radix Portal 卸载竞争
         // 导致 removeChild / insertBefore 一类 DOM 异常。
-        setViewingTaskId(null);
+        setPreviewTask(null);
         toast.success(`"${task.productName}" 已成功入库！`);
 
         requestAnimationFrame(() => {
           setTimeout(() => {
-            updateTask(viewingTaskId, { savedToInventory: true });
+            updateTask(previewTaskId, { savedToInventory: true });
           }, 300);
         });
       } catch (error: any) {
@@ -828,7 +845,7 @@ export default function AIListingPage() {
         setSaving(false);
       }
     },
-    [viewingTaskId, tasks, saveTaskToInventory, updateTask]
+    [previewTask, tasks, saveTaskToInventory, updateTask]
   );
 
   // ─── 批量入库 ──────────────────────────────────────────────
@@ -898,13 +915,10 @@ export default function AIListingPage() {
       next.delete(taskId);
       return next;
     });
-    if (viewingTaskId === taskId) {
-      setViewingTaskId(null);
+    if (previewTask?.id === taskId) {
+      setPreviewTask(null);
     }
-  }, [viewingTaskId]);
-
-  // ─── 当前查看的任务 ────────────────────────────────────────
-  const viewingTask = viewingTaskId ? tasks.find((t) => t.id === viewingTaskId) : null;
+  }, [previewTask]);
 
   // ─── 统计 ──────────────────────────────────────────────────
   const stats = {
@@ -1031,22 +1045,22 @@ export default function AIListingPage() {
 
       {/* ─── 结果预览弹窗 ─────────────────────────────────── */}
       <Dialog
-        open={!!viewingTask?.result}
+        open={!!previewTask}
         onOpenChange={(open) => {
-          if (!open) setViewingTaskId(null);
+          if (!open) setPreviewTask(null);
         }}
       >
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {viewingTask?.productName} — AI 生成结果
+              {previewTask?.productName} — AI 生成结果
             </DialogTitle>
           </DialogHeader>
-          {viewingTask?.result && (
+          {previewTask?.result && (
             <TaskResultPreview
-              result={viewingTask.result}
+              result={previewTask.result}
               onSave={handleSaveFromPreview}
-              onDiscard={() => setViewingTaskId(null)}
+              onDiscard={() => setPreviewTask(null)}
               saving={saving}
             />
           )}

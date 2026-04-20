@@ -125,27 +125,36 @@ export default function AITopicGenerationPage() {
 
   // ─── 核心状态 ──────────────────────────────────────────────
   // [修复] 使用 localStorage 替代 sessionStorage
-  // [修复v2] 恢复时直接重置 processing 为 queued，重新进入执行队列（避免 recovering 伪状态卡死）
+  // [v10 修复] 若本地任务已经拿到后端 taskId，则优先进入 recovering，改由服务器持久化任务恢复；
+  // 只有尚未创建后端任务的本地 processing/recovering 任务才会重新排队，避免刷新后重复生成。
   const [tasks, setTasks] = useState<AITopicTask[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved) as any[];
-        return parsed.map((t: any) => ({
-          ...t,
-          createdAt: new Date(t.createdAt),
-          completedAt: t.completedAt ? new Date(t.completedAt) : undefined,
-          // 恢复时：processing / recovering → queued（重新排队执行），其他状态保持不变
-          status: (t.status === 'processing' || t.status === 'recovering') ? 'queued' : t.status,
-          progress: (t.status === 'processing' || t.status === 'recovering') ? 0 : t.progress,
-          stage: (t.status === 'processing' || t.status === 'recovering') ? '排队中（自动恢复）...' : t.stage,
-        }));
+        return parsed.map((t: any) => {
+          const hasServerTask = !!t.taskId;
+          const shouldRecover = (t.status === 'processing' || t.status === 'recovering') && hasServerTask;
+          const shouldRequeue = (t.status === 'processing' || t.status === 'recovering') && !hasServerTask;
+
+          return {
+            ...t,
+            createdAt: new Date(t.createdAt),
+            serverCreatedAt: t.serverCreatedAt ? new Date(t.serverCreatedAt) : undefined,
+            completedAt: t.completedAt ? new Date(t.completedAt) : undefined,
+            status: shouldRecover ? 'recovering' : (shouldRequeue ? 'queued' : t.status),
+            progress: shouldRecover ? (t.progress || 5) : (shouldRequeue ? 0 : t.progress),
+            stage: shouldRecover
+              ? '正在从服务器恢复任务状态...'
+              : (shouldRequeue ? '排队中（自动恢复）...' : t.stage),
+          };
+        });
       }
     } catch { /* ignore */ }
     return [];
   });
 
-  const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
+  const [previewTask, setPreviewTask] = useState<AITopicTask | null>(null);
   const [saving, setSaving] = useState(false);
   // [修复] 标记是否已从 DB 加载历史任务
   const [dbLoaded, setDbLoaded] = useState(false);
@@ -188,7 +197,7 @@ export default function AITopicGenerationPage() {
         (t) => (t.status === 'done' || t.status === 'partial') && !t.savedAsDraft
       );
       const hasProcessing = tasks.some(
-        (t) => t.status === 'processing' || t.status === 'queued'
+        (t) => t.status === 'processing' || t.status === 'recovering' || t.status === 'queued'
       );
       if (hasUnsaved || hasProcessing) {
         e.preventDefault();
@@ -299,6 +308,7 @@ export default function AITopicGenerationPage() {
               savedAsDraft: !!dbTask.topic_id,
               savedTopicId: dbTask.topic_id || undefined,
               createdAt: new Date(dbTask.created_at),
+              serverCreatedAt: new Date(dbTask.created_at),
               completedAt: dbTask.completed_at ? new Date(dbTask.completed_at) : undefined,
             });
           }
@@ -332,12 +342,14 @@ export default function AITopicGenerationPage() {
     //   A. 有 taskId 且 processing 且没有活跃 SSE 连接（SSE 断开后的兜底）
     //   B. 有 taskId 且 processing 且已超时（SSE 可能卡死）
     const now = Date.now();
-    const needsPoll = tasks.filter(t => {
-      if (t.status !== 'processing' || !t.taskId) return false;
+      const needsPoll = tasks.filter(t => {
+      if ((t.status !== 'processing' && t.status !== 'recovering') || !t.taskId) return false;
       const noSSE = !abortControllersRef.current.has(t.id);
-      const timedOut = (now - new Date(t.createdAt).getTime()) > TASK_TIMEOUT_MS;
+      const startedAt = t.serverCreatedAt || t.createdAt;
+      const timedOut = (now - new Date(startedAt).getTime()) > TASK_TIMEOUT_MS;
       return noSSE || timedOut;
     });
+
 
     if (needsPoll.length === 0) {
       if (pollTimerRef.current) {
@@ -352,12 +364,14 @@ export default function AITopicGenerationPage() {
         // [v4 修复] 从 ref 读取最新 tasks，避免闭包陈旧
         const currentTasks = tasksRef.current;
         const now2 = Date.now();
-        const pollCandidates = currentTasks.filter(t => {
-          if (t.status !== 'processing' || !t.taskId) return false;
+          const pollCandidates = currentTasks.filter(t => {
+          if ((t.status !== 'processing' && t.status !== 'recovering') || !t.taskId) return false;
           const noSSE = !abortControllersRef.current.has(t.id);
-          const timedOut = (now2 - new Date(t.createdAt).getTime()) > TASK_TIMEOUT_MS;
+          const startedAt = t.serverCreatedAt || t.createdAt;
+          const timedOut = (now2 - new Date(startedAt).getTime()) > TASK_TIMEOUT_MS;
           return noSSE || timedOut;
         });
+
 
         if (pollCandidates.length === 0) {
           if (pollTimerRef.current) {
@@ -371,7 +385,7 @@ export default function AITopicGenerationPage() {
           for (const task of pollCandidates) {
             const taskId = task.taskId!;
             const dbTasks = await adminQuery<any>(supabase, 'ai_topic_generation_tasks', {
-              select: 'id, status, result_payload, error_message, completed_at, topic_id',
+              select: 'id, status, result_payload, error_message, created_at, completed_at, topic_id',
               filters: [{ col: 'id', op: 'eq', val: taskId }],
               limit: 1,
             });
@@ -394,6 +408,7 @@ export default function AITopicGenerationPage() {
                       progress: 100,
                       stage: dbTask.status === 'done' ? '全部完成' : '部分完成（请检查质量警告）',
                       result: dbTask.result_payload || t.result,
+                      serverCreatedAt: dbTask.created_at ? new Date(dbTask.created_at) : (t.serverCreatedAt || t.createdAt),
                       completedAt: dbTask.completed_at ? new Date(dbTask.completed_at) : new Date(),
                       savedTopicId: dbTask.topic_id || t.savedTopicId,
                       savedAsDraft: !!dbTask.topic_id || t.savedAsDraft,
@@ -494,6 +509,7 @@ export default function AITopicGenerationPage() {
         taskId: undefined,
         errorMessage: undefined,
         result: undefined,
+        serverCreatedAt: undefined,
         completedAt: undefined,
         createdAt: new Date(),
       });
@@ -523,6 +539,7 @@ export default function AITopicGenerationPage() {
             };
             if (data.task_id) {
               updates.taskId = data.task_id;
+              updates.serverCreatedAt = tasksRef.current.find(t => t.id === task.id)?.serverCreatedAt || new Date();
             }
             updateTask(task.id, updates);
           } else if (data.status === 'done' || data.status === 'partial') {
@@ -567,7 +584,7 @@ export default function AITopicGenerationPage() {
           if (currentTask?.taskId) {
             // 有 taskId，保持 processing 状态，让 DB 轮询兜底
             updateTask(task.id, {
-              status: 'processing',
+              status: 'recovering',
               stage: '连接中断，正在从服务器恢复...',
             });
           } else {
@@ -602,7 +619,7 @@ export default function AITopicGenerationPage() {
           if (currentTask?.taskId) {
             // 有 taskId，保持 processing，DB 轮询会接管恢复
             updateTask(task.id, {
-              status: 'processing',
+              status: 'recovering',
               stage: 'SSE 连接已关闭，正在从服务器查询结果...',
             });
           } else {
@@ -626,7 +643,7 @@ export default function AITopicGenerationPage() {
   // ─── 当 tasks 变化时检查是否有待处理任务（一次只处理一个）──
   // [v4 修复] 包含 queued 状态（含自动恢复的任务）
   useEffect(() => {
-    const hasProcessing = tasks.some((t) => t.status === 'processing');
+    const hasProcessing = tasks.some((t) => t.status === 'processing' || t.status === 'recovering');
     if (hasProcessing) return;
 
     const nextQueued = tasks.find((t) => t.status === 'queued');
@@ -776,7 +793,10 @@ export default function AITopicGenerationPage() {
       errorMessage: undefined,
       result: undefined,
       taskId: undefined,
+      serverCreatedAt: undefined,
       completedAt: undefined,
+      savedAsDraft: false,
+      savedTopicId: undefined,
     });
   };
 
@@ -794,7 +814,7 @@ export default function AITopicGenerationPage() {
     }
     // 立即从本地状态移除（UI 即时响应）
     setTasks(prev => prev.filter(t => t.id !== taskId));
-    if (viewingTaskId === taskId) setViewingTaskId(null);
+    if (previewTask?.id === taskId) setPreviewTask(null);
 
     // 如果任务有后端 taskId，同步从数据库删除
     if (taskToDelete?.taskId) {
@@ -997,7 +1017,7 @@ export default function AITopicGenerationPage() {
       // 避免 React DOM reconciliation 与 Radix Dialog Portal 卸载的竞争条件
       // （savedAsDraft 切换会在 Dialog 内部将 <Button> 替换为 <span>，
       //  同时 Portal 正在卸载子树，导致 insertBefore 错误）
-      setViewingTaskId(null);
+      setPreviewTask(null);
       toast.success('专题草稿创建成功！请到专题管理页面继续编辑和发布。');
 
       // [修复] 使用 requestAnimationFrame + setTimeout 确保 Dialog 完全卸载后再更新任务状态
@@ -1050,14 +1070,20 @@ export default function AITopicGenerationPage() {
   const stats = useMemo(() => ({
     total: tasks.length,
     queued: tasks.filter(t => t.status === 'queued').length,
-    processing: tasks.filter(t => t.status === 'processing').length,
+    processing: tasks.filter(t => t.status === 'processing' || t.status === 'recovering').length,
     done: tasks.filter(t => t.status === 'done' || t.status === 'partial').length,
     error: tasks.filter(t => t.status === 'error').length,
     saved: tasks.filter(t => t.savedAsDraft).length,
   }), [tasks]);
 
-  // ─── 当前查看的任务 ────────────────────────────────────────
-  const viewingTask = viewingTaskId ? tasks.find(t => t.id === viewingTaskId) : null;
+  const openPreview = useCallback((taskId: string) => {
+    const task = tasksRef.current.find(t => t.id === taskId);
+    if (!task?.result) {
+      toast.error('该任务暂无可查看结果');
+      return;
+    }
+    setPreviewTask(task);
+  }, []);
 
   // ============================================================
   // 渲染
@@ -1361,7 +1387,7 @@ export default function AITopicGenerationPage() {
                   <TopicTaskCard
                     key={task.id}
                     task={task}
-                    onViewResult={() => setViewingTaskId(task.id)}
+                    onViewResult={() => openPreview(task.id)}
                     onRetry={() => handleRetry(task.id)}
                     onDelete={() => handleDeleteTask(task.id)}
                   />
@@ -1374,9 +1400,9 @@ export default function AITopicGenerationPage() {
 
       {/* ─── 结果预览弹窗 ─────────────────────────────────── */}
       <Dialog
-        open={!!viewingTask?.result}
+        open={!!previewTask?.result}
         onOpenChange={(open) => {
-          if (!open) setViewingTaskId(null);
+          if (!open) setPreviewTask(null);
         }}
       >
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -1386,12 +1412,12 @@ export default function AITopicGenerationPage() {
               AI 专题草稿预览
             </DialogTitle>
           </DialogHeader>
-          {viewingTask?.result && (
+          {previewTask?.result && (
             <TopicResultPreview
-              task={viewingTask}
-              result={viewingTask.result}
-              onSaveAsDraft={(editedResult) => handleSaveAsDraft(viewingTask.id, editedResult)}
-              onDiscard={() => setViewingTaskId(null)}
+              task={previewTask}
+              result={previewTask.result}
+              onSaveAsDraft={(editedResult) => handleSaveAsDraft(previewTask.id, editedResult)}
+              onDiscard={() => setPreviewTask(null)}
               saving={saving}
             />
           )}

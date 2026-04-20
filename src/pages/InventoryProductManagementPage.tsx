@@ -680,10 +680,19 @@ export default function InventoryProductManagementPage() {
         }),
       });
 
-      const result = await response.json();
+      const rawText = await response.text();
+      let result: any = {};
+      if (rawText) {
+        try {
+          result = JSON.parse(rawText);
+        } catch {
+          result = { error: rawText };
+        }
+      }
 
       if (!response.ok) {
-        throw new Error(result.error || 'AI 理解生成失败');
+        const statusHint = response.status ? ` (HTTP ${response.status})` : '';
+        throw new Error(result.error || `AI 理解生成失败${statusHint}`);
       }
 
       if (result.skipped) {

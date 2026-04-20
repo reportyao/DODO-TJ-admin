@@ -19,7 +19,7 @@
 // 任务状态
 // ============================================================
 
-export type AITopicTaskStatus = 'queued' | 'processing' | 'done' | 'partial' | 'error';
+export type AITopicTaskStatus = 'queued' | 'processing' | 'recovering' | 'done' | 'partial' | 'error';
 
 // ============================================================
 // 请求结构（发送给 Edge Function 的 payload）
@@ -191,6 +191,7 @@ export interface AITopicTask {
   savedTopicId?: string;               // 创建后的 homepage_topics.id
   // 时间
   createdAt: Date;
+  serverCreatedAt?: Date;            // 后端任务在数据库中的创建时间（用于恢复与超时判断）
   completedAt?: Date;
 }
 
