@@ -167,7 +167,7 @@ export interface DbHomepageTopicRow {
   source_type: TopicSourceType;
   translation_status: TranslationStatus | null;
   start_time: string | null;
-  end_time: string | null;
+
   is_active: boolean;
   created_by: string | null;
   updated_by: string | null;
@@ -196,7 +196,7 @@ export interface DbHomepageTopicInsert {
   source_type?: TopicSourceType;
   translation_status?: TranslationStatus | null;
   start_time?: string | null;
-  end_time?: string | null;
+
   is_active?: boolean;
   created_by?: string | null;
   updated_by?: string | null;
@@ -222,7 +222,7 @@ export interface DbHomepageTopicUpdate {
   source_type?: TopicSourceType;
   translation_status?: TranslationStatus | null;
   start_time?: string | null;
-  end_time?: string | null;
+
   is_active?: boolean;
   updated_by?: string | null;
 }
@@ -277,7 +277,7 @@ export interface DbTopicPlacementRow {
   sort_order: number;
   is_active: boolean;
   start_time: string | null;
-  end_time: string | null;
+
   created_at: string;
   updated_at: string;
 }
@@ -296,7 +296,7 @@ export interface DbTopicPlacementInsert {
   sort_order?: number;
   is_active?: boolean;
   start_time?: string | null;
-  end_time?: string | null;
+
 }
 
 export interface DbTopicPlacementUpdate {
@@ -312,7 +312,7 @@ export interface DbTopicPlacementUpdate {
   sort_order?: number;
   is_active?: boolean;
   start_time?: string | null;
-  end_time?: string | null;
+
 }
 
 // ============================================================================

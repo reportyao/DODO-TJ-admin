@@ -7,7 +7,7 @@
  * 与 BannerManagementPage 保持一致的 CRUD 模式。
  *
  * [审查修复] 修复清单：
- *   BUG-08: 时间范围校验（end_time > start_time）
+
  *   BUG-09: feed_position 校验（正整数）
  *   BUG-10: 非 published 专题关联投放时显示警告
  *   BUG-11: 多语言封面上传支持（zh/ru/tg 三语封面）
@@ -53,7 +53,7 @@ const defaultFormData = {
   sort_order: 0,
   is_active: true,
   start_time: '',
-  end_time: '',
+
 };
 
 export default function TopicPlacementManagementPage() {
@@ -144,7 +144,7 @@ export default function TopicPlacementManagementPage() {
     }
 
     // [BUG-08 修复] 时间范围校验
-    if (!validateTimeRange(formData.start_time, formData.end_time)) {
+
       return;
     }
 
@@ -186,7 +186,7 @@ export default function TopicPlacementManagementPage() {
         sort_order: formData.sort_order,
         is_active: formData.is_active,
         start_time: formData.start_time || null,
-        end_time: formData.end_time || null,
+
         updated_at: new Date().toISOString(),
       };
 
@@ -229,7 +229,7 @@ export default function TopicPlacementManagementPage() {
       sort_order: item.sort_order,
       is_active: item.is_active,
       start_time: item.start_time || '',
-      end_time: item.end_time || '',
+
     });
     setShowModal(true);
   };
@@ -365,7 +365,7 @@ export default function TopicPlacementManagementPage() {
                     <td className="px-4 py-3">
                       <div className="text-xs text-gray-500">
                         {item.start_time ? new Date(item.start_time).toLocaleDateString('zh-CN') : '不限'} ~{' '}
-                        {item.end_time ? new Date(item.end_time).toLocaleDateString('zh-CN') : '不限'}
+'不限'
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -617,11 +617,10 @@ export default function TopicPlacementManagementPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">结束时间</label>
-                    <input type="datetime-local" value={formData.end_time}
-                      onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+
                       className="w-full border rounded px-3 py-2" />
                     {/* [BUG-08 修复] 时间范围实时校验提示 */}
-                    {formData.start_time && formData.end_time && new Date(formData.end_time) <= new Date(formData.start_time) && (
+                    {false && (
                       <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                         <AlertTriangle className="w-3 h-3" />
                         结束时间必须晚于开始时间

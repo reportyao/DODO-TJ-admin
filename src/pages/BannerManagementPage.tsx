@@ -16,7 +16,7 @@ interface Banner {
   sort_order: number;
   is_active: boolean;
   start_time: string | null;
-  end_time: string | null;
+
   created_at: string;
   updated_at: string;
 }
@@ -38,7 +38,7 @@ export default function BannerManagementPage() {
     sort_order: 0,
     is_active: true,
     start_time: '',
-    end_time: ''
+
   });
 
   useEffect(() => {
@@ -76,13 +76,7 @@ export default function BannerManagementPage() {
       toast.error('请至少上传一张 Banner 图片');
       return;
     }
-    // 时间范围验证
-    if (formData.start_time && formData.end_time) {
-      if (new Date(formData.start_time) >= new Date(formData.end_time)) {
-        toast.error('开始时间必须早于结束时间');
-        return;
-      }
-    }
+
 
     try {
       const bannerData = {
@@ -96,7 +90,7 @@ export default function BannerManagementPage() {
         sort_order: formData.sort_order,
         is_active: formData.is_active,
         start_time: formData.start_time || null,
-        end_time: formData.end_time || null,
+
         updated_at: new Date().toISOString()
       };
 
@@ -139,7 +133,7 @@ export default function BannerManagementPage() {
       sort_order: banner.sort_order,
       is_active: banner.is_active,
       start_time: banner.start_time || '',
-      end_time: banner.end_time || ''
+
     });
     setShowModal(true);
   };
@@ -233,7 +227,7 @@ export default function BannerManagementPage() {
       sort_order: banners.length,
       is_active: true,
       start_time: '',
-      end_time: ''
+  
     });
     setEditingBanner(null);
   };
@@ -471,8 +465,7 @@ export default function BannerManagementPage() {
                     <label className="block text-sm font-medium mb-1">结束时间</label>
                     <input
                       type="datetime-local"
-                      value={formData.end_time}
-                      onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+
                       className="w-full border rounded px-3 py-2"
                     />
                   </div>

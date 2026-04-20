@@ -100,7 +100,7 @@ export type Database = {
           description_i18n: Json | null
           details_i18n: Json | null
           draw_time: string
-          end_time: string
+
           id: string
           image_url: string | null
           max_per_user: number
@@ -128,7 +128,7 @@ export type Database = {
           description_i18n?: Json | null
           details_i18n?: Json | null
           draw_time: string
-          end_time: string
+
           id?: string
           image_url?: string | null
           max_per_user?: number
@@ -156,7 +156,7 @@ export type Database = {
           description_i18n?: Json | null
           details_i18n?: Json | null
           draw_time?: string
-          end_time?: string
+
           id?: string
           image_url?: string | null
           max_per_user?: number

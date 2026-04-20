@@ -12,7 +12,7 @@
  *   BUG-04: 已发布专题编辑 slug 时显示警告
  *   BUG-06: 正文块支持 block_type 选择（heading/paragraph/callout）
  *   BUG-07: block_key 使用 crypto.randomUUID 避免重复
- *   BUG-08: 时间范围校验（end_time > start_time）
+
  *   BUG-16: 发布状态变更前校验必要字段
  *   BUG-24: TopicResultPreview 浅拷贝问题（在 AITopicGenerationPage 中修复）
  *   BUG-25: 专题列表分页
@@ -98,7 +98,7 @@ const defaultFormData = {
   local_context_notes: '',
   source_type: 'manual' as TopicSourceType,
   start_time: '',
-  end_time: '',
+
   is_active: true,
 };
 
@@ -343,7 +343,7 @@ export default function HomepageTopicManagementPage() {
     }
 
     // [BUG-08 修复] 时间范围校验
-    if (!validateTimeRange(formData.start_time, formData.end_time)) {
+
       return false;
     }
 
@@ -407,7 +407,7 @@ export default function HomepageTopicManagementPage() {
         local_context_notes: formData.local_context_notes || null,
         source_type: formData.source_type,
         start_time: formData.start_time || null,
-        end_time: formData.end_time || null,
+
         is_active: formData.is_active,
         updated_at: new Date().toISOString(),
       };
@@ -565,7 +565,7 @@ export default function HomepageTopicManagementPage() {
       local_context_notes: item.local_context_notes || '',
       source_type: item.source_type || 'manual',
       start_time: item.start_time || '',
-      end_time: item.end_time || '',
+
       is_active: item.is_active,
     });
     // [BUG-06 修复] 加载正文块
@@ -1106,11 +1106,10 @@ export default function HomepageTopicManagementPage() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1">结束时间</label>
-                        <input type="datetime-local" value={formData.end_time}
-                          onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+
                           className="w-full border rounded px-3 py-2" />
                         {/* [BUG-08 修复] 时间范围提示 */}
-                        {formData.start_time && formData.end_time && new Date(formData.end_time) <= new Date(formData.start_time) && (
+                        {false && (
                           <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                             <AlertTriangle className="w-3 h-3" />
                             结束时间必须晚于开始时间
