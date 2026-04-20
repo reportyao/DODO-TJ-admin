@@ -72,18 +72,25 @@ export default function AIListingPage() {
         const parsed = JSON.parse(saved) as any[];
         return parsed.map((t: any) => {
           const hasServerTask = !!t.taskId;
-          const shouldRecoverFromServer = t.status === 'processing' && hasServerTask;
+          const shouldRecoverProcessing = t.status === 'processing' && hasServerTask;
+          const shouldRecoverImages = t.status === 'processing_images' && hasServerTask;
           const shouldRequeue = t.status === 'processing' && !hasServerTask;
 
           return {
             ...t,
             createdAt: new Date(t.createdAt),
             completedAt: t.completedAt ? new Date(t.completedAt) : undefined,
-            status: shouldRecoverFromServer ? 'processing' : (shouldRequeue ? 'queued' : t.status),
-            progress: shouldRecoverFromServer ? (t.progress || 0) : (shouldRequeue ? 0 : t.progress),
-            stage: shouldRecoverFromServer
+            status: shouldRecoverProcessing
+              ? 'processing'
+              : (shouldRecoverImages ? 'processing_images' : (shouldRequeue ? 'queued' : t.status)),
+            progress: (shouldRecoverProcessing || shouldRecoverImages)
+              ? (t.progress || 0)
+              : (shouldRequeue ? 0 : t.progress),
+            stage: shouldRecoverProcessing
               ? '正在从服务器恢复任务状态...'
-              : (shouldRequeue ? '排队中（自动恢复）...' : t.stage),
+              : (shouldRecoverImages
+                  ? '正在从服务器恢复海报生成状态...'
+                  : (shouldRequeue ? '排队中（自动恢复）...' : t.stage)),
           };
         });
       }
@@ -281,7 +288,7 @@ export default function AIListingPage() {
   useEffect(() => {
     const now = Date.now();
     const needsPoll = tasks.some((t) => {
-      if (t.status !== 'processing' || !t.taskId) return false;
+      if ((t.status !== 'processing' && t.status !== 'processing_images') || !t.taskId) return false;
       const noSSE = !abortControllersRef.current.has(t.id);
       const timedOut = (now - new Date(t.createdAt).getTime()) > TASK_TIMEOUT_MS;
       return noSSE || timedOut;
@@ -300,7 +307,7 @@ export default function AIListingPage() {
         const currentTasks = tasksRef.current;
         const now2 = Date.now();
         const pollCandidates = currentTasks.filter((t) => {
-          if (t.status !== 'processing' || !t.taskId) return false;
+          if ((t.status !== 'processing' && t.status !== 'processing_images') || !t.taskId) return false;
           const noSSE = !abortControllersRef.current.has(t.id);
           const timedOut = (now2 - new Date(t.createdAt).getTime()) > TASK_TIMEOUT_MS;
           return noSSE || timedOut;
@@ -344,10 +351,15 @@ export default function AIListingPage() {
 
             if (dbTask.status === 'processing_images') {
               const recoveredResult = normalizeListingResult(dbTask.result_payload || {});
+              const recoveredImages = recoveredResult.marketing_images || [];
+              const completedCount = recoveredImages.filter((img) => img.status === 'completed').length;
+              const totalCount = recoveredResult.enqueued_images || recoveredImages.length || 0;
               updateTask(task.id, {
                 status: 'processing_images',
                 progress: 100,
-                stage: `文案完成，正在后台生成 ${recoveredResult.enqueued_images || 0} 张俄文营销海报…`,
+                stage: totalCount > 0
+                  ? `文案完成，后台海报生成中（${completedCount}/${totalCount}）…`
+                  : '文案完成，后台营销海报生成中…',
                 result: recoveredResult,
               });
               if (activeExecutionIdsRef.current.has(task.id)) {
@@ -441,7 +453,10 @@ export default function AIListingPage() {
         stage: '正在连接 AI 服务...',
         errorMessage: undefined,
         taskId: undefined,
+        result: undefined,
+        savedToInventory: false,
         completedAt: undefined,
+        createdAt: new Date(),
       });
 
       const controller = adminSSEFetch(
@@ -635,6 +650,11 @@ export default function AIListingPage() {
       progress: 0,
       stage: '排队中（重试）...',
       errorMessage: undefined,
+      taskId: undefined,
+      result: undefined,
+      completedAt: undefined,
+      savedToInventory: false,
+      createdAt: new Date(),
     });
   }, [updateTask]);
 
