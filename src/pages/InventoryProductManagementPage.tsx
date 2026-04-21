@@ -654,57 +654,130 @@ export default function InventoryProductManagementPage() {
     }
   };
 
-  // ─── AI 理解生成 ──────────────────────────────────────────
+  // ─── AI 理解生成（异步派发 + 轮询） ─────────────────────────
+  // 【背景】Supabase Edge Functions 网关存在 150s idle timeout，
+  //   原同步链路（qwen-vl-max + qwen3.5-plus + 重试）轻易超过此阈值
+  //   导致 504 Gateway Timeout（详见 ai-understanding-generate v3.0）。
+  // 【方案】后端改为派发任务后立即返回 job_id，由前端通过
+  //   ai-understanding-job-status 接口轮询，直到 succeeded / failed。
   const handleGenerateAI = async (product: InventoryProduct, forceRegenerate = false) => {
     setAiGeneratingId(product.id);
-    try {
-      const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
-      const anonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
-      const sessionToken = getSessionToken();
-      if (!sessionToken) {
-        toast.error('请先登录');
-        return;
-      }
 
-      const response = await fetch(`${supabaseUrl}/functions/v1/ai-understanding-generate`, {
-        method: 'POST',
+    const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
+    const anonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
+    const sessionToken = getSessionToken();
+    if (!sessionToken) {
+      toast.error('请先登录');
+      setAiGeneratingId(null);
+      return;
+    }
+
+    const callJson = async (path: string, init: RequestInit) => {
+      const resp = await fetch(`${supabaseUrl}${path}`, {
+        ...init,
         headers: {
           'Content-Type': 'application/json',
           'x-admin-session-token': sessionToken,
           'Authorization': `Bearer ${anonKey}`,
           'apikey': anonKey,
+          ...(init.headers || {}),
         },
-        body: JSON.stringify({
-          product_id: product.id,
-          force_regenerate: forceRegenerate,
-        }),
       });
+      const text = await resp.text();
+      let data: any = {};
+      if (text) {
+        try { data = JSON.parse(text); } catch { data = { error: text }; }
+      }
+      return { resp, data };
+    };
 
-      const rawText = await response.text();
-      let result: any = {};
-      if (rawText) {
-        try {
-          result = JSON.parse(rawText);
-        } catch {
-          result = { error: rawText };
-        }
+    let progressToastId: string | number | undefined;
+
+    try {
+      // 1) 派发任务
+      const { resp, data: result } = await callJson(
+        '/functions/v1/ai-understanding-generate',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            product_id: product.id,
+            force_regenerate: forceRegenerate,
+          }),
+        },
+      );
+
+      if (!resp.ok && resp.status !== 202) {
+        const statusHint = resp.status ? ` (HTTP ${resp.status})` : '';
+        throw new Error(result.error || `AI 理解派发失败${statusHint}`);
       }
 
-      if (!response.ok) {
-        const statusHint = response.status ? ` (HTTP ${response.status})` : '';
-        throw new Error(result.error || `AI 理解生成失败${statusHint}`);
-      }
-
+      // 兼容旧路径：已有数据 + 非强制重生成 → 同步成功
       if (result.skipped) {
         toast.success('该商品已有 AI 理解数据');
-      } else {
-        toast.success('AI 商品理解生成成功！');
+        fetchProducts();
+        return;
       }
 
-      // 刷新列表
-      fetchProducts();
+      // 兼容旧路径：偶发同步成功（旧版本未升级时）
+      if (result.success && result.ai_understanding && result.status !== 'pending' && result.status !== 'processing') {
+        toast.success('AI 商品理解生成成功！');
+        fetchProducts();
+        return;
+      }
+
+      const jobId: string | undefined = result.job_id;
+      if (!jobId) {
+        throw new Error('后端未返回 job_id，无法轮询任务状态');
+      }
+
+      progressToastId = toast.loading('AI 商品理解任务已派发，正在生成…');
+
+      // 2) 轮询：3s 间隔，最长 5 分钟
+      const startedAt = Date.now();
+      const POLL_INTERVAL_MS = 3000;
+      const MAX_DURATION_MS = 5 * 60 * 1000;
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        if (Date.now() - startedAt > MAX_DURATION_MS) {
+          throw new Error('AI 理解生成超时（>5min），请稍后查看商品列表或重试');
+        }
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+        const { resp: sResp, data: sData } = await callJson(
+          `/functions/v1/ai-understanding-job-status?job_id=${encodeURIComponent(jobId)}`,
+          { method: 'GET' },
+        );
+        if (!sResp.ok) {
+          // 网络抖动：继续重试，不直接失败
+          // eslint-disable-next-line no-console
+          console.warn('[ai-understanding] 状态查询失败，继续重试:', sResp.status, sData);
+          continue;
+        }
+        const job = sData?.job;
+        if (!job) continue;
+
+        if (job.status === 'succeeded') {
+          if (progressToastId !== undefined) toast.dismiss(progressToastId);
+          toast.success('AI 商品理解生成成功！');
+          fetchProducts();
+          return;
+        }
+        if (job.status === 'failed') {
+          throw new Error(job.error || 'AI 理解生成失败');
+        }
+        // pending / processing：刷新 loading 文案
+        if (progressToastId !== undefined) {
+          toast.loading(
+            `AI 生成中…${job.stage ? `（${job.stage}）` : ''} ${job.progress || 0}%`,
+            { id: progressToastId },
+          );
+        }
+      }
     } catch (error: any) {
+      // eslint-disable-next-line no-console
       console.error('AI 理解生成失败:', error);
+      if (progressToastId !== undefined) toast.dismiss(progressToastId);
       toast.error(error.message || 'AI 理解生成失败');
     } finally {
       setAiGeneratingId(null);
