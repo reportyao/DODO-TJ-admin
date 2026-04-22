@@ -3,6 +3,8 @@ import { Plus, Edit, Copy, Trash2, Eye, EyeOff } from 'lucide-react';
 import { MultiImageUpload } from '@/components/MultiImageUpload';
 import { useSupabase } from '@/contexts/SupabaseContext';
 import toast from 'react-hot-toast';
+import ProductPickerPanel from '@/components/ProductPickerPanel';
+import type { ProductPickerItem } from '@/components/ProductPickerPanel';
 
 interface PriceComparisonItem {
   platform: string;
@@ -109,13 +111,35 @@ export default function GroupBuyProductManagementPage() {
       image_urls: Array.isArray(product.image_urls) ? product.image_urls : (product.image_url ? [product.image_url] : []),
       original_price: originalPrice,
       stock: product.stock || 100,
-      // 一键导入时：参与人数默认为3
       min_participants: 3,
       max_participants: 3,
-      // 保留原有的 price_comparisons，不要覆盖
       price_comparisons: formData.price_comparisons || [],
     });
     setShowSkuSelector(false);
+    toast.success('已从库存商品导入信息（最少/最多参与人数默认为3）');
+  };
+
+  // 从 ProductPickerPanel 单选商品后导入数据
+  const handlePickerConfirm = (products: ProductPickerItem[]) => {
+    if (products.length === 0) return;
+    const product = products[0];
+    const originalPrice = product.original_price || 0;
+    setFormData({
+      ...formData,
+      name_zh: product.name_i18n?.zh || product.name || '',
+      name_ru: product.name_i18n?.ru || '',
+      name_tg: product.name_i18n?.tg || '',
+      description_zh: product.description_i18n?.zh || '',
+      description_ru: product.description_i18n?.ru || '',
+      description_tg: product.description_i18n?.tg || '',
+      image_url: product.image_url || '',
+      image_urls: Array.isArray(product.image_urls) ? product.image_urls : (product.image_url ? [product.image_url] : []),
+      original_price: originalPrice,
+      stock: product.stock || 100,
+      min_participants: 3,
+      max_participants: 3,
+      price_comparisons: formData.price_comparisons || [],
+    });
     toast.success('已从库存商品导入信息（最少/最多参与人数默认为3）');
   };
 
@@ -566,46 +590,26 @@ export default function GroupBuyProductManagementPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* SKU选择器按钮 */}
+              {/* 从库存商品导入按钮 */}
               <div className="flex justify-end">
                 <button
                   type="button"
-                  onClick={() => setShowSkuSelector(!showSkuSelector)}
+                  onClick={() => setShowSkuSelector(true)}
                   className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
                 >
-                  {showSkuSelector ? '隐藏库存商品' : '从库存商品导入'}
+                  从库存商品导入
                 </button>
               </div>
 
-              {/* SKU选择器 */}
-              {showSkuSelector && (
-                <div className="border rounded p-4 max-h-60 overflow-y-auto">
-                  <h4 className="font-medium mb-2">选择库存商品</h4>
-                  <div className="space-y-2">
-                    {(inventoryProducts || []).map((product) => (
-                      <div
-                        key={product.id}
-                        onClick={() => handleSelectSku(product)}
-                        className="flex items-center p-2 hover:bg-gray-100 cursor-pointer rounded"
-                      >
-                        <img
-                          src={product.image_url}
-                          alt={product.name}
-                          className="h-10 w-10 rounded object-cover"
-                        />
-                        <div className="ml-3">
-                          <div className="text-sm font-medium">
-                            {product.name_i18n?.zh || product.name}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            库存: {product.stock} | 价格: {product.original_price} TJS
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* 商品选择器侧边栏面板 */}
+              <ProductPickerPanel
+                open={showSkuSelector}
+                onClose={() => setShowSkuSelector(false)}
+                onConfirm={handlePickerConfirm}
+                existingProductIds={[]}
+                title="从库存商品导入"
+                singleSelect={true}
+              />
 
               {/* 商品名称（多语言） */}
               <div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useSupabase } from '@/contexts/SupabaseContext';
 import { Enums } from '@/types/supabase';
@@ -14,6 +14,8 @@ import { PriceComparisonInput } from '../PriceComparisonInput';
 import toast from 'react-hot-toast';
 import { formatDateTime } from '@/lib/utils';
 import { adminInsert, adminUpdate } from '@/lib/adminApi';
+import ProductPickerPanel from '@/components/ProductPickerPanel';
+import type { ProductPickerItem } from '@/components/ProductPickerPanel';
 
 type LotteryStatus = Enums<'LotteryStatus'>;
 type Currency = Enums<'Currency'>;
@@ -100,8 +102,7 @@ export const LotteryForm: React.FC = () => {
   const [lotteryRound, setLotteryRound] = useState<any | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inventoryProducts, setInventoryProducts] = useState<InventoryProduct[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [showProductPicker, setShowProductPicker] = useState(false);
 
   // 加载库存商品列表
   const loadInventoryProducts = useCallback(async () => {
@@ -151,36 +152,7 @@ export const LotteryForm: React.FC = () => {
     }
   }, [supabase]);
 
-  // 筛选和搜索库存商品
-  const filteredProducts = useMemo(() => {
-    let filtered = inventoryProducts;
 
-    // 分类筛选
-    if (categoryFilter !== 'all') {
-      filtered = filtered.filter(p => p.category === categoryFilter);
-    }
-
-    // 搜索筛选（按名称或ID）
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(p => {
-        const name = p.name_i18n?.zh || p.name || '';
-        const id = p.id || '';
-        return name.toLowerCase().includes(query) || id.toLowerCase().includes(query);
-      });
-    }
-
-    return filtered;
-  }, [inventoryProducts, searchQuery, categoryFilter]);
-
-  // 获取所有分类
-  const categories = useMemo(() => {
-    const cats = new Set<string>();
-    inventoryProducts.forEach(p => {
-      if (p.category) {cats.add(p.category);}
-    });
-    return Array.from(cats).sort();
-  }, [inventoryProducts]);
 
   const loadLottery = useCallback(async () => {
     if (!id) {return;}
@@ -308,30 +280,22 @@ export const LotteryForm: React.FC = () => {
     }));
   };
 
-  // 选择SKU后自动填充数据
-  const handleProductSelect = (productId: string) => {
-    if (productId === 'none') {
-      setFormData((prev) => ({
-        ...prev,
-        inventory_product_id: null,
-      }));
-      return;
-    }
-
-    const selectedProduct = inventoryProducts.find(p => p.id === productId);
-    if (!selectedProduct) {return;}
+  // 从 ProductPickerPanel 单选商品后自动填充数据
+  const handlePickerConfirm = (products: ProductPickerItem[]) => {
+    if (products.length === 0) return;
+    const selectedProduct = products[0];
 
     // 自动填充所有相关字段
     setFormData((prev) => ({
       ...prev,
-      inventory_product_id: productId,
+      inventory_product_id: selectedProduct.id,
       // 自动填充标题
-      title: selectedProduct.name_i18n || { zh: selectedProduct.name },
+      title: selectedProduct.name_i18n || { zh: selectedProduct.name || '' },
       // 自动填充描述
       description: selectedProduct.description_i18n || prev.description,
       // 自动填充图片
-      image_urls: selectedProduct.image_urls && selectedProduct.image_urls.length > 0 
-        ? selectedProduct.image_urls 
+      image_urls: selectedProduct.image_urls && selectedProduct.image_urls.length > 0
+        ? selectedProduct.image_urls
         : prev.image_urls,
       // 自动填充全款购买价格
       full_purchase_price: selectedProduct.original_price,
@@ -344,6 +308,14 @@ export const LotteryForm: React.FC = () => {
     }));
 
     toast.success('已自动填充商品信息！');
+  };
+
+  // 取消关联库存商品
+  const handleClearProduct = () => {
+    setFormData((prev) => ({
+      ...prev,
+      inventory_product_id: null,
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -559,72 +531,25 @@ export const LotteryForm: React.FC = () => {
             
             {formData.full_purchase_enabled && (
               <>
-                {/* 搜索和筛选 */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="search">🔍 搜索商品</Label>
-                    <Input
-                      id="search"
-                      type="text"
-                      placeholder="输入商品名称或ID..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="bg-white"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="category">🏷️ 分类筛选</Label>
-                    <Select
-                      value={categoryFilter}
-                      onValueChange={setCategoryFilter}
-                    >
-                      <SelectTrigger id="category" className="bg-white">
-                        <SelectValue placeholder="选择分类" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">全部分类</SelectItem>
-                        {categories.map((cat) => (
-                          <SelectItem key={cat} value={cat}>
-                            {cat}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                {/* SKU选择 */}
+                {/* 商品选择按钮 */}
                 <div className="space-y-2">
-                  <Label htmlFor="inventory_product_id">选择库存商品 *</Label>
-                  <Select
-                    value={formData.inventory_product_id || 'none'}
-                    onValueChange={handleProductSelect}
+                  <Label>选择库存商品 *</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full justify-start bg-white text-left h-auto py-3"
+                    onClick={() => setShowProductPicker(true)}
                   >
-                    <SelectTrigger id="inventory_product_id" className="bg-white">
-                      <SelectValue placeholder="选择库存商品（将自动填充商品信息）" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-80">
-                      <SelectItem value="none">不关联库存商品</SelectItem>
-                      {filteredProducts.length === 0 ? (
-                        <SelectItem value="empty" disabled>
-                          未找到匹配的商品
-                        </SelectItem>
-                      ) : (
-                        filteredProducts.map((product) => (
-                          <SelectItem key={product.id} value={product.id}>
-                            <div className="flex flex-col py-1">
-                              <span className="font-medium">
-                                {product.name_i18n?.zh || product.name}
-                              </span>
-                              <span className="text-xs text-gray-500">
-                                ID: {product.id.substring(0, 8)}... | 库存: {product.stock} | 价格: TJS {product.original_price}
-                              </span>
-                            </div>
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                    {formData.inventory_product_id ? (
+                      <span className="text-sm">
+                        ✅ 已选择商品，点击重新选择
+                      </span>
+                    ) : (
+                      <span className="text-sm text-gray-500">
+                        🔍 点击选择库存商品（将自动填充商品信息）
+                      </span>
+                    )}
+                  </Button>
                   <p className="text-xs text-blue-600 font-medium">
                     💡 选择商品后将自动填充：标题、描述、图片、价格等信息
                   </p>
@@ -636,17 +561,37 @@ export const LotteryForm: React.FC = () => {
                 {/* 显示已选择的商品信息 */}
                 {formData.inventory_product_id && (
                   <div className="p-4 bg-white border border-blue-300 rounded-lg">
-                    <p className="text-sm font-semibold text-blue-900 mb-2">✅ 已选择商品</p>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-semibold text-blue-900">✅ 已选择商品</p>
+                      <button
+                        type="button"
+                        onClick={handleClearProduct}
+                        className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                      >
+                        取消关联
+                      </button>
+                    </div>
                     {(() => {
                       const selected = inventoryProducts.find(p => p.id === formData.inventory_product_id);
                       return selected ? (
-                        <div className="space-y-1 text-sm">
-                          <p><strong>名称:</strong> {selected.name_i18n?.zh || selected.name}</p>
-                          <p><strong>ID:</strong> {selected.id}</p>
-                          <p><strong>库存:</strong> {selected.stock}</p>
-                          <p><strong>原价:</strong> TJS {selected.original_price}</p>
+                        <div className="flex items-start gap-3">
+                          {selected.image_urls && selected.image_urls[0] && (
+                            <img
+                              src={selected.image_urls[0]}
+                              alt={selected.name_i18n?.zh || selected.name}
+                              className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+                            />
+                          )}
+                          <div className="space-y-1 text-sm">
+                            <p><strong>名称:</strong> {selected.name_i18n?.zh || selected.name}</p>
+                            <p><strong>ID:</strong> {selected.id}</p>
+                            <p><strong>库存:</strong> {selected.stock}</p>
+                            <p><strong>原价:</strong> TJS {selected.original_price}</p>
+                          </div>
                         </div>
-                      ) : null;
+                      ) : (
+                        <p className="text-sm text-gray-500">商品 ID: {formData.inventory_product_id}</p>
+                      );
                     })()}
                   </div>
                 )}
@@ -667,6 +612,16 @@ export const LotteryForm: React.FC = () => {
                     💰 留空则使用关联库存商品的原价
                   </p>
                 </div>
+
+                {/* 商品选择器侧边栏面板 */}
+                <ProductPickerPanel
+                  open={showProductPicker}
+                  onClose={() => setShowProductPicker(false)}
+                  onConfirm={handlePickerConfirm}
+                  existingProductIds={[]}
+                  title="选择库存商品"
+                  singleSelect={true}
+                />
               </>
             )}
           </div>

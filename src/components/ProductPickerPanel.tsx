@@ -25,7 +25,9 @@ export interface ProductPickerItem {
   name?: string;
   description_i18n?: I18nText | null;
   image_url: string | null;
+  image_urls?: string[];
   original_price: number;
+  stock?: number;
   status: string;
   sku?: string | null;
   ai_understanding?: Record<string, any> | null;
@@ -48,6 +50,8 @@ interface ProductPickerPanelProps {
   existingProductIds?: string[];
   /** 面板标题 */
   title?: string;
+  /** 单选模式：点击商品后立即确认并关闭面板 */
+  singleSelect?: boolean;
 }
 
 // ============================================================
@@ -59,6 +63,7 @@ export default function ProductPickerPanel({
   onConfirm,
   existingProductIds = [],
   title = '选择商品',
+  singleSelect = false,
 }: ProductPickerPanelProps) {
   const { supabase } = useSupabase();
 
@@ -130,7 +135,7 @@ export default function ProductPickerPanel({
 
       // 查询商品
       const data = await adminQuery<ProductPickerItem>(supabase, 'inventory_products', {
-        select: 'id, name_i18n, image_url, original_price, status, sku, ai_understanding',
+        select: 'id, name_i18n, description_i18n, image_url, image_urls, original_price, stock, status, sku, ai_understanding',
         filters: filters as any,
         orFilters,
         orderBy: 'created_at',
@@ -170,6 +175,15 @@ export default function ProductPickerPanel({
 
   // 切换选中状态
   const toggleSelect = (productId: string) => {
+    if (singleSelect) {
+      // 单选模式：直接选中并确认
+      const product = products.find(p => p.id === productId);
+      if (product) {
+        onConfirm([product]);
+        onClose();
+      }
+      return;
+    }
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(productId)) {
@@ -220,7 +234,7 @@ export default function ProductPickerPanel({
           <div>
             <h2 className="text-lg font-bold text-gray-800">{title}</h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              共 {totalCount} 个商品 · 已选 {selectedIds.size} 个
+              {singleSelect ? `共 ${totalCount} 个商品 · 点击即可选择` : `共 ${totalCount} 个商品 · 已选 ${selectedIds.size} 个`}
             </p>
           </div>
           <button type="button" onClick={onClose} className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors">
@@ -285,23 +299,25 @@ export default function ProductPickerPanel({
           </div>
         </div>
 
-        {/* 全选操作栏 */}
-        <div className="px-4 py-2 border-b bg-gray-50 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={selectAll}
-            className="text-xs text-orange-600 hover:text-orange-700 font-medium"
-          >
-            {selectedIds.size === products.filter(p => !existingSet.has(p.id)).length && selectedIds.size > 0
-              ? '取消全选'
-              : '全选当前页'}
-          </button>
-          {selectedIds.size > 0 && (
-            <span className="text-xs text-gray-500">
-              已选 {selectedIds.size} 个商品
-            </span>
-          )}
-        </div>
+        {/* 全选操作栏（单选模式下隐藏） */}
+        {!singleSelect && (
+          <div className="px-4 py-2 border-b bg-gray-50 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={selectAll}
+              className="text-xs text-orange-600 hover:text-orange-700 font-medium"
+            >
+              {selectedIds.size === products.filter(p => !existingSet.has(p.id)).length && selectedIds.size > 0
+                ? '取消全选'
+                : '全选当前页'}
+            </button>
+            {selectedIds.size > 0 && (
+              <span className="text-xs text-gray-500">
+                已选 {selectedIds.size} 个商品
+              </span>
+            )}
+          </div>
+        )}
 
         {/* 商品列表 */}
         <div className="flex-1 overflow-y-auto">
@@ -337,16 +353,20 @@ export default function ProductPickerPanel({
                           : 'hover:bg-gray-50'
                     }`}
                   >
-                    {/* 选择框 */}
-                    <div className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                      isExisting
-                        ? 'bg-gray-300 border-gray-300'
-                        : isSelected
-                          ? 'bg-orange-500 border-orange-500'
-                          : 'border-gray-300 hover:border-orange-400'
-                    }`}>
-                      {(isExisting || isSelected) && <Check className="w-3 h-3 text-white" />}
-                    </div>
+                    {/* 选择框（单选模式下显示右箭头） */}
+                    {singleSelect ? (
+                      <ChevronRight className="flex-shrink-0 w-4 h-4 text-gray-400" />
+                    ) : (
+                      <div className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                        isExisting
+                          ? 'bg-gray-300 border-gray-300'
+                          : isSelected
+                            ? 'bg-orange-500 border-orange-500'
+                            : 'border-gray-300 hover:border-orange-400'
+                      }`}>
+                        {(isExisting || isSelected) && <Check className="w-3 h-3 text-white" />}
+                      </div>
+                    )}
 
                     {/* 商品图片 */}
                     <div className="flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden bg-gray-100">
@@ -373,6 +393,9 @@ export default function ProductPickerPanel({
                         <span className="text-xs text-orange-600 font-medium">
                           ¥{product.original_price?.toFixed(2) || '0.00'}
                         </span>
+                        {product.stock !== undefined && (
+                          <span className="text-xs text-gray-400">库存: {product.stock}</span>
+                        )}
                         {product.sku && (
                           <span className="text-xs text-gray-400">SKU: {product.sku}</span>
                         )}
@@ -388,28 +411,41 @@ export default function ProductPickerPanel({
           )}
         </div>
 
-        {/* 底部确认栏 */}
-        <div className="px-5 py-4 border-t bg-gray-50 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={handleConfirm}
-            disabled={selectedIds.size === 0}
-            className={`px-6 py-2 rounded-lg text-sm font-medium transition-colors ${
-              selectedIds.size > 0
-                ? 'bg-orange-500 text-white hover:bg-orange-600'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            确认添加 ({selectedIds.size})
-          </button>
-        </div>
+        {/* 底部确认栏（单选模式下显示简化版） */}
+        {singleSelect ? (
+          <div className="px-5 py-4 border-t bg-gray-50 flex items-center justify-between">
+            <span className="text-xs text-gray-500">点击商品即可选择</span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+            >
+              取消
+            </button>
+          </div>
+        ) : (
+          <div className="px-5 py-4 border-t bg-gray-50 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirm}
+              disabled={selectedIds.size === 0}
+              className={`px-6 py-2 rounded-lg text-sm font-medium transition-colors ${
+                selectedIds.size > 0
+                  ? 'bg-orange-500 text-white hover:bg-orange-600'
+                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              确认添加 ({selectedIds.size})
+            </button>
+          </div>
+        )}
       </div>
     </>
   );

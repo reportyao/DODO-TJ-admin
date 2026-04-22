@@ -12,6 +12,8 @@ import { SingleImageUpload } from '../SingleImageUpload';
 import { formatDateTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Loader2, Sparkles, User, Image, Gift, ThumbsUp, Calendar } from 'lucide-react';
+import ProductPickerPanel from '@/components/ProductPickerPanel';
+import type { ProductPickerItem } from '@/components/ProductPickerPanel';
 
 interface InventoryProduct {
   id: string;
@@ -42,6 +44,7 @@ export const OperationalShowoffCreatePage: React.FC = () => {
   const [products, setProducts] = useState<InventoryProduct[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
   const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [showProductPicker, setShowProductPicker] = useState(false);
 
   // ========== 提交状态 ==========
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -236,60 +239,70 @@ export const OperationalShowoffCreatePage: React.FC = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="productSearch">搜索商品</Label>
-              <Input
-                id="productSearch"
-                placeholder="输入商品名称搜索..."
-                value={productSearchTerm}
-                onChange={(e) => setProductSearchTerm(e.target.value)}
-              />
-            </div>
-            
-            {isLoadingProducts ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-64 overflow-y-auto">
-                {filteredProducts.map((product) => (
-                  <div
-                    key={product.id}
-                    onClick={() => setLotteryId(product.id === lotteryId ? '' : product.id)}
-                    className={`p-3 border rounded-lg cursor-pointer transition-all ${
-                      product.id === lotteryId
-                        ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    {product.image_url && (
-                      <img
-                        src={product.image_url}
-                        alt={product.name}
-                        className="w-full h-20 object-cover rounded mb-2"
-                      />
-                    )}
-                    <p className="text-sm font-medium text-gray-900 truncate">
-                      {product.name}
-                    </p>
-                    <span className={`text-xs px-1.5 py-0.5 rounded ${
-                      product.status === 'ACTIVE' ? 'bg-green-100 text-green-700' :
-                      'bg-gray-100 text-gray-700'
-                    }`}>
-                      {product.status === 'ACTIVE' ? '在售' : product.status === 'INACTIVE' ? '下架' : product.status === 'SOLD_OUT' ? '已售罄' : product.status}
-                    </span>
-                  </div>
-                ))}
+            {/* 商品选择按钮 */}
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-start text-left h-auto py-3"
+              onClick={() => setShowProductPicker(true)}
+            >
+              {selectedProduct ? (
+                <span className="text-sm">✅ 已选择: {selectedProduct.name}，点击重新选择</span>
+              ) : (
+                <span className="text-sm text-gray-500">🔍 点击选择关联商品</span>
+              )}
+            </Button>
+
+            {selectedProduct && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {selectedProduct.image_url && (
+                    <img
+                      src={selectedProduct.image_url}
+                      alt={selectedProduct.name}
+                      className="w-12 h-12 rounded-lg object-cover"
+                    />
+                  )}
+                  <p className="text-sm text-blue-800">
+                    已选择: <strong>{selectedProduct.name}</strong>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLotteryId('')}
+                  className="text-xs text-red-500 hover:text-red-700"
+                >
+                  取消
+                </button>
               </div>
             )}
 
-            {selectedProduct && (
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-800">
-                  已选择: <strong>{selectedProduct.name}</strong>
-                </p>
-              </div>
-            )}
+            {/* 商品选择器侧边栏面板 */}
+            <ProductPickerPanel
+              open={showProductPicker}
+              onClose={() => setShowProductPicker(false)}
+              onConfirm={(pickedProducts: ProductPickerItem[]) => {
+                if (pickedProducts.length > 0) {
+                  setLotteryId(pickedProducts[0].id);
+                  // 同步到本地 products 列表以便显示已选信息
+                  const p = pickedProducts[0];
+                  const exists = products.some(prod => prod.id === p.id);
+                  if (!exists) {
+                    setProducts(prev => [...prev, {
+                      id: p.id,
+                      name: p.name_i18n?.zh || p.name || '',
+                      name_i18n: p.name_i18n || {},
+                      image_url: p.image_url,
+                      status: p.status,
+                    }]);
+                  }
+                  toast.success('已选择关联商品');
+                }
+              }}
+              existingProductIds={[]}
+              title="选择关联商品"
+              singleSelect={true}
+            />
 
             <div className="space-y-2">
               <Label htmlFor="title">自定义标题 (可选)</Label>
