@@ -3,6 +3,12 @@
  *
  * 展示单个 AI 任务的状态、进度条、阶段描述。
  * 根据不同状态显示不同的徽章颜色和操作按钮。
+ *
+ * [修复] 添加 processing_images 状态支持：
+ *   - STATUS_CONFIG 新增 processing_images 映射
+ *   - 添加海报生成进度条（已完成/总数）
+ *   - processing_images 状态下可查看已完成的文案结果
+ *   - 添加防御性 fallback，避免未知状态导致崩溃
  */
 
 import React from 'react';
@@ -18,6 +24,8 @@ import {
   Eye,
   RotateCcw,
   Package,
+  Image as ImageIcon,
+  Trash2,
 } from 'lucide-react';
 import type { AITask, AITaskStatus } from '@/types/aiListing';
 
@@ -27,9 +35,10 @@ interface TaskProgressCardProps {
   onSelect: (taskId: string) => void;
   onViewResult: (taskId: string) => void;
   onRetry: (taskId: string) => void;
+  onDelete?: (taskId: string) => void;
 }
 
-// 状态配置映射
+// 状态配置映射（完整覆盖所有 AITaskStatus）
 const STATUS_CONFIG: Record<
   AITaskStatus,
   { label: string; color: string; icon: React.ReactNode }
@@ -43,6 +52,11 @@ const STATUS_CONFIG: Record<
     label: '生成中',
     color: 'bg-blue-100 text-blue-800',
     icon: <Loader2 className="w-3.5 h-3.5 animate-spin" />,
+  },
+  processing_images: {
+    label: '海报生成中',
+    color: 'bg-purple-100 text-purple-800',
+    icon: <ImageIcon className="w-3.5 h-3.5 animate-pulse" />,
   },
   done: {
     label: '已完成',
@@ -61,15 +75,36 @@ const STATUS_CONFIG: Record<
   },
 };
 
+// 防御性 fallback：避免未知状态导致崩溃
+const FALLBACK_CONFIG = {
+  label: '未知',
+  color: 'bg-gray-200 text-gray-600',
+  icon: <AlertTriangle className="w-3.5 h-3.5" />,
+};
+
 export const TaskProgressCard: React.FC<TaskProgressCardProps> = ({
   task,
   isSelected,
   onSelect,
   onViewResult,
   onRetry,
+  onDelete,
 }) => {
-  const config = STATUS_CONFIG[task.status];
+  const config = STATUS_CONFIG[task.status] || FALLBACK_CONFIG;
   const canSelect = (task.status === 'done' || task.status === 'partial') && !task.savedToInventory;
+
+  // 计算海报生成进度（processing_images 状态）
+  const marketingImages = task.result?.marketing_images || [];
+  const enqueuedCount = task.result?.enqueued_images || marketingImages.length || 0;
+  const completedCount = marketingImages.filter(
+    (img) => img.status === 'completed'
+  ).length;
+  const failedCount = marketingImages.filter(
+    (img) => img.status === 'failed'
+  ).length;
+  const processingCount = marketingImages.filter(
+    (img) => img.status === 'processing'
+  ).length;
 
   return (
     <Card className={`transition-all ${isSelected ? 'ring-2 ring-purple-500' : ''}`}>
@@ -123,6 +158,45 @@ export const TaskProgressCard: React.FC<TaskProgressCardProps> = ({
               </div>
             )}
 
+            {/* 海报生成进度（processing_images 状态） */}
+            {task.status === 'processing_images' && enqueuedCount > 0 && (
+              <div className="mt-3">
+                <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+                  <span>
+                    {task.stage || `后台海报生成中（${completedCount}/${enqueuedCount}）`}
+                  </span>
+                  <span className="text-purple-600 font-medium">
+                    {completedCount}/{enqueuedCount}
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-purple-600 h-2 rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${enqueuedCount > 0 ? (completedCount / enqueuedCount) * 100 : 0}%` }}
+                  />
+                </div>
+                {/* 详细状态 */}
+                <div className="flex gap-3 mt-1.5 text-xs text-gray-500">
+                  {completedCount > 0 && (
+                    <span className="text-green-600">{completedCount} 已完成</span>
+                  )}
+                  {processingCount > 0 && (
+                    <span className="text-blue-600">{processingCount} 生成中</span>
+                  )}
+                  {failedCount > 0 && (
+                    <span className="text-red-500">{failedCount} 失败</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* processing_images 但无 enqueued 信息时的简单提示 */}
+            {task.status === 'processing_images' && enqueuedCount === 0 && (
+              <div className="mt-2 text-xs text-purple-600">
+                {task.stage || '文案已完成，后台正在生成营销海报...'}
+              </div>
+            )}
+
             {/* 错误信息（error 状态） */}
             {task.status === 'error' && task.errorMessage && (
               <p className="mt-2 text-xs text-red-600 bg-red-50 rounded p-2">
@@ -140,7 +214,8 @@ export const TaskProgressCard: React.FC<TaskProgressCardProps> = ({
 
             {/* 操作按钮 */}
             <div className="flex gap-2 mt-3">
-              {(task.status === 'done' || task.status === 'partial') && (
+              {/* done / partial / processing_images 都可以查看结果 */}
+              {(task.status === 'done' || task.status === 'partial' || task.status === 'processing_images') && task.result && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -148,7 +223,7 @@ export const TaskProgressCard: React.FC<TaskProgressCardProps> = ({
                   className="text-xs"
                 >
                   <Eye className="w-3.5 h-3.5 mr-1" />
-                  查看结果
+                  {task.status === 'processing_images' ? '查看文案' : '查看结果'}
                 </Button>
               )}
               {task.status === 'error' && (
@@ -160,6 +235,17 @@ export const TaskProgressCard: React.FC<TaskProgressCardProps> = ({
                 >
                   <RotateCcw className="w-3.5 h-3.5 mr-1" />
                   重试
+                </Button>
+              )}
+              {/* 删除按钮：所有状态均可删除（已入库除外） */}
+              {onDelete && !task.savedToInventory && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onDelete(task.id)}
+                  className="text-xs text-gray-400 hover:text-red-600"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
                 </Button>
               )}
             </div>

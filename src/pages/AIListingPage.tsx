@@ -9,10 +9,13 @@
  *   5. SSE 联调：通过 adminSSEFetch 调用 Edge Function
  *   6. 入库逻辑：写入 inventory_products 表 + 审计日志
  *
- * [修复] 任务持久化改造：
+ * [修复 v3.0] 任务持久化改造：
  *   - 使用 localStorage 替代 sessionStorage（跨 tab 持久，切换页面不丢失）
  *   - 恢复时 processing 状态的任务自动重新排队执行
  *   - 已完成的任务始终保留在列表中，随时可查看结果
+ *   - processing 超时从 15 分钟降为 5 分钟（匹配 Edge Function 150s 限制）
+ *   - processing_images 超时从 60 分钟降为 30 分钟
+ *   - 增强卡死任务检测和自动恢复机制
  *
  * 状态管理：
  *   - tasks: AITask[] — 所有任务列表（localStorage 持久化）
@@ -53,7 +56,11 @@ const EDGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/ai-listing-generate`;
 const STORAGE_KEY = 'ai_listing_tasks';
 const MAX_CONCURRENT = 2; // 最多同时处理 2 个任务
 const DB_POLL_INTERVAL = 5000;
-const TASK_TIMEOUT_MS = 15 * 60 * 1000;
+// [修复 v3.0] 区分两种超时：
+//   - processing 阶段（Edge Function 最多 150s，加缓冲给 5 分钟）
+//   - processing_images 阶段（后台 cron 异步海报生成）：30 分钟
+const TASK_TIMEOUT_MS = 5 * 60 * 1000;
+const IMAGE_TASK_TIMEOUT_MS = 30 * 60 * 1000;
 
 // ============================================================
 // 主组件
@@ -291,11 +298,21 @@ export default function AIListingPage() {
 
   useEffect(() => {
     const now = Date.now();
+    // [修复] 轮询判断逻辑优化：
+    //   - processing 状态：无 SSE 连接或超时 15 分钟时需要轮询
+    //   - processing_images 状态：始终需要轮询（后台 cron 异步处理，不依赖 SSE），仅在超过 60 分钟时超时
     const needsPoll = tasks.some((t) => {
-      if ((t.status !== 'processing' && t.status !== 'processing_images') || !t.taskId) return false;
-      const noSSE = !abortControllersRef.current.has(t.id);
-      const timedOut = (now - new Date(t.createdAt).getTime()) > TASK_TIMEOUT_MS;
-      return noSSE || timedOut;
+      if (!t.taskId) return false;
+      if (t.status === 'processing_images') {
+        // processing_images 始终需要轮询来检查后台海报进度
+        return true;
+      }
+      if (t.status === 'processing') {
+        const noSSE = !abortControllersRef.current.has(t.id);
+        const timedOut = (now - new Date(t.createdAt).getTime()) > TASK_TIMEOUT_MS;
+        return noSSE || timedOut;
+      }
+      return false;
     });
 
     if (!needsPoll) {
@@ -311,10 +328,14 @@ export default function AIListingPage() {
         const currentTasks = tasksRef.current;
         const now2 = Date.now();
         const pollCandidates = currentTasks.filter((t) => {
-          if ((t.status !== 'processing' && t.status !== 'processing_images') || !t.taskId) return false;
-          const noSSE = !abortControllersRef.current.has(t.id);
-          const timedOut = (now2 - new Date(t.createdAt).getTime()) > TASK_TIMEOUT_MS;
-          return noSSE || timedOut;
+          if (!t.taskId) return false;
+          if (t.status === 'processing_images') return true;
+          if (t.status === 'processing') {
+            const noSSE = !abortControllersRef.current.has(t.id);
+            const timedOut = (now2 - new Date(t.createdAt).getTime()) > TASK_TIMEOUT_MS;
+            return noSSE || timedOut;
+          }
+          return false;
         });
 
         if (pollCandidates.length === 0) {
@@ -354,22 +375,81 @@ export default function AIListingPage() {
             }
 
             if (dbTask.status === 'processing_images') {
+              // [修复] 从 ai_image_tasks 表查询实时海报进度（而不仅依赖父任务的 result_payload）
               const recoveredResult = normalizeListingResult(dbTask.result_payload || {});
-              const recoveredImages = recoveredResult.marketing_images || [];
-              const completedCount = recoveredImages.filter((img) => img.status === 'completed').length;
-              const totalCount = recoveredResult.enqueued_images || recoveredImages.length || 0;
+              let recoveredImages = recoveredResult.marketing_images || [];
+              let completedCount = recoveredImages.filter((img) => img.status === 'completed').length;
+              let totalCount = recoveredResult.enqueued_images || recoveredImages.length || 0;
+
+              // 尝试直接查询 ai_image_tasks 获取最新状态
+              try {
+                const imgTasks = await adminQuery<any>(supabase, 'ai_image_tasks', {
+                  select: 'id, status, marketing_image_url, ru_caption, display_order, error_message',
+                  filters: [{ col: 'parent_task_id', op: 'eq', val: task.taskId! }],
+                  orderBy: 'display_order',
+                  orderAsc: true,
+                });
+                if (imgTasks && imgTasks.length > 0) {
+                  recoveredImages = imgTasks.map((row: any) => ({
+                    id: row.id,
+                    url: row.marketing_image_url || '',
+                    ru_caption: row.ru_caption,
+                    display_order: row.display_order ?? 0,
+                    status: row.status as 'pending' | 'processing' | 'completed' | 'failed',
+                  }));
+                  completedCount = recoveredImages.filter((img) => img.status === 'completed').length;
+                  const failedCount = recoveredImages.filter((img) => img.status === 'failed').length;
+                  totalCount = imgTasks.length;
+                  const terminalCount = completedCount + failedCount;
+
+                  // 检查是否所有子任务都已终态
+                  if (terminalCount >= totalCount && totalCount > 0) {
+                    const finalStatus = completedCount > 0 ? 'done' : 'partial';
+                    updateTask(task.id, {
+                      status: finalStatus as any,
+                      progress: 100,
+                      stage: finalStatus === 'done' ? '全部完成' : '部分完成',
+                      result: { ...recoveredResult, marketing_images: recoveredImages },
+                      completedAt: new Date(),
+                    });
+                    if (activeExecutionIdsRef.current.has(task.id)) {
+                      activeExecutionIdsRef.current.delete(task.id);
+                      abortControllersRef.current.delete(task.id);
+                      processingCountRef.current = Math.max(0, processingCountRef.current - 1);
+                    }
+                    toast.success(`"${task.productName}" AI 生成完成！`);
+                    continue;
+                  }
+                }
+              } catch (imgQueryErr) {
+                console.warn('[AIListing] 查询 ai_image_tasks 失败，使用父任务数据:', imgQueryErr);
+              }
+
               updateTask(task.id, {
                 status: 'processing_images',
                 progress: 100,
                 stage: totalCount > 0
                   ? `文案完成，后台海报生成中（${completedCount}/${totalCount}）…`
                   : '文案完成，后台营销海报生成中…',
-                result: recoveredResult,
+                result: { ...recoveredResult, marketing_images: recoveredImages },
               });
               if (activeExecutionIdsRef.current.has(task.id)) {
                 activeExecutionIdsRef.current.delete(task.id);
                 abortControllersRef.current.delete(task.id);
                 processingCountRef.current = Math.max(0, processingCountRef.current - 1);
+              }
+
+              // [修复] processing_images 状态使用独立的 60 分钟超时
+              const imageTaskAge = now2 - new Date(dbTask.created_at || task.createdAt).getTime();
+              if (imageTaskAge > IMAGE_TASK_TIMEOUT_MS) {
+                updateTask(task.id, {
+                  status: 'error',
+                  progress: 0,
+                  stage: '海报生成超时',
+                  errorMessage: `后台海报生成超时（超过 30 分钟），已完成 ${completedCount}/${totalCount} 张`,
+                  completedAt: new Date(),
+                });
+                toast.error(`"${task.productName}" 海报生成超时`);
               }
               continue;
             }
@@ -397,7 +477,7 @@ export default function AIListingPage() {
                 try {
                   await adminUpdate(supabase, 'ai_listing_generation_tasks', {
                     status: 'error',
-                    error_message: '任务超时（超过15分钟未完成）',
+                    error_message: '任务超时（超过5分钟未完成，可能 Edge Function 被平台强制终止）',
                     completed_at: new Date().toISOString(),
                   }, [
                     { col: 'id', op: 'eq', val: task.taskId! },
@@ -410,7 +490,7 @@ export default function AIListingPage() {
                   status: 'error',
                   progress: 0,
                   stage: '生成超时',
-                  errorMessage: '任务超时（超过15分钟未完成），请重新尝试',
+                  errorMessage: '任务超时（超过5分钟未完成），请重新尝试',
                 });
                 if (activeExecutionIdsRef.current.has(task.id)) {
                   activeExecutionIdsRef.current.delete(task.id);
