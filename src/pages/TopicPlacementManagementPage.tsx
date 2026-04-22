@@ -618,7 +618,8 @@ export default function TopicPlacementManagementPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">结束时间</label>
-
+                    <input type="datetime-local" value={formData.end_time || ''}
+                      onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
                       className="w-full border rounded px-3 py-2" />
                     {/* [BUG-08 修复] 时间范围实时校验提示 */}
                     {false && (
