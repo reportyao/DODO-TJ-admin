@@ -144,7 +144,8 @@ export default function TopicPlacementManagementPage() {
     }
 
     // [BUG-08 修复] 时间范围校验
-
+    if (formData.start_time && formData.end_time && new Date(formData.start_time) >= new Date(formData.end_time)) {
+      toast.error('开始时间必须早于结束时间');
       return;
     }
 
