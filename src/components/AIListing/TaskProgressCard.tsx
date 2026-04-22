@@ -139,7 +139,12 @@ export const TaskProgressCard: React.FC<TaskProgressCardProps> = ({
               <span>·</span>
               <span>{task.price} TJS</span>
               <span>·</span>
-              <span>{task.createdAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+              <span>{(() => {
+                try {
+                  const d = task.createdAt instanceof Date ? task.createdAt : new Date(task.createdAt as any);
+                  return isNaN(d.getTime()) ? '--:--' : d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+                } catch { return '--:--'; }
+              })()}</span>
             </div>
 
             {/* 进度条（processing 状态） */}

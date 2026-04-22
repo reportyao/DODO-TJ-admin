@@ -128,6 +128,9 @@ export default function AIListingPage() {
   const activeExecutionIdsRef = useRef<Set<string>>(new Set());
   // SSE 中断后使用 DB 轮询恢复任务状态
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // [修复 v3.1] Realtime channel 管理：避免频繁重建 channel 导致 DOM 崩溃
+  const realtimeChannelRef = useRef<any>(null);
+  const watchingParentTaskIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     tasksRef.current = tasks;
@@ -176,31 +179,41 @@ export default function AIListingPage() {
   // ─── v2.0: 订阅 ai_image_tasks 表的 Realtime 变更 ─────────────────────
   //   将后台陆续生成的营销海报实时推入对应任务的 marketing_images
   //   完成条件：任务下的所有行均 completed/failed → status 升级为 done
+  //
+  // [修复 v3.1] 不再将 tasks 放入 deps，改用 ref 对比 watchingIds 是否变化，
+  //   避免每次 tasks 变化都销毁/重建 channel 导致 React DOM 崩溃。
   useEffect(() => {
     if (!supabase) {return;}
-    // 收集当前需要监听的 parent_task_id（状态是 processing_images、done、partial 且未入库）
-    const watchingIds = new Set<string>();
-    tasks.forEach((t) => {
+    // 收集当前需要监听的 parent_task_id
+    const currentWatchingIds = new Set<string>();
+    tasksRef.current.forEach((t) => {
       const pid = t.result?.parent_task_id;
       if (pid && (t.status === 'processing_images' || t.status === 'done' || t.status === 'partial')) {
-        watchingIds.add(pid);
+        currentWatchingIds.add(pid);
       }
     });
-    if (watchingIds.size === 0) {return;}
-
-    const channel = supabase
+    // 只在 watchingIds 集合真正变化时才重新订阅
+    const oldSerialized = JSON.stringify(Array.from(watchingParentTaskIdsRef.current).sort());
+    const newSerialized = JSON.stringify(Array.from(currentWatchingIds).sort());
+    if (oldSerialized === newSerialized) {return;}
+    // 清理旧 channel
+    if (realtimeChannelRef.current) {
+      try { supabase.removeChannel(realtimeChannelRef.current); } catch { /* ignore */ }
+      realtimeChannelRef.current = null;
+    }
+    watchingParentTaskIdsRef.current = currentWatchingIds;
+    if (currentWatchingIds.size === 0) {return;}
+    realtimeChannelRef.current = supabase
       .channel(`ai_image_tasks_${Date.now()}`)
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'ai_image_tasks' },
         (payload: any) => {
           const row = payload?.new;
-          if (!row || !row.parent_task_id || !watchingIds.has(row.parent_task_id)) {return;}
-
+          if (!row || !row.parent_task_id || !watchingParentTaskIdsRef.current.has(row.parent_task_id)) {return;}
           setTasks((prev) => prev.map((tk) => {
             if (tk.result?.parent_task_id !== row.parent_task_id) {return tk;}
             const prevImgs = tk.result?.marketing_images ? [...tk.result.marketing_images] : [];
-            // 用 display_order 对齐更新
             const idx = prevImgs.findIndex(
               (m) => m.id === row.id || m.display_order === row.display_order
             );
@@ -213,18 +226,14 @@ export default function AIListingPage() {
             };
             if (idx >= 0) {prevImgs[idx] = updatedItem;} else {prevImgs.push(updatedItem);}
             prevImgs.sort((a, b) => a.display_order - b.display_order);
-
-            // 如果所有已报回的行都是 completed/failed 且数量达到 enqueued → 可升级为 done
             const enqueued = tk.result?.enqueued_images || prevImgs.length;
             const terminalCount = prevImgs.filter(
               (m) => m.status === 'completed' || m.status === 'failed'
             ).length;
             const allDone = terminalCount >= enqueued && enqueued > 0;
-
             const nextStatus: AITask['status'] = allDone
               ? (prevImgs.some((m) => m.status === 'completed') ? 'done' : 'partial')
               : 'processing_images';
-
             return {
               ...tk,
               status: nextStatus,
@@ -242,11 +251,13 @@ export default function AIListingPage() {
         }
       )
       .subscribe();
-
     return () => {
-      try { supabase.removeChannel(channel); } catch { /* ignore */ }
+      if (realtimeChannelRef.current) {
+        try { supabase.removeChannel(realtimeChannelRef.current); } catch { /* ignore */ }
+        realtimeChannelRef.current = null;
+      }
     };
-  }, [supabase, tasks]);
+  });  // [修复 v3.1] 无 deps — 每次 render 检查 watchingIds 是否变化，内部自行决定是否重建
 
   // ─── 更新单个任务 ──────────────────────────────────────────
   const updateTask = useCallback((taskId: string, updates: Partial<AITask>) => {
@@ -294,6 +305,16 @@ export default function AIListingPage() {
         ai_understanding: raw?.analysis?.ai_understanding || undefined,
       },
     };
+  }, []);
+
+  // [修复 v3.1] 安全的 Date 转换辅助函数
+  const ensureDate = useCallback((val: any): Date => {
+    if (val instanceof Date && !isNaN(val.getTime())) return val;
+    if (val) {
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return new Date(); // fallback to now
   }, []);
 
   useEffect(() => {
