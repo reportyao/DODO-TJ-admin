@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown, Sparkles, Brain, RefreshCw, Zap, Loader2 } from 'lucide-react';
-import { getSessionToken } from '@/lib/adminApi';
+import { getSessionToken, adminQuery, adminInsert } from '@/lib/adminApi';
+import type { I18nText } from '@/types/homepage';
 import { MultiImageUpload } from '@/components/MultiImageUpload';
 import toast from 'react-hot-toast';
 import { useSupabase } from '@/contexts/SupabaseContext';
@@ -180,7 +181,11 @@ export default function InventoryProductManagementPage() {
   } | null>(null);
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [batchLog, setBatchLog] = useState<Array<{ name: string; status: string; error?: string }>>([]);
-  
+
+  // 商品分类
+  const [categories, setCategories] = useState<{ id: string; code: string; name_i18n: I18nText }[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
+
   const [formData, setFormData] = useState({
     name_zh: '',
     name_ru: '',
@@ -240,6 +245,25 @@ export default function InventoryProductManagementPage() {
     fetchProducts();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage]);
+
+  // 加载商品分类列表
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const data = await adminQuery<{ id: string; code: string; name_i18n: I18nText }>(supabase, 'homepage_categories', {
+          select: 'id, code, name_i18n',
+          filters: [{ col: 'is_active', op: 'eq', val: true }],
+          orderBy: 'sort_order',
+          orderAsc: true,
+        });
+        setCategories(data || []);
+      } catch (error) {
+        console.error('Failed to fetch categories:', error);
+      }
+    };
+    fetchCategories();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchProducts = async () => {
     try {
@@ -374,6 +398,8 @@ export default function InventoryProductManagementPage() {
     };
 
     try {
+      let productId: string | null = null;
+
       if (editingProduct) {
         const { error } = await supabase
           .from('inventory_products')
@@ -381,14 +407,37 @@ export default function InventoryProductManagementPage() {
           .eq('id', editingProduct.id);
 
         if (error) {throw error;}
+        productId = editingProduct.id;
         toast.success('库存商品更新成功');
       } else {
-        const { error } = await supabase
+        const { data: insertedData, error } = await supabase
           .from('inventory_products')
-          .insert([productData]);
+          .insert([productData])
+          .select('id')
+          .single();
 
         if (error) {throw error;}
+        productId = insertedData?.id || null;
         toast.success('库存商品创建成功');
+      }
+
+      // 处理商品分类关联
+      if (productId) {
+        try {
+          // 先删除旧的分类关联
+          await supabase
+            .from('product_categories')
+            .delete()
+            .eq('product_id', productId);
+          // 如果选择了分类，创建新的关联
+          if (selectedCategoryId) {
+            await supabase
+              .from('product_categories')
+              .insert({ product_id: productId, category_id: selectedCategoryId });
+          }
+        } catch (catErr: any) {
+          console.warn('分类关联操作失败:', catErr.message);
+        }
       }
 
       setShowModal(false);
@@ -402,7 +451,7 @@ export default function InventoryProductManagementPage() {
     }
   };
 
-  const handleEdit = (product: InventoryProduct) => {
+  const handleEdit = async (product: InventoryProduct) => {
     setEditingProduct(product);
     setFormData({
       name_zh: product.name_i18n?.zh || product.name || '',
@@ -430,6 +479,17 @@ export default function InventoryProductManagementPage() {
       status: product.status || 'ACTIVE',
       ai_understanding: normalizeAIUnderstandingForForm(product.ai_understanding),
     });
+    // 加载该商品的分类关联
+    try {
+      const { data: catRelations } = await supabase
+        .from('product_categories')
+        .select('category_id')
+        .eq('product_id', product.id)
+        .limit(1);
+      setSelectedCategoryId(catRelations?.[0]?.category_id || '');
+    } catch {
+      setSelectedCategoryId('');
+    }
     setShowModal(true);
   };
 
@@ -926,6 +986,7 @@ export default function InventoryProductManagementPage() {
       status: 'ACTIVE',
       ai_understanding: normalizeAIUnderstandingForForm(null),
     });
+    setSelectedCategoryId('');
   };
 
   const getStatusBadge = (status: string) => {
@@ -1231,40 +1292,6 @@ export default function InventoryProductManagementPage() {
                         value={formData.name_tg}
                         onChange={(e) => setFormData({ ...formData, name_tg: e.target.value })}
                         className="w-full border rounded px-3 py-2"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* 描述 */}
-                <div>
-                  <label className="block text-sm font-medium mb-2">商品描述</label>
-                  <div className="space-y-2">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">中文</label>
-                      <textarea
-                        value={formData.description_zh}
-                        onChange={(e) => setFormData({ ...formData, description_zh: e.target.value })}
-                        className="w-full border rounded px-3 py-2"
-                        rows={2}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">俄语</label>
-                      <textarea
-                        value={formData.description_ru}
-                        onChange={(e) => setFormData({ ...formData, description_ru: e.target.value })}
-                        className="w-full border rounded px-3 py-2"
-                        rows={2}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">塔吉克语</label>
-                      <textarea
-                        value={formData.description_tg}
-                        onChange={(e) => setFormData({ ...formData, description_tg: e.target.value })}
-                        className="w-full border rounded px-3 py-2"
-                        rows={2}
                       />
                     </div>
                   </div>
@@ -1588,6 +1615,24 @@ export default function InventoryProductManagementPage() {
                     <option value="ACTIVE">上架</option>
                     <option value="INACTIVE">下架</option>
                   </select>
+                </div>
+
+                {/* 商品分类 */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">商品分类</label>
+                  <select
+                    value={selectedCategoryId}
+                    onChange={(e) => setSelectedCategoryId(e.target.value)}
+                    className="w-full border rounded px-3 py-2"
+                  >
+                    <option value="">未分类</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name_i18n?.zh || cat.code}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">选择商品所属的首页分类，用于前台展示归类</p>
                 </div>
 
                 {/* 按钮 */}
