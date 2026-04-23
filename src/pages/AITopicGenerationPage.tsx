@@ -194,7 +194,7 @@ export default function AITopicGenerationPage() {
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       const hasUnsaved = tasks.some(
-        (t) => (t.status === 'done' || t.status === 'partial') && !t.savedAsDraft
+        (t) => ((t.status === 'done' || t.status === 'partial') && !t.savedAsDraft) || (t.status === 'error' && !!t.result && !t.savedAsDraft)
       );
       const hasProcessing = tasks.some(
         (t) => t.status === 'processing' || t.status === 'recovering' || t.status === 'queued'
@@ -424,19 +424,37 @@ export default function AITopicGenerationPage() {
                   abortControllersRef.current.delete(task.id);
                 }
 
-                setTasks(prev => prev.map(t => {
-                  if (t.taskId === taskId) {
-                    return {
-                      ...t,
-                      status: 'error',
-                      progress: 0,
-                      stage: '生成失败',
-                      errorMessage: dbTask.error_message || '未知错误',
-                    };
-                  }
-                  return t;
-                }));
-                toast.error('生成失败: ' + (dbTask.error_message || '未知错误'));
+                // [v2 修复] 如果 DB 中 error 但有 result_payload，标记为 partial
+                if (dbTask.result_payload) {
+                  setTasks(prev => prev.map(t => {
+                    if (t.taskId === taskId) {
+                      return {
+                        ...t,
+                        status: 'partial',
+                        progress: 100,
+                        stage: '部分完成（有错误，但已有部分结果）',
+                        result: dbTask.result_payload,
+                        errorMessage: dbTask.error_message || undefined,
+                      };
+                    }
+                    return t;
+                  }));
+                  toast('生成部分完成，请查看结果', { icon: '⚠️' });
+                } else {
+                  setTasks(prev => prev.map(t => {
+                    if (t.taskId === taskId) {
+                      return {
+                        ...t,
+                        status: 'error',
+                        progress: 0,
+                        stage: '生成失败',
+                        errorMessage: dbTask.error_message || '未知错误',
+                      };
+                    }
+                    return t;
+                  }));
+                  toast.error('生成失败: ' + (dbTask.error_message || '未知错误'));
+                }
               }
               // 如果 DB 中仍然是 processing，检查是否超过硬超时
               if (dbTask.status === 'processing') {
@@ -461,8 +479,26 @@ export default function AITopicGenerationPage() {
                   } catch (e) {
                     console.error('[AITopic] 更新超时任务状态失败:', e);
                   }
+                  // [v2 修复] 超时时根据已有结果智能判定状态
                   setTasks(prev => prev.map(t => {
                     if (t.taskId === taskId) {
+                      if (t.result) {
+                        return {
+                          ...t,
+                          status: t.result.title_i18n ? 'done' : 'partial',
+                          progress: 100,
+                          stage: t.result.title_i18n ? '全部完成（超时前已获取结果）' : '部分完成（超时，仅有部分结果）',
+                        };
+                      }
+                      if (dbTask.result_payload) {
+                        return {
+                          ...t,
+                          status: 'partial',
+                          progress: 100,
+                          stage: '部分完成（超时，但已有部分结果）',
+                          result: dbTask.result_payload,
+                        };
+                      }
                       return {
                         ...t,
                         status: 'error',
@@ -473,7 +509,11 @@ export default function AITopicGenerationPage() {
                     }
                     return t;
                   }));
-                  toast.error('任务超时，请重新生成');
+                  if (dbTask.result_payload) {
+                    toast('任务超时但已有部分结果可用', { icon: '⚠️' });
+                  } else {
+                    toast.error('任务超时，请重新生成');
+                  }
                 }
               }
             }
@@ -565,16 +605,28 @@ export default function AITopicGenerationPage() {
           } else if (data.status === 'error') {
             // 标记已收到终态事件
             taskReceivedFinalEventRef.current.add(task.id);
-
-            updateTask(task.id, {
-              status: 'error',
-              progress: 0,
-              stage: '生成失败',
-              errorMessage: data.error || '未知错误',
-            });
-
+            // [v2 修复] 如果 error 事件中携带了 result，或前端已有 result，标记为 partial
+            const currentTask = tasksRef.current.find(t => t.id === task.id);
+            const hasResult = data.result || currentTask?.result;
+            if (hasResult) {
+              updateTask(task.id, {
+                status: 'partial',
+                progress: 100,
+                stage: '部分完成（有错误，但已有部分结果）',
+                result: data.result || currentTask?.result,
+                errorMessage: data.error || undefined,
+              });
+              toast('生成部分完成，请查看结果', { icon: '⚠️' });
+            } else {
+              updateTask(task.id, {
+                status: 'error',
+                progress: 0,
+                stage: '生成失败',
+                errorMessage: data.error || '未知错误',
+              });
+              toast.error('生成失败: ' + (data.error || '未知错误'));
+            }
             abortControllersRef.current.delete(task.id);
-            toast.error('生成失败: ' + (data.error || '未知错误'));
           }
         },
         // onError
@@ -1596,7 +1648,8 @@ function TopicTaskCard({
 
       {/* 错误信息 */}
       {task.status === 'error' && task.errorMessage && (
-        <div className="text-xs text-red-500 bg-red-50 rounded p-2 mb-2">
+        <div className={`text-xs rounded p-2 mb-2 ${task.result ? 'text-orange-600 bg-orange-50' : 'text-red-500 bg-red-50'}`}>
+          {task.result && <span className="font-medium">已有部分结果可用 · </span>}
           {task.errorMessage}
         </div>
       )}
@@ -1613,6 +1666,12 @@ function TopicTaskCard({
           <Button variant="outline" size="sm" onClick={onViewResult} className="text-xs text-purple-600">
             <BookOpen className="w-3.5 h-3.5 mr-1" />
             查看草稿
+          </Button>
+        )}
+        {task.status === 'error' && task.result && (
+          <Button variant="outline" size="sm" onClick={onViewResult} className="text-xs text-orange-600">
+            <BookOpen className="w-3.5 h-3.5 mr-1" />
+            查看部分结果
           </Button>
         )}
         {task.status === 'error' && (
