@@ -155,7 +155,7 @@ export default function AIListingPage() {
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       const hasUnsaved = tasks.some(
-        (t) => (t.status === 'done' || t.status === 'partial') && !t.savedToInventory
+        (t) => ((t.status === 'done' || t.status === 'partial') || (t.status === 'error' && !!t.result)) && !t.savedToInventory
       );
       const hasProcessing = tasks.some(
         (t) => t.status === 'processing' || t.status === 'processing_images' || t.status === 'queued'
@@ -496,26 +496,51 @@ export default function AIListingPage() {
               // [修复] processing_images 状态使用独立的 60 分钟超时
               const imageTaskAge = now2 - new Date(dbTask.created_at || task.createdAt).getTime();
               if (imageTaskAge > IMAGE_TASK_TIMEOUT_MS) {
+                // [修复] 超时时根据已有结果智能判定状态，而非一律标记 error
+                const hasResult = !!recoveredResult?.title_ru;
+                const timeoutStatus = completedCount > 0 ? 'done' : (hasResult ? 'partial' : 'error');
+                const timeoutStage = completedCount > 0
+                  ? `已完成（${completedCount}/${totalCount} 张海报，其余超时）`
+                  : (hasResult ? '部分完成（仅文案，海报生成超时）' : '海报生成超时');
                 updateTask(task.id, {
-                  status: 'error',
-                  progress: 0,
-                  stage: '海报生成超时',
+                  status: timeoutStatus as any,
+                  progress: timeoutStatus === 'error' ? 0 : 100,
+                  stage: timeoutStage,
                   errorMessage: `后台海报生成超时（超过 30 分钟），已完成 ${completedCount}/${totalCount} 张`,
                   completedAt: new Date(),
+                  result: recoveredResult ? { ...recoveredResult, marketing_images: recoveredImages } : undefined,
                 });
-                toast.error(`"${task.productName}" 海报生成超时`);
+                if (timeoutStatus === 'error') {
+                  toast.error(`"${task.productName}" 海报生成超时`);
+                } else {
+                  toast(`"${task.productName}" 海报生成超时，但已有部分结果可用`, { icon: '⚠️' });
+                }
               }
               continue;
             }
 
             if (dbTask.status === 'error') {
-              updateTask(task.id, {
-                status: 'error',
-                progress: 0,
-                stage: '生成失败',
-                errorMessage: dbTask.error_message || '未知错误',
-                completedAt: dbTask.completed_at ? new Date(dbTask.completed_at) : new Date(),
-              });
+              // [修复] 如果数据库标记 error 但已有文案结果，标记为 partial 而非 error
+              const hasPartialResult = dbTask.result_payload?.title_ru;
+              if (hasPartialResult) {
+                const partialResult = normalizeListingResult(dbTask.result_payload);
+                updateTask(task.id, {
+                  status: 'partial',
+                  progress: 100,
+                  stage: '部分完成（生成过程中出错，但文案可用）',
+                  errorMessage: dbTask.error_message || undefined,
+                  result: partialResult,
+                  completedAt: dbTask.completed_at ? new Date(dbTask.completed_at) : new Date(),
+                });
+              } else {
+                updateTask(task.id, {
+                  status: 'error',
+                  progress: 0,
+                  stage: '生成失败',
+                  errorMessage: dbTask.error_message || '未知错误',
+                  completedAt: dbTask.completed_at ? new Date(dbTask.completed_at) : new Date(),
+                });
+              }
               if (activeExecutionIdsRef.current.has(task.id)) {
                 activeExecutionIdsRef.current.delete(task.id);
                 abortControllersRef.current.delete(task.id);
@@ -670,14 +695,31 @@ export default function AIListingPage() {
 
           if (data.status === 'error') {
             taskReceivedFinalEventRef.current.add(task.id);
-
-            updateTask(task.id, {
-              status: 'error',
-              progress: 0,
-              stage: '生成失败',
-              errorMessage: data.error || '未知错误',
-              taskId: data.task_id,
-            });
+            // [修复] SSE 返回 error 时，检查是否已有部分结果（如文案）
+            const currentTaskState = tasksRef.current.find((t) => t.id === task.id);
+            const existingResult = currentTaskState?.result;
+            const hasPartialResult = existingResult?.title_ru || data.result?.title_ru;
+            if (hasPartialResult) {
+              const partialResult = data.result
+                ? normalizeListingResult(data.result)
+                : existingResult;
+              updateTask(task.id, {
+                status: 'partial',
+                progress: 100,
+                stage: '部分完成（生成过程中出错，但已有结果可用）',
+                errorMessage: data.error || '部分步骤失败',
+                result: partialResult,
+                taskId: data.task_id,
+              });
+            } else {
+              updateTask(task.id, {
+                status: 'error',
+                progress: 0,
+                stage: '生成失败',
+                errorMessage: data.error || '未知错误',
+                taskId: data.task_id,
+              });
+            }
 
             finalizeTaskExecution(task.id);
             processNextTask();
@@ -840,7 +882,7 @@ export default function AIListingPage() {
 
   // ─── 已完成但未入库的任务列表 ─────────────────────────────
   const completedUnsavedTasks = tasks.filter(
-    (t) => (t.status === 'done' || t.status === 'partial') && !t.savedToInventory
+    (t) => ((t.status === 'done' || t.status === 'partial') || (t.status === 'error' && !!t.result)) && !t.savedToInventory
   );
 
   const allSelected =

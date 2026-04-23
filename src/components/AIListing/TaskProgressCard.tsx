@@ -91,7 +91,7 @@ export const TaskProgressCard: React.FC<TaskProgressCardProps> = ({
   onDelete,
 }) => {
   const config = STATUS_CONFIG[task.status] || FALLBACK_CONFIG;
-  const canSelect = (task.status === 'done' || task.status === 'partial') && !task.savedToInventory;
+  const canSelect = ((task.status === 'done' || task.status === 'partial') || (task.status === 'error' && !!task.result)) && !task.savedToInventory;
 
   // 计算海报生成进度（processing_images 状态）
   const marketingImages = task.result?.marketing_images || [];
@@ -204,8 +204,9 @@ export const TaskProgressCard: React.FC<TaskProgressCardProps> = ({
 
             {/* 错误信息（error 状态） */}
             {task.status === 'error' && task.errorMessage && (
-              <p className="mt-2 text-xs text-red-600 bg-red-50 rounded p-2">
-                {task.errorMessage}
+              <p className={`mt-2 text-xs rounded p-2 ${task.result ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50'}`}>
+                {task.result ? '⚠️ ' : ''}{task.errorMessage}
+                {task.result && <span className="block mt-1 text-green-700">已有部分结果可用，点击"查看结果"使用</span>}
               </p>
             )}
 
@@ -220,7 +221,7 @@ export const TaskProgressCard: React.FC<TaskProgressCardProps> = ({
             {/* 操作按钮 */}
             <div className="flex gap-2 mt-3">
               {/* done / partial / processing_images 都可以查看结果 */}
-              {(task.status === 'done' || task.status === 'partial' || task.status === 'processing_images') && task.result && (
+              {(task.status === 'done' || task.status === 'partial' || task.status === 'processing_images' || (task.status === 'error' && task.result)) && task.result && (
                 <Button
                   variant="outline"
                   size="sm"
