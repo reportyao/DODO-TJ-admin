@@ -131,6 +131,12 @@ export default function AIListingPage() {
   // [修复 v3.1] Realtime channel 管理：避免频繁重建 channel 导致 DOM 崩溃
   const realtimeChannelRef = useRef<any>(null);
   const watchingParentTaskIdsRef = useRef<Set<string>>(new Set());
+  const realtimeReconnectCountRef = useRef(0); // Realtime 重连计数
+  const realtimeAlertShownRef = useRef(false); // Realtime 告警是否已显示
+
+  // 错误日志节流
+  const lastImgQueryErrorRef = useRef<{msg: string; time: number; count: number}>({msg: '', time: 0, count: 0});
+  const lastPollErrorRef = useRef<{msg: string; time: number; count: number}>({msg: '', time: 0, count: 0});
 
   useEffect(() => {
     tasksRef.current = tasks;
@@ -250,7 +256,22 @@ export default function AIListingPage() {
           }));
         }
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+          realtimeReconnectCountRef.current = 0;
+          realtimeAlertShownRef.current = false;
+          console.log('[AIListing] Realtime channel SUBSCRIBED.');
+        } else if (status === 'CHANNEL_ERROR') {
+          realtimeReconnectCountRef.current++;
+          console.warn(`[AIListing] Realtime channel ERROR: ${err?.message}. Reconnect count: ${realtimeReconnectCountRef.current}`);
+          if (realtimeReconnectCountRef.current > 5 && !realtimeAlertShownRef.current) {
+            toast.error('Realtime 连接不稳定，海报进度可能延迟', { duration: 5000 });
+            realtimeAlertShownRef.current = true;
+          }
+        } else if (status === 'TIMED_OUT') {
+          console.error('[AIListing] Realtime channel TIMED_OUT. Connection might be lost.');
+        }
+      });
     return () => {
       if (realtimeChannelRef.current) {
         try { supabase.removeChannel(realtimeChannelRef.current); } catch { /* ignore */ }
@@ -442,8 +463,20 @@ export default function AIListingPage() {
                     continue;
                   }
                 }
-              } catch (imgQueryErr) {
-                console.warn('[AIListing] 查询 ai_image_tasks 失败，使用父任务数据:', imgQueryErr);
+              } catch (imgQueryErr: any) {
+                const now3 = Date.now();
+                const lastError = lastImgQueryErrorRef.current;
+                const errorMessage = imgQueryErr.message || String(imgQueryErr);
+
+                if (errorMessage === lastError.msg && (now3 - lastError.time < 30000)) {
+                  lastError.count++;
+                } else {
+                  if (lastError.count > 0) {
+                    console.warn(`[AIListing] 查询 ai_image_tasks 失败（已抑制 ${lastError.count} 次相同错误），使用父任务数据: ${lastError.msg}`);
+                  }
+                  console.warn(`[AIListing] 查询 ai_image_tasks 失败，使用父任务数据: ${errorMessage}`);
+                  lastImgQueryErrorRef.current = { msg: errorMessage, time: now3, count: 0 };
+                }
               }
 
               updateTask(task.id, {
@@ -522,8 +555,20 @@ export default function AIListingPage() {
               }
             }
           }
-        } catch (error) {
-          console.error('[AIListing] DB 轮询失败:', error);
+        } catch (error: any) {
+          const now3 = Date.now();
+          const lastError = lastPollErrorRef.current;
+          const errorMessage = error.message || String(error);
+
+          if (errorMessage === lastError.msg && (now3 - lastError.time < 30000)) {
+            lastError.count++;
+          } else {
+            if (lastError.count > 0) {
+              console.error(`[AIListing] DB 轮询失败（已抑制 ${lastError.count} 次相同错误）: ${lastError.msg}`);
+            }
+            console.error('[AIListing] DB 轮询失败:', error);
+            lastPollErrorRef.current = { msg: errorMessage, time: now3, count: 0 };
+          }
         }
       };
 

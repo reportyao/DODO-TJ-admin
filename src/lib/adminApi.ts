@@ -12,6 +12,17 @@
  * 
  * [v3 新增]
  *   - adminSSEFetch: 带管理员认证的 SSE 流式请求方法（AI 商品上架等场景）
+ *
+ * ⚠️ 白名单管理（给 AI 和开发者）：
+ *   adminQuery / adminCount / adminInsert / adminUpdate / adminDelete 底层调用的
+ *   PostgreSQL RPC 函数（admin_query / admin_count / admin_mutate）内部维护了一个
+ *   v_allowed_tables 白名单数组。每次在数据库中创建新表后，必须将表名添加到
+ *   这三个函数的白名单中，否则前端调用时会报错：
+ *     FORBIDDEN: 不允许访问表 xxx
+ *
+ *   操作方法和 SQL 模板见：
+ *     - 前端仓库: docs/ADMIN_RPC_WHITELIST_GUIDE.md
+ *     - 迁移模板: supabase/migrations/_TEMPLATE_create_new_table.sql
  */
 import { SupabaseClient } from '@supabase/supabase-js'
 
