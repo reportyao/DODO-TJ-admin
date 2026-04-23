@@ -26,6 +26,8 @@ import {
   Package,
   Image as ImageIcon,
   Trash2,
+  RefreshCw,
+  FileText,
 } from 'lucide-react';
 import type { AITask, AITaskStatus } from '@/types/aiListing';
 
@@ -36,6 +38,10 @@ interface TaskProgressCardProps {
   onViewResult: (taskId: string) => void;
   onRetry: (taskId: string) => void;
   onDelete?: (taskId: string) => void;
+  /** 单独重新生成营销海报（需要任务已有 result/parent_task_id） */
+  onRegenerateImages?: (taskId: string) => void;
+  /** 单独重新生成三语文案 */
+  onRegenerateCopy?: (taskId: string) => void;
 }
 
 // 状态配置映射（完整覆盖所有 AITaskStatus）
@@ -89,6 +95,8 @@ export const TaskProgressCard: React.FC<TaskProgressCardProps> = ({
   onViewResult,
   onRetry,
   onDelete,
+  onRegenerateImages,
+  onRegenerateCopy,
 }) => {
   const config = STATUS_CONFIG[task.status] || FALLBACK_CONFIG;
   const canSelect = ((task.status === 'done' || task.status === 'partial') || (task.status === 'error' && !!task.result)) && !task.savedToInventory;
@@ -232,7 +240,7 @@ export const TaskProgressCard: React.FC<TaskProgressCardProps> = ({
                   {task.status === 'processing_images' ? '查看文案' : '查看结果'}
                 </Button>
               )}
-              {task.status === 'error' && (
+              {task.status === 'error' && !task.result && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -241,6 +249,32 @@ export const TaskProgressCard: React.FC<TaskProgressCardProps> = ({
                 >
                   <RotateCcw className="w-3.5 h-3.5 mr-1" />
                   重试
+                </Button>
+              )}
+              {/* 独立重生成文案：仅在任务已有 result（done/partial/processing_images/带部分结果的 error）时出现 */}
+              {onRegenerateCopy && task.result && (task.status === 'done' || task.status === 'partial' || task.status === 'processing_images' || (task.status === 'error' && !!task.result)) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onRegenerateCopy(task.id)}
+                  className="text-xs"
+                  title="仅重新生成三语文案，保留现有商品海报"
+                >
+                  <FileText className="w-3.5 h-3.5 mr-1" />
+                  重生文案
+                </Button>
+              )}
+              {/* 独立重生成海报：仅在任务已有 result（done/partial/error+result）时出现 */}
+              {onRegenerateImages && task.result && (task.status === 'done' || task.status === 'partial' || (task.status === 'error' && !!task.result)) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onRegenerateImages(task.id)}
+                  className="text-xs"
+                  title="仅重新生成营销海报，保留现有三语文案"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                  重生海报
                 </Button>
               )}
               {/* 删除按钮：所有状态均可删除（已入库除外） */}

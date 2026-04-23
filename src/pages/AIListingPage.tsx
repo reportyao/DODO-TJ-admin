@@ -622,28 +622,47 @@ export default function AIListingPage() {
       taskReceivedFinalEventRef.current.delete(task.id);
       activeExecutionIdsRef.current.add(task.id);
 
-      updateTask(task.id, {
-        status: 'processing',
-        progress: 5,
-        stage: '正在连接 AI 服务...',
-        errorMessage: undefined,
-        taskId: undefined,
-        result: undefined,
-        savedToInventory: false,
-        completedAt: undefined,
-        createdAt: new Date(),
-      });
+      // [v6.0] regenerate 模式下保留 taskId 与 result，仅复位 progress/stage
+      const isRegenerate = !!(task as any)._regenerateMode;
+      updateTask(task.id, isRegenerate
+        ? {
+            status: 'processing',
+            progress: 5,
+            stage: (task as any)._regenerateMode === 'regenerate_images' ? '正在重新生成营销海报...' : '正在重新生成文案...',
+            errorMessage: undefined,
+            completedAt: undefined,
+          }
+        : {
+            status: 'processing',
+            progress: 5,
+            stage: '正在连接 AI 服务...',
+            errorMessage: undefined,
+            taskId: undefined,
+            result: undefined,
+            savedToInventory: false,
+            completedAt: undefined,
+            createdAt: new Date(),
+          });
 
+      // [v6.0] regenerate 模式：从任务元数据读出 mode，请求体只带 mode + existing_task_id
+      const regenMode = (task as any)._regenerateMode as ('regenerate_images' | 'regenerate_copy' | undefined);
+      const requestBody: Record<string, any> = regenMode && task.taskId
+        ? { mode: regenMode, existing_task_id: task.taskId }
+        : {
+            image_urls: task.imageUrls,
+            category: task.category,
+            product_name: task.productName,
+            specs: task.specs,
+            price: task.price,
+            notes: task.notes,
+          };
+      // 清理临时元数据，避免下次执行被误识别
+      if (regenMode) {
+        updateTask(task.id, { ...(((): any => { const u: any = {}; u._regenerateMode = undefined; return u; })()) } as any);
+      }
       const controller = adminSSEFetch(
         EDGE_FUNCTION_URL,
-        {
-          image_urls: task.imageUrls,
-          category: task.category,
-          product_name: task.productName,
-          specs: task.specs,
-          price: task.price,
-          notes: task.notes,
-        },
+        requestBody,
         // onEvent
         (data: SSEEventData) => {
           if (data.status === 'processing') {
@@ -835,6 +854,88 @@ export default function AIListingPage() {
     toast.success(`"${task.productName}" 已添加到生成队列`);
   }, []);
 
+  // ─── 从数据库拉取本管理员的 7 天任务（Bug 1：跨浏览器同步）───────────
+  // 设计：仅按 created_by = 当前 admin id 过滤，按 created_at desc，limit 50；
+  // 与本地 tasks 按 taskId/id 去重合并，已存在则不覆盖（避免吞掉本地正在进行的临时进度）。
+  const [refreshingFromServer, setRefreshingFromServer] = useState(false);
+  const loadTasksFromServer = useCallback(async (silent = false) => {
+    if (!admin?.id) return;
+    setRefreshingFromServer(true);
+    try {
+      const sevenDaysAgoISO = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+      const dbTasks = await adminQuery<any>(supabase, 'ai_listing_generation_tasks', {
+        select: 'id, status, request_payload, result_payload, error_message, created_at, completed_at, created_by',
+        filters: [
+          { col: 'created_by', op: 'eq', val: String(admin.id) },
+          { col: 'created_at', op: 'gte', val: sevenDaysAgoISO },
+        ],
+        orderBy: 'created_at',
+        orderAsc: false,
+        limit: 50,
+      });
+      if (!Array.isArray(dbTasks) || dbTasks.length === 0) {
+        if (!silent) toast('暂无最近 7 天的服务器任务记录');
+        return;
+      }
+      let inserted = 0;
+      setTasks((prev) => {
+        const existingByServerId = new Set(prev.map((t) => t.taskId).filter(Boolean) as string[]);
+        const merged = [...prev];
+        for (const dbTask of dbTasks) {
+          if (existingByServerId.has(dbTask.id)) continue;
+          const req = dbTask.request_payload || {};
+          const res = dbTask.result_payload ? normalizeListingResult(dbTask.result_payload) : undefined;
+          const status: AITask['status'] = (dbTask.status as any) || 'queued';
+          merged.push({
+            id: `srv-${dbTask.id}`,
+            status,
+            progress: (status === 'done' || status === 'partial' || status === 'error') ? 100 : 0,
+            stage: status === 'done' ? '全部完成'
+              : status === 'partial' ? '部分完成'
+              : status === 'error' ? '失败'
+              : status === 'processing_images' ? '后台海报生成中（恢复）'
+              : status === 'processing' ? '生成中（恢复）'
+              : '排队中',
+            imageUrls: Array.isArray(req.image_urls) ? req.image_urls : [],
+            category: req.category || '',
+            categoryId: req.categoryId,
+            productName: req.product_name || '(未知商品)',
+            specs: req.specs || '',
+            price: typeof req.price === 'number' ? req.price : 0,
+            stock: typeof req.stock === 'number' ? req.stock : 0,
+            notes: req.notes || '',
+            result: res,
+            errorMessage: dbTask.error_message || undefined,
+            taskId: dbTask.id,
+            savedToInventory: false,
+            createdAt: dbTask.created_at ? new Date(dbTask.created_at) : new Date(),
+            completedAt: dbTask.completed_at ? new Date(dbTask.completed_at) : undefined,
+          });
+          inserted += 1;
+        }
+        return merged;
+      });
+      if (!silent) {
+        if (inserted > 0) toast.success(`已从服务器同步 ${inserted} 个新任务`);
+        else toast('任务队列已是最新');
+      }
+    } catch (err: any) {
+      console.error('[AIListing] 从服务器同步任务失败:', err);
+      if (!silent) toast.error('从服务器同步任务失败：' + (err?.message || '未知错误'));
+    } finally {
+      setRefreshingFromServer(false);
+    }
+  }, [admin?.id, supabase, normalizeListingResult]);
+
+  // 页面挂载后自动同步一次（静默）
+  useEffect(() => {
+    if (admin?.id) {
+      loadTasksFromServer(true).catch(() => {});
+    }
+    // 仅在 admin id 就绪后触发一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admin?.id]);
+
   // ─── 重试失败任务 ──────────────────────────────────────────
   const handleRetry = useCallback((taskId: string) => {
     updateTask(taskId, {
@@ -849,6 +950,34 @@ export default function AIListingPage() {
       createdAt: new Date(),
     });
   }, [updateTask]);
+
+  // ─── 独立重新生成（图片/文案）───────────────────────────────
+  // 仅触发 Edge Function 中的 regenerate_images / regenerate_copy 分支，
+  // 复用既有 SSE 链路；任务行上挂一个 _regenerateMode 元数据，executeTask 读取后清理。
+  const regenerateInner = useCallback(
+    (taskId: string, mode: 'regenerate_images' | 'regenerate_copy') => {
+      const task = tasksRef.current.find((t) => t.id === taskId);
+      if (!task) return;
+      if (!task.taskId) {
+        toast.error('该任务缺少服务端任务 ID，无法独立重生，请刷新后重试');
+        return;
+      }
+      updateTask(taskId, {
+        status: 'queued',
+        progress: 0,
+        stage: mode === 'regenerate_images' ? '排队中（重生海报）...' : '排队中（重生文案）...',
+        errorMessage: undefined,
+        completedAt: undefined,
+        savedToInventory: false,
+        createdAt: new Date(),
+        // @ts-ignore — 临时元数据，由 executeTask 读取后立即从对象中移除
+        _regenerateMode: mode,
+      } as any);
+    },
+    [updateTask]
+  );
+  const handleRegenerateImages = useCallback((taskId: string) => regenerateInner(taskId, 'regenerate_images'), [regenerateInner]);
+  const handleRegenerateCopy = useCallback((taskId: string) => regenerateInner(taskId, 'regenerate_copy'), [regenerateInner]);
 
   // ─── 查看结果 ──────────────────────────────────────────────
   const handleViewResult = useCallback((taskId: string) => {
@@ -1175,6 +1304,17 @@ export default function AIListingPage() {
                   任务队列 ({stats.total})
                 </span>
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => loadTasksFromServer(false)}
+                    disabled={refreshingFromServer}
+                    className="text-xs text-blue-600"
+                    title="从服务器拉取本管理员近 7 天的任务（解决跨浏览器看不到任务）"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 mr-1 ${refreshingFromServer ? 'animate-spin' : ''}`} />
+                    刷新
+                  </Button>
                   {stats.error > 0 && (
                     <Button
                       variant="ghost"
@@ -1222,6 +1362,8 @@ export default function AIListingPage() {
                       onViewResult={handleViewResult}
                       onRetry={handleRetry}
                       onDelete={handleDeleteTask}
+                      onRegenerateImages={handleRegenerateImages}
+                      onRegenerateCopy={handleRegenerateCopy}
                     />
                   ))}
                 </div>
