@@ -54,7 +54,33 @@ const SUPABASE_URL = (import.meta as any).env.VITE_SUPABASE_URL || '';
 const EDGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/ai-listing-generate`;
 // [修复] 使用 localStorage 替代 sessionStorage
 const STORAGE_KEY = 'ai_listing_tasks';
+const DELETED_TASKS_KEY = 'ai_listing_deleted_task_ids';
+const SAVED_TASKS_KEY = 'ai_listing_saved_task_ids';
 const MAX_CONCURRENT = 2; // 最多同时处理 2 个任务
+
+// ─── [修复] 已删除/已入库的服务器任务 ID 管理 ─────────────────
+function getDeletedTaskIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DELETED_TASKS_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch { return new Set(); }
+}
+function addDeletedTaskId(serverId: string) {
+  const ids = getDeletedTaskIds();
+  ids.add(serverId);
+  try { localStorage.setItem(DELETED_TASKS_KEY, JSON.stringify([...ids])); } catch {}
+}
+function getSavedTaskIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(SAVED_TASKS_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch { return new Set(); }
+}
+function addSavedTaskId(serverId: string) {
+  const ids = getSavedTaskIds();
+  ids.add(serverId);
+  try { localStorage.setItem(SAVED_TASKS_KEY, JSON.stringify([...ids])); } catch {}
+}
 const DB_POLL_INTERVAL = 5000;
 // [修复 v3.0] 区分两种超时：
 //   - processing 阶段（Edge Function 最多 150s，加缓冲给 5 分钟）
@@ -878,11 +904,17 @@ export default function AIListingPage() {
         return;
       }
       let inserted = 0;
+      const deletedIds = getDeletedTaskIds();
+      const savedIds = getSavedTaskIds();
       setTasks((prev) => {
         const existingByServerId = new Set(prev.map((t) => t.taskId).filter(Boolean) as string[]);
         const merged = [...prev];
         for (const dbTask of dbTasks) {
           if (existingByServerId.has(dbTask.id)) continue;
+          // [修复] 跳过已删除的任务
+          if (deletedIds.has(dbTask.id)) continue;
+          // [修复] 跳过已入库的任务
+          if (savedIds.has(dbTask.id)) continue;
           const req = dbTask.request_payload || {};
           const res = dbTask.result_payload ? normalizeListingResult(dbTask.result_payload) : undefined;
           const status: AITask['status'] = (dbTask.status as any) || 'queued';
@@ -1144,16 +1176,18 @@ export default function AIListingPage() {
       setSaving(true);
       try {
         await saveTaskToInventory(task, editedResult, selectedImages);
-
-        // 先关闭 Dialog，再延迟更新任务状态，避免 React 列表重渲染与 Radix Portal 卸载竞争
+        // [修复 v4] 先标记入库完成，再关闭 Dialog，避免 React 列表重渲染与 Radix Portal 卸载竞争
         // 导致 removeChild / insertBefore 一类 DOM 异常。
-        setPreviewTask(null);
+        // 策略：先更新任务状态 → 等待渲染完成 → 再关闭 Dialog
+        updateTask(previewTaskId, { savedToInventory: true });
+        // [修复] 记录已入库的服务器任务 ID
+        if (task.taskId) addSavedTaskId(task.taskId);
         toast.success(`"${task.productName}" 已成功入库！`);
-
+        // 延迟关闭 Dialog，确保列表重渲染完成后再卸载 Portal
         requestAnimationFrame(() => {
           setTimeout(() => {
-            updateTask(previewTaskId, { savedToInventory: true });
-          }, 300);
+            setPreviewTask(null);
+          }, 100);
         });
       } catch (error: any) {
         console.error('[AIListing] 入库失败:', error);
@@ -1189,6 +1223,8 @@ export default function AIListingPage() {
         const selectedImages = result.background_images;
         await saveTaskToInventory(task, result, selectedImages);
         updateTask(task.id, { savedToInventory: true });
+        // [修复] 记录已入库的服务器任务 ID
+        if (task.taskId) addSavedTaskId(task.taskId);
         successCount++;
       } catch (error: any) {
         console.error(`[AIListing] 批量入库失败 (${task.productName}):`, error);
@@ -1225,6 +1261,11 @@ export default function AIListingPage() {
       controller.abort();
       abortControllersRef.current.delete(taskId);
       processingCountRef.current = Math.max(0, processingCountRef.current - 1);
+    }
+    // [修复] 记录已删除的服务器任务 ID，防止刷新后从数据库重新拉取
+    const task = tasksRef.current.find((t) => t.id === taskId);
+    if (task?.taskId) {
+      addDeletedTaskId(task.taskId);
     }
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     setSelectedIds((prev) => {
