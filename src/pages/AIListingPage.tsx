@@ -29,6 +29,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { useSupabase } from '../contexts/SupabaseContext';
 import { useAdminAuth } from '../contexts/AdminAuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1176,19 +1177,19 @@ export default function AIListingPage() {
       setSaving(true);
       try {
         await saveTaskToInventory(task, editedResult, selectedImages);
-        // [修复 v4] 先标记入库完成，再关闭 Dialog，避免 React 列表重渲染与 Radix Portal 卸载竞争
-        // 导致 removeChild / insertBefore 一类 DOM 异常。
-        // 策略：先更新任务状态 → 等待渲染完成 → 再关闭 Dialog
-        updateTask(previewTaskId, { savedToInventory: true });
-        // [修复] 记录已入库的服务器任务 ID
+        // [修复 v5] 彻底解决 React 19 + Radix Dialog Portal removeChild 竞争
+        // 核心策略：使用 flushSync 将所有状态更新同步刷新到 DOM，
+        // 避免 React concurrent rendering 与 Radix Portal 卸载产生异步竞争。
+        // 在同一个同步批次中关闭 Dialog 并更新任务状态，React 只做一次 DOM commit。
         if (task.taskId) addSavedTaskId(task.taskId);
-        toast.success(`"${task.productName}" 已成功入库！`);
-        // 延迟关闭 Dialog，确保列表重渲染完成后再卸载 Portal
-        requestAnimationFrame(() => {
-          setTimeout(() => {
-            setPreviewTask(null);
-          }, 100);
+        const productName = task.productName;
+        flushSync(() => {
+          setPreviewTask(null);
+          updateTask(previewTaskId, { savedToInventory: true });
+          setSaving(false);
         });
+        toast.success(`"${productName}" 已成功入库！`);
+        return;
       } catch (error: any) {
         console.error('[AIListing] 入库失败:', error);
         toast.error('入库失败: ' + (error.message || '未知错误'));
