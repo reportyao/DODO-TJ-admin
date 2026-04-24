@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown, Sparkles, Brain, RefreshCw, Zap, Loader2 } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown, Sparkles, Brain, RefreshCw, Zap, Loader2, Truck, CheckSquare, Square } from 'lucide-react';
+import { useAdminAuth } from '@/contexts/AdminAuthContext';
 import { getSessionToken, adminQuery, adminInsert } from '@/lib/adminApi';
 import type { I18nText } from '@/types/homepage';
 import { MultiImageUpload } from '@/components/MultiImageUpload';
@@ -60,6 +61,7 @@ interface InventoryProduct {
   created_at: string;
   updated_at: string;
   ai_understanding?: InventoryAIUnderstanding | null;
+  local_batch_id?: string | null;
 }
 
 interface InventoryTransaction {
@@ -150,6 +152,7 @@ const normalizeAIUnderstandingForForm = (value?: InventoryAIUnderstanding | null
 
 export default function InventoryProductManagementPage() {
   const { supabase } = useSupabase();
+  const { admin: adminUser } = useAdminAuth();
   const [products, setProducts] = useState<InventoryProduct[]>([]);
   const [loading, setLoading] = useState(true);
   // 筛选 Tab：'ACTIVE' | 'INACTIVE' | 'OUT_OF_STOCK' | 'ALL'
@@ -181,6 +184,10 @@ export default function InventoryProductManagementPage() {
   } | null>(null);
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [batchLog, setBatchLog] = useState<Array<{ name: string; status: string; error?: string }>>([]);
+
+  // 多选 & 本地批次
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
+  const [localBatchCreating, setLocalBatchCreating] = useState(false);
 
   // 商品分类
   const [categories, setCategories] = useState<{ id: string; code: string; name_i18n: I18nText }[]>([]);
@@ -954,6 +961,100 @@ export default function InventoryProductManagementPage() {
     }
   };
 
+  // ─── 多选辅助函数 ────────────────────────────────────────
+  const toggleSelectProduct = (id: string) => {
+    setSelectedProductIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedProductIds.size === products.length) {
+      setSelectedProductIds(new Set());
+    } else {
+      setSelectedProductIds(new Set(products.map(p => p.id)));
+    }
+  };
+
+  // 筛选出当前选中且未关联本地批次的商品
+  const selectedUnbatchedProducts = products.filter(
+    p => selectedProductIds.has(p.id) && !p.local_batch_id
+  );
+
+  // ─── 一键生成本地批次 ──────────────────────────────────────
+  const handleCreateLocalBatch = async () => {
+    if (selectedUnbatchedProducts.length === 0) {
+      toast.error('请先选择未关联批次的商品');
+      return;
+    }
+    if (!adminUser?.id) {
+      toast.error('请先登录');
+      return;
+    }
+
+    try {
+      setLocalBatchCreating(true);
+
+      // 1. 生成批次号 LOCAL-STOCK-YYYYMMDD-NN
+      const today = new Date();
+      const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
+
+      const { data: existingBatches } = await supabase
+        .from('shipment_batches')
+        .select('batch_no')
+        .like('batch_no', `LOCAL-${dateStr}-%`)
+        .order('batch_no', { ascending: false })
+        .limit(1);
+
+      let seqNum = 1;
+      if (existingBatches && existingBatches.length > 0) {
+        const match = existingBatches[0].batch_no.match(/LOCAL-\d{8}-(\d+)/);
+        if (match) seqNum = parseInt(match[1]) + 1;
+      }
+      const batchNo = `LOCAL-${dateStr}-${seqNum.toString().padStart(2, '0')}`;
+
+      // 2. 创建 ARRIVED 状态的本地批次
+      const { data: batch, error: createErr } = await supabase
+        .from('shipment_batches')
+        .insert({
+          batch_no: batchNo,
+          status: 'ARRIVED',
+          shipped_at: new Date().toISOString(),
+          arrived_at: new Date().toISOString(),
+          total_orders: selectedUnbatchedProducts.length,
+          normal_orders: selectedUnbatchedProducts.length,
+          missing_orders: 0,
+          damaged_orders: 0,
+          admin_note: `本地库存批次 - 包含 ${selectedUnbatchedProducts.length} 个已到货商品`,
+          created_by: adminUser.id,
+        })
+        .select()
+        .single();
+
+      if (createErr) throw createErr;
+
+      // 3. 更新选中商品的 local_batch_id
+      const productIds = selectedUnbatchedProducts.map(p => p.id);
+      const { error: updateErr } = await supabase
+        .from('inventory_products')
+        .update({ local_batch_id: batch.id })
+        .in('id', productIds);
+
+      if (updateErr) throw updateErr;
+
+      toast.success(`本地批次 ${batchNo} 创建成功，已关联 ${productIds.length} 个商品`);
+      setSelectedProductIds(new Set());
+      fetchProducts();
+    } catch (error: any) {
+      console.error('Failed to create local batch:', error);
+      toast.error(error.message || '创建本地批次失败');
+    } finally {
+      setLocalBatchCreating(false);
+    }
+  };
+
   const handleViewAI = (product: InventoryProduct) => {
     setAiViewProduct(product);
     setShowAiModal(true);
@@ -1039,6 +1140,22 @@ export default function InventoryProductManagementPage() {
             {batchRunning ? '批量处理中...' : '批量 AI 理解'}
           </button>
           <button
+            onClick={handleCreateLocalBatch}
+            disabled={localBatchCreating || selectedUnbatchedProducts.length === 0}
+            className="flex items-center gap-2 bg-gradient-to-r from-green-500 to-teal-500 text-white px-4 py-2 rounded-lg hover:from-green-600 hover:to-teal-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {localBatchCreating ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Truck className="w-5 h-5" />
+            )}
+            {localBatchCreating
+              ? '创建中...'
+              : selectedProductIds.size > 0
+                ? `一键生成本地批次 (${selectedUnbatchedProducts.length})`
+                : '一键生成本地批次'}
+          </button>
+          <button
             onClick={() => {
               setEditingProduct(null);
               resetForm();
@@ -1088,18 +1205,35 @@ export default function InventoryProductManagementPage() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-3 py-3 text-center w-10">
+                  <button onClick={toggleSelectAll} className="text-gray-500 hover:text-gray-800">
+                    {selectedProductIds.size === products.length && products.length > 0 ? (
+                      <CheckSquare className="w-5 h-5 text-blue-600" />
+                    ) : (
+                      <Square className="w-5 h-5" />
+                    )}
+                  </button>
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">商品</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">原价</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">库存</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">预留</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">到货状态</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">商品状态</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {(products || []).map((product) => (
-                <tr key={product.id} className="hover:bg-gray-50">
+                <tr key={product.id} className={`hover:bg-gray-50 ${selectedProductIds.has(product.id) ? 'bg-blue-50' : ''}`}>
+                  <td className="px-3 py-4 text-center">
+                    <button onClick={() => toggleSelectProduct(product.id)} className="text-gray-500 hover:text-gray-800">
+                      {selectedProductIds.has(product.id) ? (
+                        <CheckSquare className="w-5 h-5 text-blue-600" />
+                      ) : (
+                        <Square className="w-5 h-5" />
+                      )}
+                    </button>
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <img
@@ -1120,9 +1254,6 @@ export default function InventoryProductManagementPage() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {product.sku || '-'}
-                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     {product.currency} {product.original_price}
                   </td>
@@ -1131,8 +1262,17 @@ export default function InventoryProductManagementPage() {
                       {product.stock}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {product.reserved_stock || 0}
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {product.local_batch_id ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">
+                        <Truck className="w-3.5 h-3.5" />
+                        已到货
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">
+                        未关联批次
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {getStatusBadge(product.status)}
