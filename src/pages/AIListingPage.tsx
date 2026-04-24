@@ -895,6 +895,7 @@ export default function AIListingPage() {
         filters: [
           { col: 'created_by', op: 'eq', val: String(admin.id) },
           { col: 'created_at', op: 'gte', val: sevenDaysAgoISO },
+          { col: 'status', op: 'neq', val: 'saved' },
         ],
         orderBy: 'created_at',
         orderAsc: false,
@@ -1181,7 +1182,11 @@ export default function AIListingPage() {
         // 核心策略：使用 flushSync 将所有状态更新同步刷新到 DOM，
         // 避免 React concurrent rendering 与 Radix Portal 卸载产生异步竞争。
         // 在同一个同步批次中关闭 Dialog 并更新任务状态，React 只做一次 DOM commit。
-        if (task.taskId) addSavedTaskId(task.taskId);
+        if (task.taskId) {
+          addSavedTaskId(task.taskId);
+          // [修复] 同步更新服务器端任务状态为 saved，确保刷新后不再显示
+          adminUpdate(supabase, 'ai_listing_generation_tasks', { status: 'saved' }, [{ col: 'id', op: 'eq', val: task.taskId }]).catch((e: any) => console.warn('[AIListing] 更新服务器任务状态失败:', e));
+        }
         const productName = task.productName;
         flushSync(() => {
           setPreviewTask(null);
@@ -1224,8 +1229,11 @@ export default function AIListingPage() {
         const selectedImages = result.background_images;
         await saveTaskToInventory(task, result, selectedImages);
         updateTask(task.id, { savedToInventory: true });
-        // [修复] 记录已入库的服务器任务 ID
-        if (task.taskId) addSavedTaskId(task.taskId);
+        // [修复] 记录已入库的服务器任务 ID 并更新数据库状态
+        if (task.taskId) {
+          addSavedTaskId(task.taskId);
+          adminUpdate(supabase, 'ai_listing_generation_tasks', { status: 'saved' }, [{ col: 'id', op: 'eq', val: task.taskId }]).catch((e: any) => console.warn('[AIListing] 更新服务器任务状态失败:', e));
+        }
         successCount++;
       } catch (error: any) {
         console.error(`[AIListing] 批量入库失败 (${task.productName}):`, error);
@@ -1281,7 +1289,7 @@ export default function AIListingPage() {
 
   // ─── 统计 ──────────────────────────────────────────────────
   const stats = {
-    total: tasks.length,
+    total: tasks.filter((t) => !t.savedToInventory).length,
     queued: tasks.filter((t) => t.status === 'queued').length,
     processing: tasks.filter((t) => t.status === 'processing' || t.status === 'processing_images').length,
     done: tasks.filter((t) => t.status === 'done' || t.status === 'partial').length,
@@ -1387,7 +1395,7 @@ export default function AIListingPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {tasks.length === 0 ? (
+              {tasks.filter((t) => !t.savedToInventory).length === 0 ? (
                 <div className="text-center py-12 text-gray-400">
                   <Sparkles className="w-12 h-12 mx-auto mb-3 opacity-30" />
                   <p>暂无任务</p>
@@ -1395,7 +1403,7 @@ export default function AIListingPage() {
                 </div>
               ) : (
                 <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
-                  {tasks.map((task) => (
+                  {tasks.filter((t) => !t.savedToInventory).map((task) => (
                     <TaskProgressCard
                       key={task.id}
                       task={task}
