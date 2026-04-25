@@ -143,6 +143,20 @@ function isQuotaOrModelError(errMsg) {
   );
 }
 
+/**
+ * [FIX-C1] 检测是否为图片下载失败错误
+ * 阿里云百炼视觉模型从中国大陆访问 Supabase CDN 可能失败，
+ * 返回 400: "Failed to download multimodal content"
+ */
+function isImageDownloadError(errMsg) {
+  const lower = (errMsg || '').toLowerCase();
+  return (
+    lower.includes('failed to download') ||
+    lower.includes('download multimodal') ||
+    (lower.includes('invalid_parameter') && lower.includes('400'))
+  );
+}
+
 async function fetchWithTimeout(url, init, timeoutMs) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -197,6 +211,12 @@ async function callDashScopeWithFallback({ models, messages, temperature = 0.3, 
         const errMsg = `${model} HTTP ${response.status}: ${errText.slice(0, 500)}`;
         if (isQuotaOrModelError(`${response.status} ${errText}`)) {
           log('warn', `[${stepName}] 模型 ${model} 配额/不可用，降级`, errMsg);
+          lastError = new Error(errMsg);
+          continue;
+        }
+        // [FIX-C6] 图片下载失败等 400 错误也应降级到下一个模型
+        if (isImageDownloadError(`${response.status} ${errText}`)) {
+          log('warn', `[${stepName}] 模型 ${model} 图片下载失败，降级`, errMsg);
           lastError = new Error(errMsg);
           continue;
         }
@@ -260,6 +280,10 @@ function normalizeSingleLanguageUnderstanding(payload) {
   const normalized = {};
   for (const field of AI_UNDERSTANDING_FIELDS) {
     normalized[field] = cleanText(payload?.[field]);
+  }
+  // [FIX-C5] 保留 product_name 字段（不在 AI_UNDERSTANDING_FIELDS 中，但用于 name_i18n）
+  if (payload?.product_name) {
+    normalized.product_name = cleanText(payload.product_name);
   }
   return normalized;
 }
@@ -336,18 +360,28 @@ async function generateSemanticFacts({ imageUrls, name, desc, specs, material, p
       { type: 'text', text: prompt },
     ];
 
-    const { payload, modelUsed } = await callDashScopeWithFallback({
-      models: VISION_MODELS,
-      messages: [{ role: 'user', content }],
-      temperature: 0.3,
-      enableThinking: false,
-      maxTokens: 2000,
-      stepName: 'Stage1_Vision',
-    });
-    return { semanticFacts: normalizeSemanticFacts(payload), modelUsed };
+    try {
+      const { payload, modelUsed } = await callDashScopeWithFallback({
+        models: VISION_MODELS,
+        messages: [{ role: 'user', content }],
+        temperature: 0.3,
+        enableThinking: false,
+        maxTokens: 2000,
+        stepName: 'Stage1_Vision',
+      });
+      return { semanticFacts: normalizeSemanticFacts(payload), modelUsed };
+    } catch (visionError) {
+      // [FIX-C2] 视觉模型全部失败时（常见于图片URL无法被阿里云下载），
+      // 自动降级到纯文本模型，而不是直接报错
+      if (isImageDownloadError(visionError.message)) {
+        log('warn', `[Stage1_Vision] 图片下载失败，降级到文本模型: ${visionError.message.slice(0, 150)}`);
+      } else {
+        log('warn', `[Stage1_Vision] 视觉模型全部失败，降级到文本模型: ${visionError.message.slice(0, 150)}`);
+      }
+    }
   }
 
-  // 无图片时使用文本模型
+  // 无图片或视觉模型失败时，使用文本模型
   const { payload, modelUsed } = await callDashScopeWithFallback({
     models: TEXT_MODELS,
     messages: [{ role: 'user', content: prompt }],
@@ -379,20 +413,21 @@ ${JSON.stringify(semanticFacts, null, 2)}
 
 请只输出以下 JSON：
 {
-  "tg": {"target_people":"","selling_angle":"","how_to_use":"","best_scene":"","local_life_connection":"","recommended_badge":""},
-  "ru": {"target_people":"","selling_angle":"","how_to_use":"","best_scene":"","local_life_connection":"","recommended_badge":""},
-  "zh": {"target_people":"","selling_angle":"","how_to_use":"","best_scene":"","local_life_connection":"","recommended_badge":""}
+  "tg": {"product_name":"","target_people":"","selling_angle":"","how_to_use":"","best_scene":"","local_life_connection":"","recommended_badge":""},
+  "ru": {"product_name":"","target_people":"","selling_angle":"","how_to_use":"","best_scene":"","local_life_connection":"","recommended_badge":""},
+  "zh": {"product_name":"","target_people":"","selling_angle":"","how_to_use":"","best_scene":"","local_life_connection":"","recommended_badge":""}
 }
 
 要求：
-1. tg 必须自然地道，面向塔吉克普通消费者，不要夹杂中文，避免俄语硬翻译腔。
-2. ru 必须自然可信，适合塔吉克斯坦电商用户阅读。
-3. zh 仅用于后台辅助理解。
-4. how_to_use 至少自然包含一种使用步骤、参数亮点或场景细节。
-5. best_scene 必须是具体画面，不要抽象概括。
-6. recommended_badge 短而顺口，适合做角标。
-7. 只输出 JSON，不要附加说明。
-8. 控制每个字段长度，单字段不超过 120 字。`;
+1. product_name 是商品名称的本地化翻译（tg用塔吉克语、ru用俄语、zh用中文），简洁准确地描述商品，不超过30字。
+2. tg 必须自然地道，面向塔吉克普通消费者，不要夹杂中文，避免俄语硬翻译腔。
+3. ru 必须自然可信，适合塔吉克斯坦电商用户阅读。
+4. zh 仅用于后台辅助理解。
+5. how_to_use 至少自然包含一种使用步骤、参数亮点或场景细节。
+6. best_scene 必须是具体画面，不要抽象概括。
+7. recommended_badge 短而顺口，适合做角标。
+8. 只输出 JSON，不要附加说明。
+9. 控制每个字段长度，单字段不超过 120 字（product_name 不超过 30 字）。`;
 
   const { payload, modelUsed } = await callDashScopeWithFallback({
     models: TEXT_MODELS,
@@ -417,15 +452,14 @@ ${JSON.stringify(semanticFacts, null, 2)}
 // [C2] 从 AI 结果中提取三语商品信息（用于 name_i18n / description_i18n）
 // ============================================================
 function extractI18nProductInfo(semanticFacts, localized) {
-  // 商品名：优先使用 product_type（商品类型），而非 recommended_badge（角标）
-  // recommended_badge 是"热卖""新品"之类的短标签，不适合做商品名
+  // [FIX-C4] 商品名：优先使用 AI 生成的本地化 product_name，降级到 product_type
   const productType = semanticFacts.product_type || '未命名商品';
 
   return {
-    // 名称：使用 product_type 作为基础商品名
-    name_zh: productType,
-    name_ru: localized.ru.target_people ? productType : '',
-    name_tg: localized.tg.target_people ? productType : '',
+    // 名称：优先使用 Stage 2 生成的本地化商品名，降级到中文 product_type
+    name_zh: localized.zh.product_name || productType,
+    name_ru: localized.ru.product_name || productType,
+    name_tg: localized.tg.product_name || productType,
     // 描述：使用 selling_angle（卖点）
     desc_zh: localized.zh.selling_angle || '',
     desc_ru: localized.ru.selling_angle || '',
@@ -868,11 +902,14 @@ async function recoverOrphanTasks() {
   try {
     // 只恢复 processing_started_at 超过阈值的任务
     // 这样不会影响其他正在运行的 processor 实例
+    // [FIX-M1] 恢复孤儿任务时同时重置 processing_started_at，
+    // 防止下次孤儿检测时因旧时间戳导致误判
     const { data: orphans, error } = await supabase
       .from('batch_upload_items')
       .update({
         status: 'queued',
         error_message: '处理超时，任务重新排队',
+        processing_started_at: null,
       })
       .in('status', ['processing', 'ai_analyzing', 'ai_generating', 'saving'])
       .lt('processing_started_at', orphanThreshold)
@@ -896,7 +933,7 @@ async function recoverOrphanTasks() {
 // ============================================================
 async function start() {
   log('info', '========================================');
-  log('info', 'DODO-TJ 批量商品上架处理服务 v3');
+  log('info', 'DODO-TJ 批量商品上架处理服务 v3.1（审查修复版）');
   log('info', `Supabase: ${CONFIG.supabaseUrl}`);
   log('info', `DashScope API Key: ${CONFIG.dashscopeApiKey ? '已配置' : '未配置'}`);
   log('info', `并发数: ${CONFIG.concurrency}`);

@@ -154,13 +154,16 @@ async function batchStatus(batchId) {
 
 async function retryBatch(batchId) {
   // 重试时重置 retry_count 和 next_retry_at
+  // [FIX-M2] 重试时同时重置 processing_started_at 和 processing_completed_at
   const { data, error } = await supabase
     .from('batch_upload_items')
     .update({
       status: 'queued',
       error_message: null,
       retry_count: 0,
-      next_retry_at: new Date().toISOString(),
+      next_retry_at: null,
+      processing_started_at: null,
+      processing_completed_at: null,
     })
     .eq('batch_id', batchId)
     .eq('status', 'error')
@@ -205,13 +208,16 @@ async function retryItem(itemId) {
     return;
   }
 
+  // [FIX-M3] 重试时同时重置 processing_started_at 和 processing_completed_at
   const { error } = await supabase
     .from('batch_upload_items')
     .update({
       status: 'queued',
       error_message: null,
       retry_count: 0,
-      next_retry_at: new Date().toISOString(),
+      next_retry_at: null,
+      processing_started_at: null,
+      processing_completed_at: null,
     })
     .eq('id', itemId);
 
