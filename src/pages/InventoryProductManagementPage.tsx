@@ -1044,7 +1044,39 @@ export default function InventoryProductManagementPage() {
 
       if (updateErr) throw updateErr;
 
-      toast.success(`本地批次 ${batchNo} 创建成功，已关联 ${productIds.length} 个商品`);
+      // 4. 查找关联的已完成订单并更新 logistics_status 为 READY_FOR_PICKUP
+      // 关联链路: inventory_products -> lotteries.inventory_product_id -> full_purchase_orders.lottery_id
+      let updatedOrderCount = 0;
+      for (const product of selectedUnbatchedProducts) {
+        // 查找关联此 inventory_product 的 lotteries
+        const { data: relatedLotteries } = await supabase
+          .from('lotteries')
+          .select('id')
+          .eq('inventory_product_id', product.id);
+
+        if (relatedLotteries && relatedLotteries.length > 0) {
+          const lotteryIds = relatedLotteries.map((l: any) => l.id);
+          // 更新这些 lottery 关联的已完成但未发货的 full_purchase_orders
+          const { data: updatedOrders } = await supabase
+            .from('full_purchase_orders')
+            .update({
+              logistics_status: 'READY_FOR_PICKUP',
+              pickup_status: 'PENDING_PICKUP',
+              batch_id: batch.id,
+            })
+            .in('lottery_id', lotteryIds)
+            .eq('status', 'COMPLETED')
+            .eq('logistics_status', 'PENDING_SHIPMENT')
+            .select('id');
+
+          if (updatedOrders) {
+            updatedOrderCount += updatedOrders.length;
+          }
+        }
+      }
+
+      const orderMsg = updatedOrderCount > 0 ? `，已更新 ${updatedOrderCount} 个订单为可提货` : '';
+      toast.success(`本地批次 ${batchNo} 创建成功，已关联 ${productIds.length} 个商品${orderMsg}`);
       setSelectedProductIds(new Set());
       fetchProducts();
     } catch (error: any) {
