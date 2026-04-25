@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Package, RefreshCw, AlertCircle, CheckCircle2, Clock, XCircle,
   ChevronDown, ChevronUp, Loader2, RotateCcw, Ban, Eye, ArrowLeft,
-  Upload, Zap, BarChart3
+  Upload, Plus, Trash2, X, ImageIcon, FolderUp
 } from 'lucide-react';
 import { useSupabase } from '@/contexts/SupabaseContext';
-import { adminQuery, adminUpdate } from '@/lib/adminApi';
+import { adminQuery, adminUpdate, adminInsert } from '@/lib/adminApi';
+import { uploadImage } from '@/lib/uploadImage';
 import toast from 'react-hot-toast';
 
 // ============================================================
@@ -48,6 +49,29 @@ interface BatchItem {
   updated_at: string;
 }
 
+interface I18nText {
+  zh?: string;
+  ru?: string;
+  tg?: string;
+}
+
+interface Category {
+  id: string;
+  code: string;
+  name_i18n: I18nText;
+}
+
+// 新建任务中的商品组
+interface ProductGroup {
+  id: string; // 前端临时ID
+  name: string;
+  files: File[];
+  previews: string[];
+  uploading: boolean;
+  uploadedUrls: string[];
+  uploadError: string | null;
+}
+
 // ============================================================
 // 状态配置
 // ============================================================
@@ -87,6 +111,10 @@ function formatDuration(startStr: string | null, endStr: string | null): string 
   return `${Math.floor(ms / 60000)}m${Math.floor((ms % 60000) / 1000)}s`;
 }
 
+function generateId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
 // ============================================================
 // 进度条组件
 // ============================================================
@@ -119,6 +147,500 @@ function ProgressBar({ task }: { task: BatchTask }) {
 }
 
 // ============================================================
+// 状态徽章
+// ============================================================
+function StatusBadge({ status, config }: { status: string; config: Record<string, { label: string; color: string; icon?: React.ReactNode }> }) {
+  const cfg = config[status] || { label: status, color: 'bg-gray-100 text-gray-600' };
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>
+      {cfg.icon}
+      {cfg.label}
+    </span>
+  );
+}
+
+// ============================================================
+// 统计卡片
+// ============================================================
+function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
+  const bgMap: Record<string, string> = {
+    blue: 'bg-blue-50 border-blue-200',
+    orange: 'bg-orange-50 border-orange-200',
+    green: 'bg-green-50 border-green-200',
+    red: 'bg-red-50 border-red-200',
+  };
+  return (
+    <div className={`rounded-xl border p-4 ${bgMap[color] || 'bg-gray-50 border-gray-200'}`}>
+      <div className="flex items-center gap-3">
+        {icon}
+        <div>
+          <div className="text-2xl font-bold text-gray-900">{value}</div>
+          <div className="text-xs text-gray-500">{label}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// 新建批量上架表单
+// ============================================================
+function CreateBatchForm({
+  supabase,
+  categories,
+  onCreated,
+  onCancel,
+}: {
+  supabase: any;
+  categories: Category[];
+  onCreated: () => void;
+  onCancel: () => void;
+}) {
+  const [batchName, setBatchName] = useState(`批量上架_${new Date().toISOString().slice(0, 10)}`);
+  const [defaultPrice, setDefaultPrice] = useState(39.9);
+  const [defaultStock, setDefaultStock] = useState(100);
+  const [categoryId, setCategoryId] = useState('');
+  const [groups, setGroups] = useState<ProductGroup[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0, currentName: '' });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+
+  // 添加单个图片（每张图片 = 一个商品）
+  const handleAddFiles = (files: FileList | File[]) => {
+    const fileArr = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (fileArr.length === 0) {
+      toast.error('请选择图片文件');
+      return;
+    }
+
+    // 检查是否有webkitRelativePath（文件夹上传）
+    const hasSubfolders = fileArr.some(f => (f as any).webkitRelativePath && (f as any).webkitRelativePath.includes('/'));
+    
+    if (hasSubfolders) {
+      // 文件夹模式：按子文件夹分组
+      const folderMap = new Map<string, File[]>();
+      for (const file of fileArr) {
+        const relPath = (file as any).webkitRelativePath || file.name;
+        const parts = relPath.split('/');
+        // parts[0] = 根文件夹名, parts[1] = 子文件夹名或文件名
+        let groupName: string;
+        if (parts.length >= 3) {
+          // 有子文件夹: root/subfolder/file.jpg
+          groupName = parts[1];
+        } else {
+          // 直接在根目录: root/file.jpg
+          groupName = file.name.replace(/\.[^.]+$/, '');
+        }
+        if (!folderMap.has(groupName)) folderMap.set(groupName, []);
+        folderMap.get(groupName)!.push(file);
+      }
+      
+      const newGroups: ProductGroup[] = [];
+      folderMap.forEach((files, name) => {
+        newGroups.push({
+          id: generateId(),
+          name,
+          files,
+          previews: files.map(f => URL.createObjectURL(f)),
+          uploading: false,
+          uploadedUrls: [],
+          uploadError: null,
+        });
+      });
+      setGroups(prev => [...prev, ...newGroups]);
+      toast.success(`已添加 ${newGroups.length} 个商品（文件夹模式）`);
+    } else {
+      // 单图模式：每张图片 = 一个商品
+      const newGroups: ProductGroup[] = fileArr.map(file => ({
+        id: generateId(),
+        name: file.name.replace(/\.[^.]+$/, ''),
+        files: [file],
+        previews: [URL.createObjectURL(file)],
+        uploading: false,
+        uploadedUrls: [],
+        uploadError: null,
+      }));
+      setGroups(prev => [...prev, ...newGroups]);
+      toast.success(`已添加 ${newGroups.length} 个商品`);
+    }
+  };
+
+  // 为已有商品组追加图片
+  const handleAddImagesToGroup = (groupId: string, files: FileList | File[]) => {
+    const fileArr = Array.from(files).filter(f => f.type.startsWith('image/'));
+    setGroups(prev => prev.map(g => {
+      if (g.id !== groupId) return g;
+      return {
+        ...g,
+        files: [...g.files, ...fileArr],
+        previews: [...g.previews, ...fileArr.map(f => URL.createObjectURL(f))],
+      };
+    }));
+  };
+
+  // 删除商品组
+  const handleRemoveGroup = (groupId: string) => {
+    setGroups(prev => {
+      const group = prev.find(g => g.id === groupId);
+      if (group) group.previews.forEach(url => URL.revokeObjectURL(url));
+      return prev.filter(g => g.id !== groupId);
+    });
+  };
+
+  // 删除商品组中的单张图片
+  const handleRemoveImage = (groupId: string, imageIndex: number) => {
+    setGroups(prev => prev.map(g => {
+      if (g.id !== groupId) return g;
+      URL.revokeObjectURL(g.previews[imageIndex]);
+      return {
+        ...g,
+        files: g.files.filter((_, i) => i !== imageIndex),
+        previews: g.previews.filter((_, i) => i !== imageIndex),
+      };
+    }).filter(g => g.files.length > 0));
+  };
+
+  // 拖拽处理
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const files = e.dataTransfer.files;
+    if (files.length > 0) handleAddFiles(files);
+  };
+
+  // 提交创建批量任务
+  const handleSubmit = async () => {
+    if (groups.length === 0) {
+      toast.error('请至少添加一个商品图片');
+      return;
+    }
+    if (!batchName.trim()) {
+      toast.error('请输入批次名称');
+      return;
+    }
+
+    setSubmitting(true);
+    const totalImages = groups.reduce((sum, g) => sum + g.files.length, 0);
+    setUploadProgress({ current: 0, total: totalImages, currentName: '' });
+
+    try {
+      // Step 1: 创建批次任务
+      toast.loading('正在创建批次任务...', { id: 'batch-create' });
+      const batchResult = await adminInsert(supabase, 'batch_upload_tasks', {
+        batch_name: batchName.trim(),
+        total_items: groups.length,
+        status: 'pending',
+        default_category_id: categoryId || null,
+        default_price: defaultPrice,
+        default_stock: defaultStock,
+      });
+      
+      // 从返回结果中提取batch ID
+      let batchId: string;
+      if (Array.isArray(batchResult) && batchResult.length > 0) {
+        batchId = batchResult[0].id;
+      } else if (batchResult && typeof batchResult === 'object' && 'id' in batchResult) {
+        batchId = (batchResult as any).id;
+      } else {
+        throw new Error('创建批次失败：无法获取批次ID');
+      }
+
+      toast.loading(`批次已创建，正在上传 ${totalImages} 张图片...`, { id: 'batch-create' });
+
+      // Step 2: 逐组上传图片并创建子项
+      let uploadedCount = 0;
+      let successGroups = 0;
+      let failedGroups = 0;
+
+      for (let gi = 0; gi < groups.length; gi++) {
+        const group = groups[gi];
+        setUploadProgress({ current: uploadedCount, total: totalImages, currentName: group.name });
+        
+        try {
+          // 上传该组的所有图片
+          const imageUrls: string[] = [];
+          for (const file of group.files) {
+            const url = await uploadImage(file, 'inventory-products', 'batch-upload', 'image/jpeg');
+            imageUrls.push(url);
+            uploadedCount++;
+            setUploadProgress({ current: uploadedCount, total: totalImages, currentName: group.name });
+          }
+
+          // 创建子项
+          await adminInsert(supabase, 'batch_upload_items', {
+            batch_id: batchId,
+            image_urls: imageUrls,
+            category_id: categoryId || null,
+            product_name: group.name,
+            price: defaultPrice,
+            stock: defaultStock,
+            status: 'queued',
+          });
+
+          successGroups++;
+        } catch (err: any) {
+          console.error(`商品 "${group.name}" 上传失败:`, err);
+          failedGroups++;
+          // 继续处理其他商品
+        }
+      }
+
+      // 清理预览URL
+      groups.forEach(g => g.previews.forEach(url => URL.revokeObjectURL(url)));
+
+      if (successGroups > 0) {
+        toast.success(`批量上架任务已创建！成功 ${successGroups} 个商品${failedGroups > 0 ? `，失败 ${failedGroups} 个` : ''}`, { id: 'batch-create' });
+        onCreated();
+      } else {
+        toast.error('所有商品上传均失败，请检查网络后重试', { id: 'batch-create' });
+      }
+    } catch (err: any) {
+      console.error('创建批量任务失败:', err);
+      toast.error('创建失败: ' + (err.message || '未知错误'), { id: 'batch-create' });
+    } finally {
+      setSubmitting(false);
+      setUploadProgress({ current: 0, total: 0, currentName: '' });
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* 头部 */}
+      <div className="flex items-center justify-between">
+        <button onClick={onCancel} className="flex items-center gap-1 text-gray-600 hover:text-gray-900 text-sm">
+          <ArrowLeft className="w-4 h-4" /> 返回列表
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border p-6">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Plus className="w-5 h-5 text-blue-600" />
+          新建批量上架任务
+        </h2>
+
+        {/* 基本参数 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">批次名称 *</label>
+            <input
+              type="text"
+              value={batchName}
+              onChange={e => setBatchName(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="例如：2026春季新品"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">默认价格 (TJS)</label>
+            <input
+              type="number"
+              value={defaultPrice}
+              onChange={e => setDefaultPrice(parseFloat(e.target.value) || 0)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              min="0"
+              step="0.1"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">默认库存</label>
+            <input
+              type="number"
+              value={defaultStock}
+              onChange={e => setDefaultStock(parseInt(e.target.value) || 0)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              min="0"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">商品分类</label>
+            <select
+              value={categoryId}
+              onChange={e => setCategoryId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">AI自动识别</option>
+              {categories.map(cat => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name_i18n?.zh || cat.code}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* 图片上传区域 */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-gray-700">
+              商品图片 * <span className="text-gray-400 font-normal">（每张图片 = 一个商品，或上传文件夹按子目录分组）</span>
+            </label>
+            <span className="text-sm text-gray-500">
+              已添加 {groups.length} 个商品，共 {groups.reduce((s, g) => s + g.files.length, 0)} 张图片
+            </span>
+          </div>
+
+          {/* 拖拽上传区 */}
+          <div
+            onDrop={handleDrop}
+            onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+            className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-blue-400 hover:bg-blue-50/30 transition-colors cursor-pointer"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <FolderUp className="w-10 h-10 text-gray-400 mx-auto mb-3" />
+            <p className="text-sm text-gray-600 mb-2">
+              拖拽图片到此处，或点击选择文件
+            </p>
+            <p className="text-xs text-gray-400 mb-4">
+              支持 JPG、PNG、WebP、GIF 格式
+            </p>
+            <div className="flex gap-3 justify-center">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 flex items-center gap-1.5"
+              >
+                <ImageIcon className="w-4 h-4" />
+                选择图片
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); folderInputRef.current?.click(); }}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 flex items-center gap-1.5"
+              >
+                <FolderUp className="w-4 h-4" />
+                选择文件夹
+              </button>
+            </div>
+          </div>
+
+          {/* 隐藏的文件输入 */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={e => { if (e.target.files) handleAddFiles(e.target.files); e.target.value = ''; }}
+          />
+          <input
+            ref={folderInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            {...{ webkitdirectory: '', directory: '' } as any}
+            onChange={e => { if (e.target.files) handleAddFiles(e.target.files); e.target.value = ''; }}
+          />
+        </div>
+
+        {/* 商品列表预览 */}
+        {groups.length > 0 && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-medium text-gray-700">商品列表预览</h3>
+              <button
+                onClick={() => {
+                  groups.forEach(g => g.previews.forEach(url => URL.revokeObjectURL(url)));
+                  setGroups([]);
+                }}
+                className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+              >
+                <Trash2 className="w-3 h-3" /> 清空全部
+              </button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 max-h-[500px] overflow-y-auto p-1">
+              {groups.map(group => (
+                <div key={group.id} className="relative bg-white rounded-lg border shadow-sm overflow-hidden group/card">
+                  {/* 主图 */}
+                  <div className="aspect-square bg-gray-100 relative">
+                    <img
+                      src={group.previews[0]}
+                      alt={group.name}
+                      className="w-full h-full object-cover"
+                    />
+                    {group.files.length > 1 && (
+                      <span className="absolute top-1 left-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded">
+                        {group.files.length} 张
+                      </span>
+                    )}
+                    {/* 删除按钮 */}
+                    <button
+                      onClick={() => handleRemoveGroup(group.id)}
+                      className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity hover:bg-red-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  {/* 商品名 */}
+                  <div className="p-2">
+                    <p className="text-xs text-gray-700 truncate" title={group.name}>{group.name}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 上传进度 */}
+        {submitting && uploadProgress.total > 0 && (
+          <div className="mb-6 bg-blue-50 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+              <span className="text-sm text-blue-700 font-medium">
+                正在上传图片... {uploadProgress.current}/{uploadProgress.total}
+              </span>
+            </div>
+            <div className="w-full h-2 bg-blue-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-600 rounded-full transition-all"
+                style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+              />
+            </div>
+            {uploadProgress.currentName && (
+              <p className="text-xs text-blue-500 mt-1">当前: {uploadProgress.currentName}</p>
+            )}
+          </div>
+        )}
+
+        {/* 提交按钮 */}
+        <div className="flex items-center justify-between pt-4 border-t">
+          <p className="text-xs text-gray-400">
+            提交后，AI处理器将自动识别商品信息并入库。处理进度可在列表中查看。
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={onCancel}
+              disabled={submitting}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting || groups.length === 0}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  上传中...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4" />
+                  提交批量上架 ({groups.length} 个商品)
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // 批次详情面板
 // ============================================================
 function BatchDetailPanel({
@@ -137,12 +659,15 @@ function BatchDetailPanel({
   onBack: () => void;
 }) {
   const [filter, setFilter] = useState<string>('all');
-  const filteredItems = filter === 'all' ? items : items.filter(i => i.status === filter);
+  const filteredItems = filter === 'all'
+    ? items
+    : filter === 'ai_analyzing'
+      ? items.filter(i => ['ai_analyzing', 'ai_generating', 'saving', 'processing'].includes(i.status))
+      : items.filter(i => i.status === filter);
   const errorCount = items.filter(i => i.status === 'error').length;
 
   return (
     <div>
-      {/* 头部 */}
       <div className="flex items-center justify-between mb-4">
         <button onClick={onBack} className="flex items-center gap-1 text-gray-600 hover:text-gray-900 text-sm">
           <ArrowLeft className="w-4 h-4" /> 返回列表
@@ -157,7 +682,6 @@ function BatchDetailPanel({
         )}
       </div>
 
-      {/* 批次信息卡片 */}
       <div className="bg-white rounded-xl shadow-sm border p-4 mb-4">
         <div className="flex items-center justify-between mb-3">
           <div>
@@ -169,7 +693,6 @@ function BatchDetailPanel({
         <ProgressBar task={task} />
       </div>
 
-      {/* 筛选标签 */}
       <div className="flex gap-2 mb-3 flex-wrap">
         {[
           { key: 'all', label: `全部 (${items.length})` },
@@ -180,7 +703,7 @@ function BatchDetailPanel({
         ].map(tab => (
           <button
             key={tab.key}
-            onClick={() => setFilter(tab.key === 'ai_analyzing' ? 'ai_analyzing' : tab.key)}
+            onClick={() => setFilter(tab.key)}
             className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
               filter === tab.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
@@ -190,7 +713,6 @@ function BatchDetailPanel({
         ))}
       </div>
 
-      {/* 子项列表 */}
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
@@ -220,7 +742,6 @@ function ItemCard({ item, onRetry }: { item: BatchItem; onRetry: (id: string) =>
   return (
     <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
       <div className="flex items-center gap-3 p-3">
-        {/* 缩略图 */}
         <div className="w-12 h-12 rounded-lg bg-gray-100 flex-shrink-0 overflow-hidden">
           {firstImage ? (
             <img src={firstImage} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
@@ -228,8 +749,6 @@ function ItemCard({ item, onRetry }: { item: BatchItem; onRetry: (id: string) =>
             <div className="w-full h-full flex items-center justify-center text-gray-300"><Package className="w-5 h-5" /></div>
           )}
         </div>
-
-        {/* 信息 */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-medium text-sm truncate">{item.product_name || '(待识别)'}</span>
@@ -239,8 +758,6 @@ function ItemCard({ item, onRetry }: { item: BatchItem; onRetry: (id: string) =>
             {item.image_urls?.length || 0} 张图 | 重试 {item.retry_count}/{item.max_retries} | 耗时 {formatDuration(item.processing_started_at, item.processing_completed_at)}
           </div>
         </div>
-
-        {/* 操作按钮 */}
         <div className="flex items-center gap-1">
           {item.status === 'error' && (
             <button
@@ -253,7 +770,7 @@ function ItemCard({ item, onRetry }: { item: BatchItem; onRetry: (id: string) =>
           )}
           {item.inventory_product_id && (
             <a
-              href={`/inventory-products?highlight=${item.inventory_product_id}`}
+              href={`/admin/inventory-products?highlight=${item.inventory_product_id}`}
               className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500"
               title="查看商品"
             >
@@ -269,7 +786,6 @@ function ItemCard({ item, onRetry }: { item: BatchItem; onRetry: (id: string) =>
         </div>
       </div>
 
-      {/* 展开详情 */}
       {expanded && (
         <div className="border-t px-3 py-2 bg-gray-50 text-xs space-y-1.5">
           <div className="flex gap-4">
@@ -315,19 +831,6 @@ function ItemCard({ item, onRetry }: { item: BatchItem; onRetry: (id: string) =>
 }
 
 // ============================================================
-// 状态徽章
-// ============================================================
-function StatusBadge({ status, config }: { status: string; config: Record<string, { label: string; color: string; icon?: React.ReactNode }> }) {
-  const cfg = config[status] || { label: status, color: 'bg-gray-100 text-gray-600' };
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>
-      {cfg.icon}
-      {cfg.label}
-    </span>
-  );
-}
-
-// ============================================================
 // 主页面组件
 // ============================================================
 export default function BatchUploadPage() {
@@ -339,6 +842,23 @@ export default function BatchUploadPage() {
   const [itemsLoading, setItemsLoading] = useState(false);
   const [healthStatus, setHealthStatus] = useState<any>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
+
+  // 加载分类列表
+  const loadCategories = useCallback(async () => {
+    try {
+      const data = await adminQuery<Category>(supabase, 'homepage_categories', {
+        select: 'id, code, name_i18n',
+        filters: [{ col: 'is_active', op: 'eq', val: true }],
+        orderBy: 'sort_order',
+        orderAsc: true,
+      });
+      setCategories(data || []);
+    } catch (err) {
+      console.error('加载分类失败:', err);
+    }
+  }, [supabase]);
 
   // 加载批次列表
   const loadTasks = useCallback(async () => {
@@ -381,18 +901,14 @@ export default function BatchUploadPage() {
   // 加载健康状态
   const loadHealth = useCallback(async () => {
     try {
-      const res = await fetch('https://tezbarakat.com/batch-api/health');
+      const res = await fetch('/batch-api/health');
       if (res.ok) {
         setHealthStatus(await res.json());
-      }
-    } catch {
-      // 健康检查失败时尝试直接访问
-      try {
-        const res = await fetch('/batch-api/health');
-        if (res.ok) setHealthStatus(await res.json());
-      } catch {
+      } else {
         setHealthStatus(null);
       }
+    } catch {
+      setHealthStatus(null);
     }
   }, []);
 
@@ -400,19 +916,19 @@ export default function BatchUploadPage() {
   useEffect(() => {
     loadTasks();
     loadHealth();
-  }, [loadTasks, loadHealth]);
+    loadCategories();
+  }, [loadTasks, loadHealth, loadCategories]);
 
   // 自动刷新
   useEffect(() => {
-    if (!autoRefresh) return;
+    if (!autoRefresh || showCreateForm) return;
     const interval = setInterval(() => {
       loadTasks();
-      if (selectedTask) {
-        loadItems(selectedTask.id);
-      }
+      loadHealth();
+      if (selectedTask) loadItems(selectedTask.id);
     }, 10000);
     return () => clearInterval(interval);
-  }, [autoRefresh, selectedTask, loadTasks, loadItems]);
+  }, [autoRefresh, showCreateForm, selectedTask, loadTasks, loadItems, loadHealth]);
 
   // 选择批次
   const handleSelectTask = (task: BatchTask) => {
@@ -463,7 +979,6 @@ export default function BatchUploadPage() {
           console.warn(`重试 ${item.id} 失败:`, e);
         }
       }
-      // 更新主表状态
       await adminUpdate(supabase, 'batch_upload_tasks', {
         status: 'processing',
       }, [{ col: 'id', op: 'eq', val: selectedTask.id }]);
@@ -472,20 +987,6 @@ export default function BatchUploadPage() {
       loadTasks();
     } catch (err: any) {
       toast.error('批量重试失败: ' + err.message);
-    }
-  };
-
-  // 取消批次
-  const handleCancelBatch = async (taskId: string) => {
-    if (!confirm('确定要取消此批次吗？正在处理的任务将不会被中断。')) return;
-    try {
-      await adminUpdate(supabase, 'batch_upload_tasks', {
-        status: 'cancelled',
-      }, [{ col: 'id', op: 'eq', val: taskId }]);
-      toast.success('批次已取消');
-      loadTasks();
-    } catch (err: any) {
-      toast.error('取消失败: ' + err.message);
     }
   };
 
@@ -501,7 +1002,7 @@ export default function BatchUploadPage() {
             <Upload className="w-6 h-6 text-blue-600" />
             批量商品上架
           </h1>
-          <p className="text-sm text-gray-500 mt-1">管理批量上架任务，查看处理进度和结果</p>
+          <p className="text-sm text-gray-500 mt-1">上传商品图片，AI自动识别并批量入库</p>
         </div>
         <div className="flex items-center gap-3">
           {/* 处理器状态 */}
@@ -511,134 +1012,128 @@ export default function BatchUploadPage() {
             <span className={`w-2 h-2 rounded-full ${healthStatus?.status === 'running' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
             处理器 {healthStatus?.status === 'running' ? '运行中' : '离线'}
           </div>
-          {/* 自动刷新 */}
-          <button
-            onClick={() => setAutoRefresh(!autoRefresh)}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              autoRefresh ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
-            }`}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${autoRefresh ? 'animate-spin' : ''}`} style={autoRefresh ? { animationDuration: '3s' } : {}} />
-            {autoRefresh ? '自动刷新' : '已暂停'}
-          </button>
-          {/* 手动刷新 */}
-          <button
-            onClick={() => { loadTasks(); if (selectedTask) loadItems(selectedTask.id); }}
-            className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
-            title="刷新"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
+          {!showCreateForm && !selectedTask && (
+            <>
+              {/* 自动刷新 */}
+              <button
+                onClick={() => setAutoRefresh(!autoRefresh)}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  autoRefresh ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
+                }`}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${autoRefresh ? 'animate-spin' : ''}`} style={autoRefresh ? { animationDuration: '3s' } : {}} />
+                {autoRefresh ? '自动刷新' : '已暂停'}
+              </button>
+              {/* 新建按钮 */}
+              <button
+                onClick={() => setShowCreateForm(true)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                新建批量上架
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* 统计卡片 */}
-      {!selectedTask && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          <StatCard
-            icon={<Package className="w-5 h-5 text-blue-500" />}
-            label="总批次"
-            value={tasks.length}
-            color="blue"
-          />
-          <StatCard
-            icon={<Loader2 className="w-5 h-5 text-orange-500" />}
-            label="处理中"
-            value={tasks.filter(t => t.status === 'processing').length}
-            color="orange"
-          />
-          <StatCard
-            icon={<CheckCircle2 className="w-5 h-5 text-green-500" />}
-            label="已完成"
-            value={tasks.filter(t => t.status === 'completed').length}
-            color="green"
-          />
-          <StatCard
-            icon={<AlertCircle className="w-5 h-5 text-red-500" />}
-            label="有失败"
-            value={tasks.filter(t => t.error_items > 0).length}
-            color="red"
-          />
-        </div>
-      )}
-
       {/* 主内容区 */}
-      {selectedTask ? (
+      {showCreateForm ? (
+        <CreateBatchForm
+          supabase={supabase}
+          categories={categories}
+          onCreated={() => {
+            setShowCreateForm(false);
+            loadTasks();
+          }}
+          onCancel={() => setShowCreateForm(false)}
+        />
+      ) : selectedTask ? (
         <BatchDetailPanel
           task={selectedTask}
           items={items}
           loading={itemsLoading}
           onRetryItem={handleRetryItem}
           onRetryAll={handleRetryAll}
-          onBack={() => { setSelectedTask(null); setItems([]); }}
+          onBack={() => { setSelectedTask(null); loadTasks(); }}
         />
-      ) : loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-          <span className="ml-3 text-gray-500">加载批次列表...</span>
-        </div>
-      ) : tasks.length === 0 ? (
-        <div className="text-center py-20">
-          <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-400 text-lg">暂无批量上架任务</p>
-          <p className="text-gray-300 text-sm mt-1">通过服务器 CLI 工具创建批量上架任务</p>
-        </div>
       ) : (
-        <div className="space-y-3">
-          {tasks.map(task => (
-            <div
-              key={task.id}
-              className="bg-white rounded-xl shadow-sm border hover:shadow-md transition-shadow cursor-pointer"
-              onClick={() => handleSelectTask(task)}
-            >
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <h3 className="font-semibold text-gray-900">{task.batch_name || '未命名批次'}</h3>
-                    <StatusBadge status={task.status} config={TASK_STATUS_CONFIG} />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {task.status === 'processing' && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleCancelBatch(task.id); }}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 hover:text-red-600"
-                        title="取消批次"
-                      >
-                        <Ban className="w-4 h-4" />
-                      </button>
-                    )}
-                    <span className="text-xs text-gray-400">{formatTime(task.created_at)}</span>
-                  </div>
-                </div>
-                <ProgressBar task={task} />
-                {task.default_price && (
-                  <div className="flex gap-4 mt-2 text-xs text-gray-400">
-                    <span>默认价格: {task.default_price}</span>
-                    <span>默认库存: {task.default_stock}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+        <>
+          {/* 统计卡片 */}
+          <div className="grid grid-cols-4 gap-4 mb-6">
+            <StatCard
+              icon={<Package className="w-5 h-5 text-blue-500" />}
+              label="总批次"
+              value={tasks.length}
+              color="blue"
+            />
+            <StatCard
+              icon={<Loader2 className="w-5 h-5 text-orange-500" />}
+              label="处理中"
+              value={tasks.filter(t => t.status === 'processing').length}
+              color="orange"
+            />
+            <StatCard
+              icon={<CheckCircle2 className="w-5 h-5 text-green-500" />}
+              label="已完成"
+              value={tasks.filter(t => t.status === 'completed').length}
+              color="green"
+            />
+            <StatCard
+              icon={<AlertCircle className="w-5 h-5 text-red-500" />}
+              label="有失败"
+              value={tasks.filter(t => t.error_items > 0).length}
+              color="red"
+            />
+          </div>
 
-// ============================================================
-// 统计卡片
-// ============================================================
-function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
-  return (
-    <div className="bg-white rounded-xl shadow-sm border p-4">
-      <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-lg bg-${color}-50`}>{icon}</div>
-        <div>
-          <p className="text-2xl font-bold text-gray-900">{value}</p>
-          <p className="text-xs text-gray-500">{label}</p>
-        </div>
-      </div>
+          {/* 批次列表 */}
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+              <span className="ml-2 text-gray-500">加载中...</span>
+            </div>
+          ) : tasks.length === 0 ? (
+            <div className="text-center py-20 bg-white rounded-xl border">
+              <FolderUp className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500 mb-4">还没有批量上架任务</p>
+              <button
+                onClick={() => setShowCreateForm(true)}
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 inline-flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                创建第一个批量上架任务
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {tasks.map(task => {
+                const statusCfg = TASK_STATUS_CONFIG[task.status] || { label: task.status, color: 'bg-gray-100 text-gray-600' };
+                return (
+                  <div
+                    key={task.id}
+                    onClick={() => handleSelectTask(task)}
+                    className="bg-white rounded-xl border shadow-sm p-4 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="font-semibold text-base">{task.batch_name || '未命名批次'}</h3>
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={task.status} config={TASK_STATUS_CONFIG} />
+                        <span className="text-xs text-gray-400">{formatTime(task.created_at)}</span>
+                      </div>
+                    </div>
+                    <ProgressBar task={task} />
+                    <div className="flex gap-4 mt-2 text-xs text-gray-400">
+                      {task.default_price && <span>默认价格: {task.default_price}</span>}
+                      {task.default_stock && <span>默认库存: {task.default_stock}</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
