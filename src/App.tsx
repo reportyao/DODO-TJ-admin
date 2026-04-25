@@ -44,6 +44,7 @@ const ReferralManagementPage = React.lazy(() => import('./pages/ReferralManageme
 // 商品 & 活动
 const InventoryProductManagementPage = React.lazy(() => import('./pages/InventoryProductManagementPage'));
 const AIListingPage = React.lazy(() => import('./pages/AIListingPage'));
+const BatchUploadPage = React.lazy(() => import('./pages/BatchUploadPage'));
 const LotteryListPage = React.lazy(() => import('./components/Lottery/LotteryListPage').then(m => ({ default: m.LotteryListPage })));
 const LotteryDetailPage = React.lazy(() => import('./components/Lottery/LotteryDetailPage').then(m => ({ default: m.LotteryDetailPage })));
 const LotteryForm = React.lazy(() => import('./components/Lottery/LotteryForm').then(m => ({ default: m.LotteryForm })));
@@ -178,6 +179,7 @@ function AdminLayout({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; se
           <NavLink to="/referral-management" label="推荐管理" icon="🌳" />
           <NavLink to="/inventory-products" label="库存商品" icon="📦" />
           <NavLink to="/ai-listing" label="AI上架助手" icon="✨" />
+          <NavLink to="/batch-upload" label="批量上架" icon="📤" />
           <NavLink to="/lotteries" label="商城活动" icon="🎰" />
           <NavLink to="/orders" label="订单管理" icon="📦" />
           <NavLink to="/deposit-review" label="充值审核" icon="💰" />
@@ -252,6 +254,7 @@ function AdminLayout({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; se
               <Route path="/referral-management" element={<ProtectedRoute element={<ReferralManagementPage />} />} />
               <Route path="/inventory-products" element={<ProtectedRoute element={<InventoryProductManagementPage />} />} />
               <Route path="/ai-listing" element={<ProtectedRoute element={<AIListingPage />} />} />
+              <Route path="/batch-upload" element={<ProtectedRoute element={<BatchUploadPage />} />} />
               <Route path="/lotteries" element={<ProtectedRoute element={<LotteryListPage />} />} />
               <Route path="/lotteries/new" element={<ProtectedRoute element={<LotteryForm />} />} />
               <Route path="/lotteries/:id/detail" element={<ProtectedRoute element={<LotteryDetailPage />} />} />
