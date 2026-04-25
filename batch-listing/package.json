@@ -1,0 +1,14 @@
+{
+  "name": "dodo-batch-listing",
+  "version": "1.0.0",
+  "description": "DODO-TJ 批量商品上架独立处理服务 — 基于阿里云百炼 Qwen-VL",
+  "type": "module",
+  "scripts": {
+    "start": "node processor.mjs",
+    "dev": "node --watch processor.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.42.0",
+    "dotenv": "^16.4.0"
+  }
+}
