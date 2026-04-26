@@ -5,7 +5,11 @@
  * - 查看所有礼物列表
  * - 新增/编辑/上下架礼物
  * - 管理库存、图片、多语言名称/描述
- * - 标记热门礼物
+ * - 设置目标水滴数和价值
+ *
+ * 实际 gift_items 表字段：
+ * id, name, name_i18n, description, description_i18n, image_url, image_urls,
+ * target_water, stock, reserved_stock, value_tjs, is_active, sort_order, created_at, updated_at
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSupabase } from '@/contexts/SupabaseContext';
@@ -26,11 +30,14 @@ interface GiftItem {
   id: string;
   name: string;
   name_i18n: Record<string, string> | null;
+  description: string | null;
   description_i18n: Record<string, string> | null;
   image_url: string;
-  total_stock: number;
-  remaining_stock: number;
-  is_popular: boolean;
+  image_urls: string[] | null;
+  target_water: number;
+  stock: number;
+  reserved_stock: number;
+  value_tjs: number;
   is_active: boolean;
   sort_order: number;
   created_at: string;
@@ -40,11 +47,13 @@ interface GiftItem {
 const defaultFormData = {
   name: '',
   name_i18n: { zh: '', ru: '', tg: '' } as Record<string, string>,
+  description: '',
   description_i18n: { zh: '', ru: '', tg: '' } as Record<string, string>,
   image_url: '',
-  total_stock: 100,
-  remaining_stock: 100,
-  is_popular: false,
+  target_water: 1000,
+  stock: 100,
+  reserved_stock: 0,
+  value_tjs: 0,
   is_active: true,
   sort_order: 0,
 };
@@ -94,11 +103,13 @@ export const GiftItemManagementPage: React.FC = () => {
     setFormData({
       name: item.name,
       name_i18n: item.name_i18n || { zh: '', ru: '', tg: '' },
+      description: item.description || '',
       description_i18n: item.description_i18n || { zh: '', ru: '', tg: '' },
       image_url: item.image_url || '',
-      total_stock: item.total_stock,
-      remaining_stock: item.remaining_stock,
-      is_popular: item.is_popular,
+      target_water: item.target_water,
+      stock: item.stock,
+      reserved_stock: item.reserved_stock,
+      value_tjs: item.value_tjs,
       is_active: item.is_active,
       sort_order: item.sort_order,
     });
@@ -110,8 +121,12 @@ export const GiftItemManagementPage: React.FC = () => {
       toast.error('请填写礼物名称');
       return;
     }
-    if (formData.total_stock <= 0) {
-      toast.error('总库存必须大于0');
+    if (formData.stock <= 0) {
+      toast.error('库存必须大于0');
+      return;
+    }
+    if (formData.target_water <= 0) {
+      toast.error('目标水滴数必须大于0');
       return;
     }
 
@@ -120,11 +135,13 @@ export const GiftItemManagementPage: React.FC = () => {
       const payload = {
         name: formData.name.trim(),
         name_i18n: formData.name_i18n,
+        description: formData.description.trim() || null,
         description_i18n: formData.description_i18n,
         image_url: formData.image_url,
-        total_stock: formData.total_stock,
-        remaining_stock: formData.remaining_stock,
-        is_popular: formData.is_popular,
+        target_water: formData.target_water,
+        stock: formData.stock,
+        reserved_stock: formData.reserved_stock,
+        value_tjs: formData.value_tjs,
         is_active: formData.is_active,
         sort_order: formData.sort_order,
       };
@@ -173,6 +190,9 @@ export const GiftItemManagementPage: React.FC = () => {
     }
   };
 
+  // Calculate available stock
+  const availableStock = (item: GiftItem) => item.stock - item.reserved_stock;
+
   return (
     <div className="space-y-6">
       <Card>
@@ -187,15 +207,16 @@ export const GiftItemManagementPage: React.FC = () => {
               <span className="ml-2 text-muted-foreground">加载中...</span>
             </div>
           ) : items.length === 0 ? (
-            <EmptyState message="暂无礼物数据" />
+            <EmptyState title="暂无礼物" message="暂无礼物数据，点击上方按钮新增" />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-16">图片</TableHead>
                   <TableHead>名称</TableHead>
+                  <TableHead>目标水滴</TableHead>
                   <TableHead>库存</TableHead>
-                  <TableHead>热门</TableHead>
+                  <TableHead>价值(TJS)</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead>排序</TableHead>
                   <TableHead className="text-right">操作</TableHead>
@@ -224,17 +245,22 @@ export const GiftItemManagementPage: React.FC = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className={item.remaining_stock <= 5 ? 'text-red-600 font-bold' : ''}>
-                        {item.remaining_stock}
-                      </span>
-                      <span className="text-muted-foreground">/{item.total_stock}</span>
+                      <span className="font-mono text-sm">{item.target_water}</span>
+                      <span className="text-muted-foreground text-xs ml-1">💧</span>
                     </TableCell>
                     <TableCell>
-                      {item.is_popular && (
-                        <span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-full font-medium">
-                          Popular
+                      <span className={availableStock(item) <= 5 ? 'text-red-600 font-bold' : ''}>
+                        {availableStock(item)}
+                      </span>
+                      <span className="text-muted-foreground">/{item.stock}</span>
+                      {item.reserved_stock > 0 && (
+                        <span className="text-xs text-amber-600 ml-1">
+                          ({item.reserved_stock} 预留)
                         </span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-mono">{item.value_tjs}</span>
                     </TableCell>
                     <TableCell>
                       <span
@@ -319,6 +345,21 @@ export const GiftItemManagementPage: React.FC = () => {
               onImageUrlChange={(url) => setFormData({ ...formData, image_url: url })}
             />
 
+            {/* 目标水滴数 */}
+            <div>
+              <Label>目标水滴数（用户需浇灌的总水滴）</Label>
+              <Input
+                type="number"
+                min={100}
+                value={formData.target_water}
+                onChange={(e) =>
+                  setFormData({ ...formData, target_water: parseInt(e.target.value) || 0 })
+                }
+                placeholder="1000"
+              />
+              <p className="text-xs text-muted-foreground mt-1">建议设置为 1000</p>
+            </div>
+
             {/* 库存 */}
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -326,23 +367,40 @@ export const GiftItemManagementPage: React.FC = () => {
                 <Input
                   type="number"
                   min={1}
-                  value={formData.total_stock}
+                  value={formData.stock}
                   onChange={(e) =>
-                    setFormData({ ...formData, total_stock: parseInt(e.target.value) || 0 })
+                    setFormData({ ...formData, stock: parseInt(e.target.value) || 0 })
                   }
                 />
               </div>
               <div>
-                <Label>剩余库存</Label>
+                <Label>已预留库存</Label>
                 <Input
                   type="number"
                   min={0}
-                  value={formData.remaining_stock}
+                  value={formData.reserved_stock}
                   onChange={(e) =>
-                    setFormData({ ...formData, remaining_stock: parseInt(e.target.value) || 0 })
+                    setFormData({ ...formData, reserved_stock: parseInt(e.target.value) || 0 })
                   }
                 />
+                <p className="text-xs text-muted-foreground mt-1">
+                  可用: {formData.stock - formData.reserved_stock}
+                </p>
               </div>
+            </div>
+
+            {/* 价值 */}
+            <div>
+              <Label>价值 (TJS)</Label>
+              <Input
+                type="number"
+                min={0}
+                step={0.01}
+                value={formData.value_tjs}
+                onChange={(e) =>
+                  setFormData({ ...formData, value_tjs: parseFloat(e.target.value) || 0 })
+                }
+              />
             </div>
 
             {/* 排序 */}
@@ -357,22 +415,13 @@ export const GiftItemManagementPage: React.FC = () => {
               />
             </div>
 
-            {/* 开关 */}
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={formData.is_popular}
-                  onCheckedChange={(v) => setFormData({ ...formData, is_popular: v })}
-                />
-                <Label>标记为热门</Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={formData.is_active}
-                  onCheckedChange={(v) => setFormData({ ...formData, is_active: v })}
-                />
-                <Label>上架</Label>
-              </div>
+            {/* 上架开关 */}
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={formData.is_active}
+                onCheckedChange={(v) => setFormData({ ...formData, is_active: v })}
+              />
+              <Label>上架</Label>
             </div>
           </div>
 

@@ -6,6 +6,11 @@
  * - 调整任务奖励水滴数、每日上限
  * - 启用/禁用任务
  * - 管理任务分类和排序
+ *
+ * 实际 gift_tree_tasks 表字段（PK 是 task_code，无 id 列）：
+ * task_code, category, title_i18n, description_i18n, reward_water, daily_limit,
+ * action_route, action_label_i18n, min_amount, require_real_payment,
+ * is_active, sort_order, created_at
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSupabase } from '@/contexts/SupabaseContext';
@@ -22,14 +27,16 @@ import { adminQuery, adminUpdate, adminInsert } from '@/lib/adminApi';
 import toast from 'react-hot-toast';
 
 interface GiftTreeTask {
-  id: string;
   task_code: string;
+  category: string;
   title_i18n: Record<string, string> | null;
   description_i18n: Record<string, string> | null;
-  category: string;
   reward_water: number;
   daily_limit: number;
   action_route: string | null;
+  action_label_i18n: Record<string, string> | null;
+  min_amount: number | null;
+  require_real_payment: boolean;
   is_active: boolean;
   sort_order: number;
   created_at: string;
@@ -41,8 +48,11 @@ const TASK_ICONS: Record<string, string> = {
   PLAY_LOTTERY: '🎲',
   WALLET_DEPOSIT: '💰',
   COMPLETE_ORDER: '🛍️',
+  STORE_PICKUP: '🏪',
   FRIEND_HELP: '🤝',
   SHARE_APP: '📤',
+  FIRST_WATER: '💧',
+  FIRST_LOTTERY: '🎰',
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -68,10 +78,13 @@ export const GiftTaskManagementPage: React.FC = () => {
     task_code: '',
     title_i18n: { zh: '', ru: '', tg: '' } as Record<string, string>,
     description_i18n: { zh: '', ru: '', tg: '' } as Record<string, string>,
+    action_label_i18n: { zh: '', ru: '', tg: '' } as Record<string, string>,
     category: 'DAILY',
     reward_water: 5,
     daily_limit: 1,
     action_route: '',
+    min_amount: 0,
+    require_real_payment: false,
     is_active: true,
     sort_order: 0,
   });
@@ -102,10 +115,13 @@ export const GiftTaskManagementPage: React.FC = () => {
       task_code: task.task_code,
       title_i18n: task.title_i18n || { zh: '', ru: '', tg: '' },
       description_i18n: task.description_i18n || { zh: '', ru: '', tg: '' },
+      action_label_i18n: task.action_label_i18n || { zh: '', ru: '', tg: '' },
       category: task.category,
       reward_water: task.reward_water,
       daily_limit: task.daily_limit,
       action_route: task.action_route || '',
+      min_amount: task.min_amount || 0,
+      require_real_payment: task.require_real_payment,
       is_active: task.is_active,
       sort_order: task.sort_order,
     });
@@ -118,10 +134,13 @@ export const GiftTaskManagementPage: React.FC = () => {
       task_code: '',
       title_i18n: { zh: '', ru: '', tg: '' },
       description_i18n: { zh: '', ru: '', tg: '' },
+      action_label_i18n: { zh: '', ru: '', tg: '' },
       category: 'DAILY',
       reward_water: 5,
       daily_limit: 1,
       action_route: '',
+      min_amount: 0,
+      require_real_payment: false,
       is_active: true,
       sort_order: tasks.length,
     });
@@ -136,24 +155,29 @@ export const GiftTaskManagementPage: React.FC = () => {
 
     setIsSaving(true);
     try {
-      const payload = {
-        task_code: formData.task_code.trim().toUpperCase(),
+      const payload: any = {
         title_i18n: formData.title_i18n,
         description_i18n: formData.description_i18n,
+        action_label_i18n: formData.action_label_i18n,
         category: formData.category,
         reward_water: formData.reward_water,
         daily_limit: formData.daily_limit,
         action_route: formData.action_route || null,
+        min_amount: formData.min_amount || null,
+        require_real_payment: formData.require_real_payment,
         is_active: formData.is_active,
         sort_order: formData.sort_order,
       };
 
       if (editingTask) {
+        // Update by task_code (PK), not by id
         await adminUpdate(supabase, 'gift_tree_tasks', payload, [
-          { col: 'id', op: 'eq', val: editingTask.id },
+          { col: 'task_code', op: 'eq', val: editingTask.task_code },
         ]);
         toast.success('任务更新成功');
       } else {
+        // Insert with task_code
+        payload.task_code = formData.task_code.trim().toUpperCase();
         await adminInsert(supabase, 'gift_tree_tasks', payload);
         toast.success('任务创建成功');
       }
@@ -169,8 +193,9 @@ export const GiftTaskManagementPage: React.FC = () => {
 
   const handleToggleActive = async (task: GiftTreeTask) => {
     try {
+      // Update by task_code (PK)
       await adminUpdate(supabase, 'gift_tree_tasks', { is_active: !task.is_active }, [
-        { col: 'id', op: 'eq', val: task.id },
+        { col: 'task_code', op: 'eq', val: task.task_code },
       ]);
       toast.success(task.is_active ? '已禁用' : '已启用');
       fetchTasks();
@@ -193,7 +218,7 @@ export const GiftTaskManagementPage: React.FC = () => {
               <span className="ml-2 text-muted-foreground">加载中...</span>
             </div>
           ) : tasks.length === 0 ? (
-            <EmptyState message="暂无任务配置" />
+            <EmptyState title="暂无任务" message="暂无任务配置" />
           ) : (
             <Table>
               <TableHeader>
@@ -204,14 +229,14 @@ export const GiftTaskManagementPage: React.FC = () => {
                   <TableHead>分类</TableHead>
                   <TableHead>奖励水滴</TableHead>
                   <TableHead>每日上限</TableHead>
-                  <TableHead>跳转路由</TableHead>
+                  <TableHead>最低金额</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {tasks.map((task) => (
-                  <TableRow key={task.id}>
+                  <TableRow key={task.task_code}>
                     <TableCell className="text-xl">
                       {TASK_ICONS[task.task_code] || '📋'}
                     </TableCell>
@@ -236,12 +261,15 @@ export const GiftTaskManagementPage: React.FC = () => {
                     </TableCell>
                     <TableCell>{task.daily_limit}次/天</TableCell>
                     <TableCell>
-                      {task.action_route ? (
-                        <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">
-                          {task.action_route}
-                        </code>
+                      {task.min_amount ? (
+                        <span className="text-xs">
+                          {task.min_amount} TJS
+                          {task.require_real_payment && (
+                            <span className="ml-1 text-red-500" title="需要真实支付">💳</span>
+                          )}
+                        </span>
                       ) : (
-                        <span className="text-muted-foreground text-xs">无</span>
+                        <span className="text-muted-foreground text-xs">-</span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -293,6 +321,9 @@ export const GiftTaskManagementPage: React.FC = () => {
                 placeholder="DAILY_CHECKIN"
                 disabled={!!editingTask}
               />
+              {editingTask && (
+                <p className="text-xs text-muted-foreground mt-1">任务代码为主键，创建后不可修改</p>
+              )}
             </div>
 
             <MultiLanguageInput
@@ -308,6 +339,13 @@ export const GiftTaskManagementPage: React.FC = () => {
               onChange={(v) => setFormData({ ...formData, description_i18n: v })}
               type="textarea"
               placeholder="任务描述"
+            />
+
+            <MultiLanguageInput
+              label="操作按钮文案"
+              value={formData.action_label_i18n}
+              onChange={(v) => setFormData({ ...formData, action_label_i18n: v })}
+              placeholder="如：去签到"
             />
 
             <div className="grid grid-cols-3 gap-4">
@@ -354,6 +392,30 @@ export const GiftTaskManagementPage: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, action_route: e.target.value })}
                 placeholder="/lottery"
               />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>最低金额 (TJS)（可选，用于充值/订单类任务）</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={formData.min_amount}
+                  onChange={(e) =>
+                    setFormData({ ...formData, min_amount: parseFloat(e.target.value) || 0 })
+                  }
+                />
+              </div>
+              <div className="flex items-end">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={formData.require_real_payment}
+                    onCheckedChange={(v) => setFormData({ ...formData, require_real_payment: v })}
+                  />
+                  <Label>需要真实支付</Label>
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

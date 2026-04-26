@@ -6,6 +6,12 @@
  * - 查看所有用户的种树记录
  * - 按状态筛选、搜索
  * - 查看核销码、手动标记领取
+ *
+ * 实际 gift_trees 表字段：
+ * id, user_id, gift_item_id, current_water, target_water, status,
+ * milestone_200_claimed, milestone_500_claimed, milestone_800_claimed,
+ * pickup_code, pickup_code_expires_at, pickup_point_id, claimed_at,
+ * cooldown_until, created_at, updated_at
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSupabase } from '@/contexts/SupabaseContext';
@@ -14,7 +20,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { EmptyState } from '../EmptyState';
-import { adminQuery, adminCount, adminUpdate, adminRpc } from '@/lib/adminApi';
+import { adminQuery, adminCount, adminUpdate } from '@/lib/adminApi';
 import toast from 'react-hot-toast';
 
 interface GiftTree {
@@ -25,13 +31,15 @@ interface GiftTree {
   target_water: number;
   status: string;
   pickup_code: string | null;
-  pickup_expires_at: string | null;
+  pickup_code_expires_at: string | null;
+  pickup_point_id: string | null;
   milestone_200_claimed: boolean;
   milestone_500_claimed: boolean;
   milestone_800_claimed: boolean;
-  created_at: string;
-  completed_at: string | null;
   claimed_at: string | null;
+  cooldown_until: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface Stats {
@@ -95,10 +103,11 @@ export const GiftTreeDashboardPage: React.FC = () => {
         filters.push({ col: 'status', op: 'eq', val: statusFilter });
       }
 
-      // Get count for pagination
-      const count = await adminCount(supabase, 'gift_trees', filters,
-        searchQuery ? `user_id.ilike.%${searchQuery}%,pickup_code.ilike.%${searchQuery}%` : undefined
-      );
+      const orFilter = searchQuery
+        ? `user_id.ilike.%${searchQuery}%,pickup_code.ilike.%${searchQuery}%`
+        : undefined;
+
+      const count = await adminCount(supabase, 'gift_trees', filters, orFilter);
       setTotalPages(Math.ceil(count / LIMIT) || 1);
 
       const data = await adminQuery<GiftTree>(supabase, 'gift_trees', {
@@ -108,7 +117,7 @@ export const GiftTreeDashboardPage: React.FC = () => {
         orderAsc: false,
         limit: LIMIT,
         offset: (page - 1) * LIMIT,
-        orFilters: searchQuery ? `user_id.ilike.%${searchQuery}%,pickup_code.ilike.%${searchQuery}%` : undefined,
+        orFilters: orFilter,
       });
       setTrees(data);
     } catch (error: any) {
@@ -214,7 +223,7 @@ export const GiftTreeDashboardPage: React.FC = () => {
               <span className="ml-2 text-muted-foreground">加载中...</span>
             </div>
           ) : trees.length === 0 ? (
-            <EmptyState message="暂无种树记录" />
+            <EmptyState title="暂无记录" message="暂无种树记录" />
           ) : (
             <>
               <Table>
@@ -226,7 +235,7 @@ export const GiftTreeDashboardPage: React.FC = () => {
                     <TableHead>里程碑</TableHead>
                     <TableHead>核销码</TableHead>
                     <TableHead>创建时间</TableHead>
-                    <TableHead>完成时间</TableHead>
+                    <TableHead>领取时间</TableHead>
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -272,9 +281,9 @@ export const GiftTreeDashboardPage: React.FC = () => {
                               <code className="text-sm font-bold bg-yellow-50 px-2 py-0.5 rounded">
                                 {tree.pickup_code}
                               </code>
-                              {tree.pickup_expires_at && (
+                              {tree.pickup_code_expires_at && (
                                 <div className="text-[10px] text-muted-foreground mt-0.5">
-                                  截止: {formatDate(tree.pickup_expires_at)}
+                                  截止: {formatDate(tree.pickup_code_expires_at)}
                                 </div>
                               )}
                             </div>
@@ -283,7 +292,7 @@ export const GiftTreeDashboardPage: React.FC = () => {
                           )}
                         </TableCell>
                         <TableCell className="text-xs">{formatDate(tree.created_at)}</TableCell>
-                        <TableCell className="text-xs">{formatDate(tree.completed_at)}</TableCell>
+                        <TableCell className="text-xs">{formatDate(tree.claimed_at)}</TableCell>
                         <TableCell className="text-right space-x-1">
                           {tree.status === 'COMPLETED' && (
                             <>
