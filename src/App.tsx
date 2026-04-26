@@ -107,6 +107,11 @@ const BannerManagementPage = React.lazy(() => import('./pages/BannerManagementPa
 const AIManagementPage = React.lazy(() => import('./pages/AIManagementPage'));
 const ErrorLogsPage = React.lazy(() => import('./pages/ErrorLogsPage'));
 const AuditLogsPage = React.lazy(() => import('./pages/AuditLogsPage'));
+// ==================== 希望之树管理 ====================
+const GiftItemManagementPage = React.lazy(() => import("./components/GiftTree/GiftItemManagementPage"));
+const GiftTaskManagementPage = React.lazy(() => import("./components/GiftTree/GiftTaskManagementPage"));
+const GiftTreeDashboardPage = React.lazy(() => import("./components/GiftTree/GiftTreeDashboardPage"));
+const GiftTreeWaterLogsPage = React.lazy(() => import("./components/GiftTree/GiftTreeWaterLogsPage"));
 
 // 静态页面（保持同步导入，体积极小）
 import { UnauthorizedPage } from './components/UnauthorizedPage';
@@ -222,6 +227,12 @@ function AdminLayout({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; se
           <NavLink to="/behavior-dashboard" label="行为看板" icon="📊" />
 
           {/* ==================== 系统配置 ==================== */}
+          {/* ==================== 希望之树管理 ==================== */}
+          <NavSection label="希望之树" />
+          <NavLink to="/gift-tree-dashboard" label="种树看板" icon="🌳" />
+          <NavLink to="/gift-items" label="礼物管理" icon="🎁" />
+          <NavLink to="/gift-tasks" label="任务配置" icon="📋" />
+          <NavLink to="/gift-water-logs" label="浇水日志" icon="💧" />
           <NavSection label="系统配置" />
           <NavLink to="/payment-config" label="支付配置" icon="⚙️" />
           <NavLink to="/commission-config" label="佣金配置" icon="💵" />
@@ -311,6 +322,11 @@ function AdminLayout({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; se
               <Route path="/promoter-deposits" element={<ProtectedRoute element={<PromoterDepositManagementPage />} />} />
               <Route path="/promoter-settlement" element={<ProtectedRoute element={<PromoterSettlementPage />} />} />
 
+              {/* ==================== 希望之树管理路由 ==================== */}
+              <Route path="/gift-tree-dashboard" element={<ProtectedRoute element={<GiftTreeDashboardPage />} />} />
+              <Route path="/gift-items" element={<ProtectedRoute element={<GiftItemManagementPage />} />} />
+              <Route path="/gift-tasks" element={<ProtectedRoute element={<GiftTaskManagementPage />} />} />
+              <Route path="/gift-water-logs" element={<ProtectedRoute element={<GiftTreeWaterLogsPage />} />} />
               <Route path="/unauthorized" element={<UnauthorizedPage />} />
               <Route path="/forbidden" element={<ForbiddenPage />} />
             </Routes>
