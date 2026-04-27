@@ -50,15 +50,16 @@ const TASK_ICONS: Record<string, string> = {
   COMPLETE_ORDER: '🛍️',
   STORE_PICKUP: '🏪',
   FRIEND_HELP: '🤝',
-  SHARE_APP: '📤',
   FIRST_WATER: '💧',
   FIRST_LOTTERY: '🎰',
+  RANDOM_TASK: '🎲',
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
   DAILY: '每日任务',
   ONETIME: '一次性任务',
   SOCIAL: '社交任务',
+  RANDOM: '随机任务',
 };
 
 const getLocalizedText = (jsonb: any, lang: string = 'zh'): string => {
@@ -359,6 +360,7 @@ export const GiftTaskManagementPage: React.FC = () => {
                   <option value="DAILY">每日任务</option>
                   <option value="ONETIME">一次性任务</option>
                   <option value="SOCIAL">社交任务</option>
+                  <option value="RANDOM">随机任务</option>
                 </select>
               </div>
               <div>

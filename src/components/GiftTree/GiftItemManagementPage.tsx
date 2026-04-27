@@ -23,7 +23,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { MultiLanguageInput } from '../MultiLanguageInput';
 import { SingleImageUpload } from '../SingleImageUpload';
 import { EmptyState } from '../EmptyState';
-import { adminQuery, adminInsert, adminUpdate, adminDelete } from '@/lib/adminApi';
+import { adminQuery, adminCount, adminInsert, adminUpdate, adminDelete } from '@/lib/adminApi';
 import toast from 'react-hot-toast';
 
 interface GiftItem {
@@ -129,6 +129,19 @@ export const GiftItemManagementPage: React.FC = () => {
       toast.error('目标水滴数必须大于0');
       return;
     }
+    if (formData.reserved_stock < 0) {
+      toast.error('预留库存不能为负数');
+      return;
+    }
+    if (formData.reserved_stock > formData.stock) {
+      toast.error('预留库存不能超过总库存');
+      return;
+    }
+    // 编辑时：不能将 stock 调低到低于当前 reserved_stock
+    if (editingItem && formData.stock < editingItem.reserved_stock) {
+      toast.error(`不能将总库存调低到小于当前预留量 (${editingItem.reserved_stock})`);
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -178,6 +191,20 @@ export const GiftItemManagementPage: React.FC = () => {
   };
 
   const handleDelete = async (item: GiftItem) => {
+    // 检查是否存在占用该礼物的活跃树，防止脱线占用 / FK 外键异常
+    let occupied = 0;
+    try {
+      occupied = await adminCount(supabase, 'gift_trees', [
+        { col: 'gift_item_id', op: 'eq', val: item.id },
+        { col: 'status', op: 'in', val: 'GROWING,COMPLETED' },
+      ]);
+    } catch (e) {
+      // 查询失败不阻断侍下流程，后续 adminDelete 本身会被 FK 拦住
+    }
+    if (occupied > 0) {
+      toast.error(`存在 ${occupied} 棵正在生长或待领取的树绑定该礼物，请先下架代替，等待领取或过期后再删除。`);
+      return;
+    }
     if (!window.confirm(`确定要删除礼物「${item.name}」吗？此操作不可恢复。`)) return;
     try {
       await adminDelete(supabase, 'gift_items', [

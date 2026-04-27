@@ -20,7 +20,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { EmptyState } from '../EmptyState';
-import { adminQuery, adminCount, adminUpdate } from '@/lib/adminApi';
+import { adminQuery, adminCount, adminRpc } from '@/lib/adminApi';
 import toast from 'react-hot-toast';
 
 interface GiftTree {
@@ -133,12 +133,17 @@ export const GiftTreeDashboardPage: React.FC = () => {
   }, [fetchStats, fetchTrees]);
 
   const handleMarkClaimed = async (tree: GiftTree) => {
-    if (!window.confirm('确定要标记此树为已领取吗？')) return;
+    if (!window.confirm('确定要标记此树为已领取吗？将同步扣减礼物库存并设置 24h 冷却。')) return;
     try {
-      await adminUpdate(supabase, 'gift_trees', {
-        status: 'CLAIMED',
-        claimed_at: new Date().toISOString(),
-      }, [{ col: 'id', op: 'eq', val: tree.id }]);
+      const res = await adminRpc<{ success: boolean; error?: string; current_status?: string }>(
+        supabase,
+        'admin_claim_gift_tree',
+        { p_tree_id: tree.id }
+      );
+      if (!res?.success) {
+        toast.error(`操作失败: ${res?.error || '未知错误'}${res?.current_status ? ` (当前状态: ${res.current_status})` : ''}`);
+        return;
+      }
       toast.success('已标记为已领取');
       fetchTrees();
       fetchStats();
@@ -148,12 +153,38 @@ export const GiftTreeDashboardPage: React.FC = () => {
   };
 
   const handleMarkExpired = async (tree: GiftTree) => {
-    if (!window.confirm('确定要标记此树为已过期吗？')) return;
+    if (!window.confirm('确定要标记此树为已过期吗？将释放该礼物的预占库存。')) return;
     try {
-      await adminUpdate(supabase, 'gift_trees', {
-        status: 'EXPIRED',
-      }, [{ col: 'id', op: 'eq', val: tree.id }]);
+      const res = await adminRpc<{ success: boolean; error?: string; current_status?: string }>(
+        supabase,
+        'admin_expire_gift_tree',
+        { p_tree_id: tree.id }
+      );
+      if (!res?.success) {
+        toast.error(`操作失败: ${res?.error || '未知错误'}${res?.current_status ? ` (当前状态: ${res.current_status})` : ''}`);
+        return;
+      }
       toast.success('已标记为已过期');
+      fetchTrees();
+      fetchStats();
+    } catch (error: any) {
+      toast.error(`操作失败: ${error.message}`);
+    }
+  };
+
+  const handleCancelGrowing = async (tree: GiftTree) => {
+    if (!window.confirm('确定要取消该用户正在生长的树吗？将释放预占库存。')) return;
+    try {
+      const res = await adminRpc<{ success: boolean; error?: string; current_status?: string }>(
+        supabase,
+        'admin_cancel_gift_tree',
+        { p_tree_id: tree.id }
+      );
+      if (!res?.success) {
+        toast.error(`操作失败: ${res?.error || '未知错误'}${res?.current_status ? ` (当前状态: ${res.current_status})` : ''}`);
+        return;
+      }
+      toast.success('已取消');
       fetchTrees();
       fetchStats();
     } catch (error: any) {
@@ -316,7 +347,7 @@ export const GiftTreeDashboardPage: React.FC = () => {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleMarkExpired(tree)}
+                              onClick={() => handleCancelGrowing(tree)}
                             >
                               取消
                             </Button>
