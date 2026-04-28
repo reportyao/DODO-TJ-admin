@@ -17,7 +17,7 @@ import {
 } from '../ui/dialog';
 import { formatDateTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { Eye, EyeOff, Edit, Loader2, Search } from 'lucide-react';
+import { Eye, EyeOff, Edit, Loader2, Search, Calendar } from 'lucide-react';
 
 interface Showoff {
   id: string;
@@ -40,6 +40,21 @@ interface Showoff {
   updated_at: string;
 }
 
+const toDateTimeLocalValue = (value?: string | null): string => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const timezoneOffset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 16);
+};
+
+const toISOStringFromDateTimeLocal = (value: string): string | null => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+};
+
 export const OperationalShowoffManagementPage: React.FC = () => {
   const { supabase } = useSupabase();
   const { admin } = useAdminAuth();
@@ -57,6 +72,7 @@ export const OperationalShowoffManagementPage: React.FC = () => {
     content: '',
     likes_count: 0,
     reward_coins: 0,
+    created_at: '',
   });
 
   const fetchShowoffs = useCallback(async () => {
@@ -127,6 +143,7 @@ export const OperationalShowoffManagementPage: React.FC = () => {
       content: showoff.content || '',
       likes_count: showoff.likes_count || 0,
       reward_coins: showoff.reward_coins || 0,
+      created_at: toDateTimeLocalValue(showoff.created_at),
     });
     setIsEditDialogOpen(true);
   };
@@ -143,6 +160,12 @@ export const OperationalShowoffManagementPage: React.FC = () => {
       return;
     }
 
+    const updatedCreatedAt = toISOStringFromDateTimeLocal(editFormData.created_at);
+    if (!updatedCreatedAt) {
+      toast.error('请选择有效的发布时间');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const { error } = await supabase
@@ -152,6 +175,7 @@ export const OperationalShowoffManagementPage: React.FC = () => {
           content: editFormData.content.trim(),
           likes_count: editFormData.likes_count,
           reward_coins: editFormData.reward_coins,
+          created_at: updatedCreatedAt,
           updated_at: new Date().toISOString(),
         })
         .eq('id', selectedShowoff.id);
@@ -217,7 +241,7 @@ export const OperationalShowoffManagementPage: React.FC = () => {
                     <TableHead>点赞数</TableHead>
                     <TableHead>奖励</TableHead>
                     <TableHead>状态</TableHead>
-                    <TableHead>创建时间</TableHead>
+                    <TableHead>发布时间</TableHead>
                     <TableHead className="w-32">操作</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -371,7 +395,7 @@ export const OperationalShowoffManagementPage: React.FC = () => {
                     <span className="ml-2 font-medium text-amber-600">{selectedShowoff.reward_coins || 0} 币</span>
                   </div>
                   <div>
-                    <span className="text-gray-600">创建时间:</span>
+                    <span className="text-gray-600">发布时间:</span>
                     <span className="ml-2 font-medium">{formatDateTime(selectedShowoff.created_at)}</span>
                   </div>
                   <div>
@@ -510,6 +534,23 @@ export const OperationalShowoffManagementPage: React.FC = () => {
                 </div>
               );
             })()}
+
+            {/* 发布时间 */}
+            <div className="space-y-2">
+              <Label htmlFor="edit_created_at" className="flex items-center space-x-1">
+                <Calendar className="w-4 h-4 text-green-500" />
+                <span>发布时间</span>
+              </Label>
+              <Input
+                id="edit_created_at"
+                type="datetime-local"
+                value={editFormData.created_at}
+                onChange={(e) => setEditFormData({ ...editFormData, created_at: e.target.value })}
+              />
+              <p className="text-xs text-gray-500">
+                修改后前端晒单列表会按新的发布时间排序展示
+              </p>
+            </div>
 
             {/* 点赞数 */}
             <div className="grid grid-cols-2 gap-4">
