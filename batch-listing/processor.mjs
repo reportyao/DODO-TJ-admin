@@ -595,12 +595,18 @@ async function saveToInventory(item, semanticFacts, localized, aiUnderstanding) 
 async function processItem(item) {
   const itemId = item.id;
   const startTime = Date.now();
-
+  // understanding_only 默认为 true（仅 AI 商品理解）
+  const understandingOnly = item.understanding_only !== false;
   log('info', `[${itemId}] 开始处理`, {
     images: item.image_urls?.length || 0,
     name: item.product_name || '(待识别)',
     retry: item.retry_count || 0,
+    mode: understandingOnly ? 'understanding_only' : 'full_pipeline',
   });
+  if (!understandingOnly) {
+    // 现阶段尚未接入完整流水线，降级为仅理解模式并记录警告，避免任务被卸载。
+    log('warn', `[${itemId}] 完整模式尚未接入（抠图 + 海报生成），本轮仅执行 AI 商品理解。`);
+  };
 
   try {
     // 更新状态为 ai_analyzing
@@ -758,7 +764,10 @@ async function processItem(item) {
  */
 async function claimNextItems(limit) {
   const now = new Date().toISOString();
-  const selectFields = 'id, batch_id, image_urls, category_id, product_name, price, stock, specs, retry_count';
+  // 读取 understanding_only 供 processItem 走分支：
+  // - true（默认）: 仅 AI 商品理解 + 入库，即当前默认行为；
+  // - false: 预留未来完整流水线（抠图 + 海报）。
+  const selectFields = 'id, batch_id, image_urls, category_id, product_name, price, stock, specs, retry_count, understanding_only';
 
   // 查询 queued 任务
   const { data: queuedItems, error: queuedError } = await supabase

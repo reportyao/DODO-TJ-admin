@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Package, RefreshCw, AlertCircle, CheckCircle2, Clock, XCircle,
   ChevronDown, ChevronUp, Loader2, RotateCcw, Ban, Eye, ArrowLeft,
-  Upload, Plus, Trash2, X, ImageIcon, FolderUp
+  Upload, Plus, Trash2, X, ImageIcon, FolderUp, Link as LinkIcon, Sparkles
 } from 'lucide-react';
 import { useSupabase } from '@/contexts/SupabaseContext';
 import { adminQuery, adminUpdate, adminInsert } from '@/lib/adminApi';
@@ -62,14 +62,63 @@ interface Category {
 }
 
 // 新建任务中的商品组
+// source = 'file' 时使用 files 数组（需要本地上传到 Storage）
+// source = 'url'  时使用 imageUrls（外部公网 URL，提交时直接写入 batch_upload_items.image_urls，不再上传）
 interface ProductGroup {
   id: string; // 前端临时ID
   name: string;
+  source: 'file' | 'url';
   files: File[];
-  previews: string[];
+  previews: string[];        // 预览 URL（File 模式 = ObjectURL；URL 模式 = 原始外链）
+  imageUrls: string[];       // 仅 source='url' 使用
   uploading: boolean;
   uploadedUrls: string[];
   uploadError: string | null;
+}
+
+// 「URL+名称」批量录入解析结果
+interface ParsedUrlLine {
+  name: string;        // 行内非 URL 文本拼接而成的商品名
+  imageUrls: string[]; // 行内识别到的所有 http(s) URL
+  raw: string;         // 原始行（用于错误提示）
+  error?: string;      // 解析错误（如未识别到 URL）
+}
+
+/**
+ * 解析「URL+名称」批量文本：
+ *   - 每行 = 一个商品；
+ *   - 行内所有 http(s):// 开头的 token 视为图片 URL；
+ *   - 其余非 URL 的文字 token 拼成商品名（用空格连接）；
+ *   - 空行、以 # 开头的注释行忽略；
+ *   - 分隔符兼容：空白 / 半角逗号 / 全角逗号 / 制表符 / 竖线 |。
+ */
+function parseUrlNameLines(text: string): ParsedUrlLine[] {
+  const lines = text.split(/\r?\n/);
+  const result: ParsedUrlLine[] = [];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const tokens = line.split(/[\s,\uff0c|\t]+/).filter(Boolean);
+    const urls: string[] = [];
+    const nameTokens: string[] = [];
+    for (const tk of tokens) {
+      if (/^https?:\/\/\S+$/i.test(tk)) {
+        urls.push(tk);
+      } else {
+        nameTokens.push(tk);
+      }
+    }
+    const parsed: ParsedUrlLine = {
+      name: nameTokens.join(' ').trim(),
+      imageUrls: urls,
+      raw: line,
+    };
+    if (urls.length === 0) {
+      parsed.error = '未识别到图片 URL（必须以 http:// 或 https:// 开头）';
+    }
+    result.push(parsed);
+  }
+  return result;
 }
 
 // ============================================================
@@ -200,9 +249,14 @@ function CreateBatchForm({
   const [defaultPrice, setDefaultPrice] = useState(39.9);
   const [defaultStock, setDefaultStock] = useState(100);
   const [categoryId, setCategoryId] = useState('');
+  // 「仅 AI 商品理解」开关：默认 ON。开启后处理器仅做 AI 理解 + 入库，不抠图、不生成海报，使用上传/输入的原图。
+  const [understandingOnly, setUnderstandingOnly] = useState(true);
   const [groups, setGroups] = useState<ProductGroup[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0, currentName: '' });
+  // URL+名称 批量录入状态
+  const [urlInputOpen, setUrlInputOpen] = useState(false);
+  const [urlInputText, setUrlInputText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -241,8 +295,10 @@ function CreateBatchForm({
         newGroups.push({
           id: generateId(),
           name,
+          source: 'file',
           files,
           previews: files.map(f => URL.createObjectURL(f)),
+          imageUrls: [],
           uploading: false,
           uploadedUrls: [],
           uploadError: null,
@@ -255,8 +311,10 @@ function CreateBatchForm({
       const newGroups: ProductGroup[] = fileArr.map(file => ({
         id: generateId(),
         name: file.name.replace(/\.[^.]+$/, ''),
+        source: 'file' as const,
         files: [file],
         previews: [URL.createObjectURL(file)],
+        imageUrls: [],
         uploading: false,
         uploadedUrls: [],
         uploadError: null,
@@ -279,26 +337,71 @@ function CreateBatchForm({
     }));
   };
 
-  // 删除商品组
+  // 删除商品组（File 模式需要释放 ObjectURL；URL 模式跳过）
   const handleRemoveGroup = (groupId: string) => {
     setGroups(prev => {
       const group = prev.find(g => g.id === groupId);
-      if (group) group.previews.forEach(url => URL.revokeObjectURL(url));
+      if (group && group.source === 'file') {
+        group.previews.forEach(url => URL.revokeObjectURL(url));
+      }
       return prev.filter(g => g.id !== groupId);
     });
+  };
+
+  // 解析并添加「URL+名称」批量录入文本到商品组
+  const handleAddUrlLines = () => {
+    const parsed = parseUrlNameLines(urlInputText);
+    if (parsed.length === 0) {
+      toast.error('未解析到任何商品行，请检查输入');
+      return;
+    }
+    const valid = parsed.filter(p => !p.error);
+    const invalid = parsed.filter(p => p.error);
+    if (valid.length === 0) {
+      toast.error(`全部 ${parsed.length} 行解析失败：${parsed[0].error}`);
+      return;
+    }
+    const newGroups: ProductGroup[] = valid.map((p, idx) => ({
+      id: generateId(),
+      // 名称为空时，留空让后台 AI 识别后回填
+      name: p.name || `URL商品_${idx + 1}`,
+      source: 'url' as const,
+      files: [],
+      previews: p.imageUrls.slice(),
+      imageUrls: p.imageUrls.slice(),
+      uploading: false,
+      uploadedUrls: [],
+      uploadError: null,
+    }));
+    setGroups(prev => [...prev, ...newGroups]);
+    setUrlInputText('');
+    setUrlInputOpen(false);
+    if (invalid.length > 0) {
+      toast.success(`已添加 ${valid.length} 个商品（URL 录入）；忽略 ${invalid.length} 行无效输入`);
+    } else {
+      toast.success(`已添加 ${valid.length} 个商品（URL 录入）`);
+    }
   };
 
   // 删除商品组中的单张图片
   const handleRemoveImage = (groupId: string, imageIndex: number) => {
     setGroups(prev => prev.map(g => {
       if (g.id !== groupId) return g;
-      URL.revokeObjectURL(g.previews[imageIndex]);
+      if (g.source === 'file') {
+        URL.revokeObjectURL(g.previews[imageIndex]);
+        return {
+          ...g,
+          files: g.files.filter((_, i) => i !== imageIndex),
+          previews: g.previews.filter((_, i) => i !== imageIndex),
+        };
+      }
+      // URL 模式
       return {
         ...g,
-        files: g.files.filter((_, i) => i !== imageIndex),
         previews: g.previews.filter((_, i) => i !== imageIndex),
+        imageUrls: g.imageUrls.filter((_, i) => i !== imageIndex),
       };
-    }).filter(g => g.files.length > 0));
+    }).filter(g => (g.source === 'file' ? g.files.length : g.imageUrls.length) > 0));
   };
 
   // 拖拽处理
@@ -321,7 +424,11 @@ function CreateBatchForm({
     }
 
     setSubmitting(true);
-    const totalImages = groups.reduce((sum, g) => sum + g.files.length, 0);
+    // 仅 File 类型需要计入上传进度；URL 类型直接使用，不上传
+    const totalImages = groups.reduce(
+      (sum, g) => sum + (g.source === 'file' ? g.files.length : 0),
+      0,
+    );
     setUploadProgress({ current: 0, total: totalImages, currentName: '' });
 
     try {
@@ -334,6 +441,7 @@ function CreateBatchForm({
         default_category_id: categoryId || null,
         default_price: defaultPrice,
         default_stock: defaultStock,
+        understanding_only: understandingOnly,
       });
       
       // 从返回结果中提取batch ID
@@ -356,15 +464,21 @@ function CreateBatchForm({
       for (let gi = 0; gi < groups.length; gi++) {
         const group = groups[gi];
         setUploadProgress({ current: uploadedCount, total: totalImages, currentName: group.name });
-        
+
         try {
-          // 上传该组的所有图片
-          const imageUrls: string[] = [];
-          for (const file of group.files) {
-            const url = await uploadImage(file, 'inventory-products', 'batch-upload', 'image/jpeg');
-            imageUrls.push(url);
-            uploadedCount++;
-            setUploadProgress({ current: uploadedCount, total: totalImages, currentName: group.name });
+          // 收集该商品的最终图片 URL 列表
+          let imageUrls: string[] = [];
+          if (group.source === 'url') {
+            // URL 模式：直接使用外部公网 URL
+            imageUrls = group.imageUrls.slice();
+          } else {
+            // File 模式：逐张上传到 Supabase Storage
+            for (const file of group.files) {
+              const url = await uploadImage(file, 'inventory-products', 'batch-upload', 'image/jpeg');
+              imageUrls.push(url);
+              uploadedCount++;
+              setUploadProgress({ current: uploadedCount, total: totalImages, currentName: group.name });
+            }
           }
 
           // 创建子项
@@ -376,6 +490,7 @@ function CreateBatchForm({
             price: defaultPrice,
             stock: defaultStock,
             status: 'queued',
+            understanding_only: understandingOnly,
           });
 
           successGroups++;
@@ -386,8 +501,10 @@ function CreateBatchForm({
         }
       }
 
-      // 清理预览URL
-      groups.forEach(g => g.previews.forEach(url => URL.revokeObjectURL(url)));
+      // 清理预览URL（仅 File 模式产生的 ObjectURL 需要 revoke；URL 模式是原始外链，无需 revoke）
+      groups.forEach(g => {
+        if (g.source === 'file') g.previews.forEach(url => URL.revokeObjectURL(url));
+      });
 
       if (successGroups > 0) {
         toast.success(`批量上架任务已创建！成功 ${successGroups} 个商品${failedGroups > 0 ? `，失败 ${failedGroups} 个` : ''}`, { id: 'batch-create' });
@@ -469,14 +586,41 @@ function CreateBatchForm({
           </div>
         </div>
 
+        {/* 「仅 AI 商品理解」开关 */}
+        <div className="mb-6 p-4 rounded-xl border bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200">
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={understandingOnly}
+              onChange={e => setUnderstandingOnly(e.target.checked)}
+              className="mt-1 w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-2 focus:ring-purple-500"
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-purple-600" />
+                <span className="text-sm font-medium text-gray-800">仅 AI 商品理解（使用原图入库）</span>
+                {understandingOnly ? (
+                  <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-xs">已开启</span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs">完整模式</span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                开启后：AI 商品理解（视觉识别 + 三语文案 + 分类）正常执行并入库，<b>不调用抠图、不生成海报</b>，直接使用上传/输入的原图。
+                关闭后：未来可扩展为完整 AI 理解 + 抠图 + 海报生成流水线。
+              </p>
+            </div>
+          </label>
+        </div>
+
         {/* 图片上传区域 */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
             <label className="block text-sm font-medium text-gray-700">
-              商品图片 * <span className="text-gray-400 font-normal">（每张图片 = 一个商品，或上传文件夹按子目录分组）</span>
+              商品图片 * <span className="text-gray-400 font-normal">（每张图片 = 一个商品，或上传文件夹按子目录分组，或使用 URL 批量录入）</span>
             </label>
             <span className="text-sm text-gray-500">
-              已添加 {groups.length} 个商品，共 {groups.reduce((s, g) => s + g.files.length, 0)} 张图片
+              已添加 {groups.length} 个商品，共 {groups.reduce((s, g) => s + (g.source === 'file' ? g.files.length : g.imageUrls.length), 0)} 张图片
             </span>
           </div>
 
@@ -532,6 +676,64 @@ function CreateBatchForm({
             {...{ webkitdirectory: '', directory: '' } as any}
             onChange={e => { if (e.target.files) handleAddFiles(e.target.files); e.target.value = ''; }}
           />
+
+          {/* URL+名称 批量录入 */}
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => setUrlInputOpen(v => !v)}
+              className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1.5"
+            >
+              <LinkIcon className="w-4 h-4" />
+              {urlInputOpen ? '收起 URL 批量录入' : '或使用「URL + 名称」批量录入'}
+              {urlInputOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+            {urlInputOpen && (
+              <div className="mt-2 p-3 rounded-lg bg-gray-50 border border-gray-200">
+                <p className="text-xs text-gray-600 mb-2 leading-relaxed">
+                  <b>每行 = 一个商品</b>：行内可包含多个 http(s) 图片地址与一个商品名称。
+                  分隔符可使用空格 / 逗号 / 竖线 <code>|</code>，名称为非 URL 的任意文本。
+                  示例：
+                </p>
+                <pre className="text-[11px] bg-white border rounded p-2 mb-2 text-gray-700 overflow-x-auto">{`https://a.com/1.jpg https://a.com/2.jpg 男士加厚棉服
+https://b.com/3.jpg, 女士羽绒服 红色XL
+https://c.com/4.jpg | https://c.com/5.jpg`}</pre>
+                <textarea
+                  value={urlInputText}
+                  onChange={e => setUrlInputText(e.target.value)}
+                  placeholder={'粘贴商品图片 URL，每行一个商品，例如：\nhttps://a.com/1.jpg https://a.com/2.jpg 男士加厚棉服'}
+                  rows={6}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                {urlInputText.trim() && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    预览：{(() => {
+                      const parsed = parseUrlNameLines(urlInputText);
+                      const ok = parsed.filter(p => !p.error).length;
+                      const bad = parsed.length - ok;
+                      const totalUrls = parsed.reduce((s, p) => s + p.imageUrls.length, 0);
+                      return `解析到 ${parsed.length} 行（有效 ${ok}，无效 ${bad}），共 ${totalUrls} 张图片`;
+                    })()}
+                  </p>
+                )}
+                <div className="flex justify-end gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setUrlInputText('')}
+                    className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800"
+                  >清空</button>
+                  <button
+                    type="button"
+                    onClick={handleAddUrlLines}
+                    disabled={!urlInputText.trim()}
+                    className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> 添加到商品列表
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* 商品列表预览 */}
@@ -541,7 +743,10 @@ function CreateBatchForm({
               <h3 className="text-sm font-medium text-gray-700">商品列表预览</h3>
               <button
                 onClick={() => {
-                  groups.forEach(g => g.previews.forEach(url => URL.revokeObjectURL(url)));
+                  // 仅 File 模式需要 revoke ObjectURL；URL 模式为外链，不需释放
+                  groups.forEach(g => {
+                    if (g.source === 'file') g.previews.forEach(url => URL.revokeObjectURL(url));
+                  });
                   setGroups([]);
                 }}
                 className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
@@ -558,10 +763,19 @@ function CreateBatchForm({
                       src={group.previews[0]}
                       alt={group.name}
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        // URL 模式的外链可能加载失败，隐藏损坏图标
+                        (e.currentTarget as HTMLImageElement).style.opacity = '0.3';
+                      }}
                     />
-                    {group.files.length > 1 && (
+                    {(group.source === 'file' ? group.files.length : group.imageUrls.length) > 1 && (
                       <span className="absolute top-1 left-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded">
-                        {group.files.length} 张
+                        {(group.source === 'file' ? group.files.length : group.imageUrls.length)} 张
+                      </span>
+                    )}
+                    {group.source === 'url' && (
+                      <span className="absolute bottom-1 left-1 bg-blue-600/80 text-white text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">
+                        <LinkIcon className="w-2.5 h-2.5" /> URL
                       </span>
                     )}
                     {/* 删除按钮 */}
@@ -629,7 +843,7 @@ function CreateBatchForm({
               ) : (
                 <>
                   <Upload className="w-4 h-4" />
-                  提交批量上架 ({groups.length} 个商品)
+                  提交批量上架 ({groups.length} 个商品{understandingOnly ? '・仅理解' : '・完整'})
                 </>
               )}
             </button>
