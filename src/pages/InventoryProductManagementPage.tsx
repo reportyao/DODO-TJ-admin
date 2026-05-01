@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown, Sparkles, Brain, RefreshCw, Zap, Loader2, Truck, CheckSquare, Square } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown, Sparkles, Brain, RefreshCw, Zap, Loader2, Truck, CheckSquare, Square, ShoppingBag } from 'lucide-react';
 import { useAdminAuth } from '@/contexts/AdminAuthContext';
 import { getSessionToken, adminQuery, adminInsert } from '@/lib/adminApi';
+import { batchCreateLotteriesFromInventory } from '@/lib/lotteryHelpers';
 import type { I18nText } from '@/types/homepage';
 import { MultiImageUpload } from '@/components/MultiImageUpload';
 import toast from 'react-hot-toast';
@@ -188,6 +189,8 @@ export default function InventoryProductManagementPage() {
   // 多选 & 本地批次
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [localBatchCreating, setLocalBatchCreating] = useState(false);
+  // 一键创建商城活动（lotteries）状态
+  const [batchCreateLotteryRunning, setBatchCreateLotteryRunning] = useState(false);
 
   // 商品分类
   const [categories, setCategories] = useState<{ id: string; code: string; name_i18n: I18nText }[]>([]);
@@ -1096,6 +1099,77 @@ export default function InventoryProductManagementPage() {
     }
   };
 
+  // ─── 一键创建商城活动（lotteries）──────────────────
+  // 仅处理当前选中且状态为 ACTIVE 的库存商品；已存在 PENDING/ACTIVE/SOLD_OUT
+  // 活动的商品会被自动忽略。默认状态 ACTIVE（进行中）、比价留空。
+  const handleBatchCreateLotteries = async () => {
+    const selected = products.filter(p => selectedProductIds.has(p.id));
+    if (selected.length === 0) {
+      toast.error('请先选择需要创建活动的商品');
+      return;
+    }
+    if (!adminUser?.id) {
+      toast.error('请先登录');
+      return;
+    }
+
+    try {
+      setBatchCreateLotteryRunning(true);
+      // 复用共享 helper：状态默认 ACTIVE、比价 [] 、其他字段从库存商品读取
+      const result = await batchCreateLotteriesFromInventory(
+        supabase,
+        selected.map(p => ({
+          id: p.id,
+          name: p.name,
+          name_i18n: p.name_i18n,
+          description_i18n: p.description_i18n,
+          image_url: p.image_url,
+          image_urls: p.image_urls,
+          original_price: p.original_price,
+          stock: p.stock,
+          status: p.status,
+          sku: p.sku,
+          ai_understanding: p.ai_understanding ?? null,
+        })),
+        {
+          status: 'ACTIVE',
+          priceComparisons: [],
+        }
+      );
+
+      // 汇总消息
+      const parts: string[] = [];
+      if (result.created.length > 0) parts.push(`创建成功 ${result.created.length} 个`);
+      if (result.skipped.length > 0) parts.push(`跳过已存在活动 ${result.skipped.length} 个`);
+      if (result.inactive.length > 0) parts.push(`跳过非上架商品 ${result.inactive.length} 个`);
+      if (result.insufficientStock.length > 0) parts.push(`库存不足 ${result.insufficientStock.length} 个`);
+      if (result.failed.length > 0) parts.push(`失败 ${result.failed.length} 个`);
+      const summary = parts.length > 0 ? parts.join('、') : '未创建任何活动';
+
+      if (result.created.length > 0 && result.failed.length === 0) {
+        toast.success(summary);
+      } else if (result.created.length > 0) {
+        toast.success(summary);
+        // 额外提示失败详情
+        const firstErr = result.failed[0];
+        if (firstErr) toast.error(`部分创建失败：${firstErr.error}`);
+      } else if (result.failed.length > 0) {
+        toast.error(`${summary}；首个错误：${result.failed[0].error}`);
+      } else {
+        // 所有都被跳过
+        toast(summary, { icon: 'ℹ️' });
+      }
+
+      setSelectedProductIds(new Set());
+      fetchProducts();
+    } catch (error: any) {
+      console.error('Failed to batch create lotteries:', error);
+      toast.error(error.message || '一键创建商城活动失败');
+    } finally {
+      setBatchCreateLotteryRunning(false);
+    }
+  };
+
   const handleViewAI = (product: InventoryProduct) => {
     setAiViewProduct(product);
     setShowAiModal(true);
@@ -1179,6 +1253,23 @@ export default function InventoryProductManagementPage() {
               <Zap className="w-5 h-5" />
             )}
             {batchRunning ? '批量处理中...' : '批量 AI 理解'}
+          </button>
+          <button
+            onClick={handleBatchCreateLotteries}
+            disabled={batchCreateLotteryRunning || selectedProductIds.size === 0}
+            title="为选中的库存商品一键创建商城活动（已有进行中/待开始/售罄活动的商品会被自动忽略）"
+            className="flex items-center gap-2 bg-gradient-to-r from-indigo-500 to-blue-500 text-white px-4 py-2 rounded-lg hover:from-indigo-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {batchCreateLotteryRunning ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <ShoppingBag className="w-5 h-5" />
+            )}
+            {batchCreateLotteryRunning
+              ? '创建中...'
+              : selectedProductIds.size > 0
+                ? `一键创建商城活动 (${selectedProductIds.size})`
+                : '一键创建商城活动'}
           </button>
           <button
             onClick={handleCreateLocalBatch}
