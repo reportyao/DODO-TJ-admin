@@ -555,17 +555,26 @@ export default function InventoryProductManagementPage() {
         }
       }
 
-      // 修复 A02-2: 检查是否有未完成的全款购买订单
-      const { data: activeOrders } = await supabase
-        .from('full_purchase_orders')
-        .select('id')
-        .eq('inventory_product_id', id)
-        .in('status', ['pending', 'processing', 'paid', 'shipped'])
-        .limit(1);
-
-      if (activeOrders && activeOrders.length > 0) {
-        toast.error('该商品存在未完成的订单（待处理/已支付/已发货），无法删除。请先处理相关订单。');
-        return;
+      // 修复 A02-2 / 2026-05: 检查是否有未完成的全款购买订单。
+      // full_purchase_orders 表通过 lottery_id (text) 关联 lotteries，
+      // 不直接持有 inventory_product_id 列。因此必须先经 lotteries 跳转。
+      const linkedLotteryIds = (linkedLotteries || []).map((l: any) => String(l.id));
+      if (linkedLotteryIds.length > 0) {
+        const { data: activeOrders, error: ordersError } = await supabase
+          .from('full_purchase_orders')
+          .select('id')
+          .in('lottery_id', linkedLotteryIds)
+          .in('status', ['pending', 'processing', 'paid', 'shipped'])
+          .limit(1);
+        if (ordersError) {
+          console.error('Failed to check active orders:', ordersError);
+          toast.error('校验未完成订单失败：' + ordersError.message);
+          return;
+        }
+        if (activeOrders && activeOrders.length > 0) {
+          toast.error('该商品存在未完成的订单（待处理/已支付/已发货），无法删除。请先处理相关订单。');
+          return;
+        }
       }
 
       const { error } = await supabase
