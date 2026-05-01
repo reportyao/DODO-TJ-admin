@@ -8,6 +8,7 @@ import { useSupabase } from '@/contexts/SupabaseContext';
 import { adminQuery, adminUpdate, adminInsert } from '@/lib/adminApi';
 import { uploadImage } from '@/lib/uploadImage';
 import toast from 'react-hot-toast';
+import { nanoid } from 'nanoid';
 
 // ============================================================
 // 类型定义
@@ -160,8 +161,21 @@ function formatDuration(startStr: string | null, endStr: string | null): string 
   return `${Math.floor(ms / 60000)}m${Math.floor((ms % 60000) / 1000)}s`;
 }
 
+/**
+ * 生成稳定唯一的商品组 ID。
+ *
+ * 使用 nanoid(12) 产生 12 字符、url-safe、高熵、长度固定的 ID，
+ * 广义成勿忘纪录：
+ *   - 旧实现 `Math.random().toString(36).slice(2, 10)` 在某些随机值下
+ *     会产生长度远小于 8 的结果（例如 `Math.random()` 返回 0.5
+ *     时字符串为 `"0.i"`，slice(2,10) 后仅为 `"i"`），
+ *     连续多次调用轻易出现重复 ID 或极短 ID，
+ *     从而导致 React 列表 key 重复、协调期间 DOM
+ *     `insertBefore` 报错（本页提交时崩溃的根因）。
+ *   - nanoid(12) 占用、本项目依赖已包含（package.json 中 nanoid: ^5.x）。
+ */
 function generateId(): string {
-  return Math.random().toString(36).slice(2, 10);
+  return nanoid(12);
 }
 
 // ============================================================
@@ -530,7 +544,12 @@ function CreateBatchForm({
         </button>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border p-6">
+      {/*
+        translate="no" + notranslate：防止浏览器翻译插件（Google Translate / Edge
+        Immersive Translate 等）在表单节点上插入 `<font>` 包裹，
+        导致 React 协调期间 DOM `insertBefore` 报错。
+      */}
+      <div className="bg-white rounded-xl shadow-sm border p-6 notranslate" translate="no">
         <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <Plus className="w-5 h-5 text-blue-600" />
           新建批量上架任务
@@ -833,18 +852,25 @@ https://c.com/4.jpg | https://c.com/5.jpg`}</pre>
             <button
               onClick={handleSubmit}
               disabled={submitting || groups.length === 0}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 notranslate"
+              translate="no"
             >
+              {/*
+                使用平铺的稳定节点（span + 图标）而不是 Fragment
+                条件切换，避免 React 18 在状态变更与
+                react-hot-toast portal / 翻译插件同时作用时出现
+                `insertBefore` 报错。
+              */}
               {submitting ? (
-                <>
+                <span key="submitting" className="flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  上传中...
-                </>
+                  <span>上传中...</span>
+                </span>
               ) : (
-                <>
+                <span key="idle" className="flex items-center gap-2">
                   <Upload className="w-4 h-4" />
-                  提交批量上架 ({groups.length} 个商品{understandingOnly ? '・仅理解' : '・完整'})
-                </>
+                  <span>提交批量上架 ({groups.length} 个商品{understandingOnly ? '・仅理解' : '・完整'})</span>
+                </span>
               )}
             </button>
           </div>
@@ -1017,7 +1043,7 @@ function ItemCard({ item, onRetry }: { item: BatchItem; onRetry: (id: string) =>
               <span className="text-gray-400">图片:</span>
               <div className="flex gap-1 mt-1 flex-wrap">
                 {item.image_urls.map((url, i) => (
-                  <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                  <a key={`${item.id}-img-${url}-${i}`} href={url} target="_blank" rel="noopener noreferrer">
                     <img src={url} alt={`img-${i}`} className="w-16 h-16 rounded object-cover border hover:border-blue-400" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                   </a>
                 ))}
