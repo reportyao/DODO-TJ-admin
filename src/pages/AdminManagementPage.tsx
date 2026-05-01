@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSupabase } from '../contexts/SupabaseContext';
 import { useAdminAuth } from '../contexts/AdminAuthContext';
 import { toast } from 'react-hot-toast';
-import { sha256 } from '../utils/sha256';
+import { sha256Async } from '../utils/sha256';
 
 interface AdminUser {
   id: string;
@@ -107,7 +107,7 @@ export default function AdminManagementPage() {
 
         // 如果填写了新密码，则更新密码
         if (formData.password) {
-          updateData.password_hash = sha256(formData.password);
+          updateData.password_hash = await sha256Async(formData.password);
         }
 
         const { error } = await supabase
@@ -124,8 +124,8 @@ export default function AdminManagementPage() {
           return;
         }
 
-        // 生成密码哈希
-        const passwordHash = sha256(formData.password);
+        // 生成标准 SHA-256 密码哈希（Web Crypto API）
+        const passwordHash = await sha256Async(formData.password);
 
         const { error } = await supabase
           .from('admin_users')

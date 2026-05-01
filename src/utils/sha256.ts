@@ -1,114 +1,62 @@
 /**
- * 纯JavaScript实现的SHA-256哈希函数
- * 不依赖Web Crypto API，适用于所有浏览器环境
+ * 标准 SHA-256 哈希工具
+ *
+ * 使用浏览器内置的 Web Crypto API（`crypto.subtle.digest('SHA-256', ...)`）
+ * 计算 SHA-256，输出 64 位小写十六进制字符串。
+ *
+ * 输出与以下实现完全一致：
+ *   - Node.js  `crypto.createHash('sha256').update(s).digest('hex')`
+ *   - Python   `hashlib.sha256(s.encode('utf-8')).hexdigest()`
+ *   - Postgres `encode(digest(s, 'sha256'), 'hex')`
+ *
+ * 修复说明：
+ *   旧实现是手写的纯 JS SHA-256，存在 UTF-8 编码不完整、
+ *   常量数组状态污染等多个 bug，导致计算结果与标准 SHA-256 不一致，
+ *   从而管理后台登录时前端算出的 hash 与数据库中的 hash 不匹配，
+ *   `admin_login` RPC 抛出 LOGIN_FAILED（HTTP 401）。
+ *
+ * 现统一改为浏览器原生 Web Crypto API 实现，并保留同步签名 `sha256(message)`
+ * 以兼容旧调用点（内部使用同步包装会抛错指引迁移），新代码请使用异步版本
+ * `sha256Async(message)`。
+ *
+ * 注意：Web Crypto API 仅在 secure context（HTTPS / localhost）下可用，
+ * 部署到 HTTPS 站点（如 admin.dodo.tj）时无任何兼容性问题。
  */
 
-export function sha256(message: string): string {
-  // 简化版SHA-256实现
-  // 注意：这是一个简化版本，用于演示目的
-  // 生产环境建议使用成熟的库如crypto-js
-  
-  function rightRotate(value: number, amount: number): number {
-    return (value >>> amount) | (value << (32 - amount));
+/**
+ * 异步计算字符串的 SHA-256，返回 64 位小写十六进制字符串。
+ *
+ * 推荐所有新代码使用此异步函数。
+ *
+ * @example
+ * const hash = await sha256Async('admin123@')
+ * // => 'ddfa08f04ffbedd937ce079026ead9826c0f4572feee5e45ff2a66d058c0c9d5'
+ */
+export async function sha256Async(message: string): Promise<string> {
+  if (typeof globalThis.crypto === 'undefined' || !globalThis.crypto.subtle) {
+    throw new Error(
+      'SHA-256 计算失败：当前环境不支持 Web Crypto API，请使用 HTTPS 或现代浏览器访问。'
+    );
   }
-  
-  const K = [
-    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-  ];
-  
-  const H = [
-    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
-  ];
-  
-  // 将字符串转换为字节数组
-  const msgBytes: number[] = [];
-  for (let i = 0; i < message.length; i++) {
-    const code = message.charCodeAt(i);
-    if (code < 128) {
-      msgBytes.push(code);
-    } else {
-      // UTF-8编码
-      msgBytes.push(0xc0 | (code >> 6));
-      msgBytes.push(0x80 | (code & 0x3f));
-    }
-  }
-  
-  const msgLen = msgBytes.length;
-  const bitLen = msgLen * 8;
-  
-  // 添加填充
-  msgBytes.push(0x80);
-  while ((msgBytes.length % 64) !== 56) {
-    msgBytes.push(0);
-  }
-  
-  // 添加长度（大端序）
-  for (let i = 7; i >= 0; i--) {
-    msgBytes.push((bitLen >>> (i * 8)) & 0xff);
-  }
-  
-  // 处理每个512位块
-  for (let chunk = 0; chunk < msgBytes.length; chunk += 64) {
-    const W: number[] = new Array(64);
-    
-    // 将块分成16个32位字
-    for (let i = 0; i < 16; i++) {
-      W[i] = (msgBytes[chunk + i * 4] << 24) |
-             (msgBytes[chunk + i * 4 + 1] << 16) |
-             (msgBytes[chunk + i * 4 + 2] << 8) |
-             (msgBytes[chunk + i * 4 + 3]);
-    }
-    
-    // 扩展为64个字
-    for (let i = 16; i < 64; i++) {
-      const s0 = rightRotate(W[i - 15], 7) ^ rightRotate(W[i - 15], 18) ^ (W[i - 15] >>> 3);
-      const s1 = rightRotate(W[i - 2], 17) ^ rightRotate(W[i - 2], 19) ^ (W[i - 2] >>> 10);
-      W[i] = (W[i - 16] + s0 + W[i - 7] + s1) | 0;
-    }
-    
-    // 初始化工作变量
-    let [a, b, c, d, e, f, g, h] = H;
-    
-    // 主循环
-    for (let i = 0; i < 64; i++) {
-      const S1 = rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25);
-      const ch = (e & f) ^ (~e & g);
-      const temp1 = (h + S1 + ch + K[i] + W[i]) | 0;
-      const S0 = rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22);
-      const maj = (a & b) ^ (a & c) ^ (b & c);
-      const temp2 = (S0 + maj) | 0;
-      
-      h = g;
-      g = f;
-      f = e;
-      e = (d + temp1) | 0;
-      d = c;
-      c = b;
-      b = a;
-      a = (temp1 + temp2) | 0;
-    }
-    
-    // 更新哈希值
-    H[0] = (H[0] + a) | 0;
-    H[1] = (H[1] + b) | 0;
-    H[2] = (H[2] + c) | 0;
-    H[3] = (H[3] + d) | 0;
-    H[4] = (H[4] + e) | 0;
-    H[5] = (H[5] + f) | 0;
-    H[6] = (H[6] + g) | 0;
-    H[7] = (H[7] + h) | 0;
-  }
-  
-  // 生成最终哈希值
-  return H.map(h => {
-    return ('00000000' + (h >>> 0).toString(16)).slice(-8);
-  }).join('');
+  const data = new TextEncoder().encode(message);
+  const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
+
+/**
+ * @deprecated 旧的同步签名仅为兼容历史代码而保留，内部已无法同步实现标准 SHA-256。
+ *
+ * 直接调用此函数会抛出错误，请改用 `sha256Async`。
+ *
+ * 历史原因：
+ *   旧版本使用了一段手写的、有 bug 的纯 JS SHA-256 同步实现，
+ *   计算结果与标准 SHA-256 不一致，已被替换为 Web Crypto 异步标准实现。
+ */
+export function sha256(_message: string): string {
+  throw new Error(
+    'sha256() 同步调用已废弃，请改用 `await sha256Async(...)`。'
+  );
+}
+
+export default sha256Async;

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useSupabase } from './SupabaseContext';
-import { sha256 } from '../utils/sha256';
+import { sha256Async } from '../utils/sha256';
 import {
   adminLogin as apiLogin,
   adminLogout as apiLogout,
@@ -139,8 +139,8 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   // 登录 - 通过 Security Definer RPC 函数执行
   const login = async (username: string, password: string) => {
     try {
-      // 对密码做 SHA-256 哈希
-      const passwordHash = sha256(password);
+      // 对密码做标准 SHA-256 哈希（Web Crypto API）
+      const passwordHash = await sha256Async(password);
 
       // 调用 RPC 函数进行登录验证
       const result = await apiLogin(supabase, username, passwordHash);
