@@ -1,22 +1,12 @@
 <!doctype html>
-<!--
-  translate="no" + meta google=notranslate：
-  禁用浏览器自动翻译（Google Translate / Edge Immersive Translate 等）。
-  原因：管理后台页面频繁更新（提交、上传、轮询），翻译插件会
-  在文本节点周围插入 `<font>` / `<span>` 包裹，导致 React 协调期间
-  DOM `insertBefore` 报错（NotFoundError）。这是 DODO 管理后台
-  反复出现的"卡死/崩溃"系统性诱因之一。
--->
-<html lang="en" translate="no">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="google" content="notranslate" />
-    <meta http-equiv="Content-Language" content="zh-CN" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TezBarakat Admin</title>
   </head>
-  <body class="notranslate">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

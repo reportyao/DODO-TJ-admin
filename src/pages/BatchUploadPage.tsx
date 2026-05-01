@@ -544,12 +544,7 @@ function CreateBatchForm({
         </button>
       </div>
 
-      {/*
-        translate="no" + notranslate：防止浏览器翻译插件（Google Translate / Edge
-        Immersive Translate 等）在表单节点上插入 `<font>` 包裹，
-        导致 React 协调期间 DOM `insertBefore` 报错。
-      */}
-      <div className="bg-white rounded-xl shadow-sm border p-6 notranslate" translate="no">
+      <div className="bg-white rounded-xl shadow-sm border p-6">
         <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <Plus className="w-5 h-5 text-blue-600" />
           新建批量上架任务
@@ -852,8 +847,7 @@ https://c.com/4.jpg | https://c.com/5.jpg`}</pre>
             <button
               onClick={handleSubmit}
               disabled={submitting || groups.length === 0}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 notranslate"
-              translate="no"
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {/*
                 使用平铺的稳定节点（span + 图标）而不是 Fragment
