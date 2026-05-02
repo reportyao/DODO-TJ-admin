@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown, Sparkles, Brain, RefreshCw, Zap, Loader2, Truck, CheckSquare, Square, ShoppingBag } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown, Sparkles, Brain, RefreshCw, Zap, Loader2, Truck, CheckSquare, Square, ShoppingBag, Check, X, Pencil } from 'lucide-react';
 import { useAdminAuth } from '@/contexts/AdminAuthContext';
 import { getSessionToken, adminQuery, adminInsert } from '@/lib/adminApi';
 import { batchCreateLotteriesFromInventory } from '@/lib/lotteryHelpers';
@@ -191,6 +191,11 @@ export default function InventoryProductManagementPage() {
   const [localBatchCreating, setLocalBatchCreating] = useState(false);
   // 一键创建商城活动（lotteries）状态
   const [batchCreateLotteryRunning, setBatchCreateLotteryRunning] = useState(false);
+
+  // 行内快速编辑原价状态
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
+  const [editingPriceValue, setEditingPriceValue] = useState<string>('');
+  const [savingPriceId, setSavingPriceId] = useState<string | null>(null);
 
   // 商品分类
   const [categories, setCategories] = useState<{ id: string; code: string; name_i18n: I18nText }[]>([]);
@@ -654,6 +659,58 @@ export default function InventoryProductManagementPage() {
     } catch (error) {
       console.error('Failed to toggle status:', error);
       toast.error('状态切换失败');
+    }
+  };
+
+  // ====== 行内快速编辑原价 ======
+  const startEditPrice = (product: InventoryProduct) => {
+    setEditingPriceId(product.id);
+    setEditingPriceValue(String(product.original_price ?? 0));
+  };
+
+  const cancelEditPrice = () => {
+    setEditingPriceId(null);
+    setEditingPriceValue('');
+  };
+
+  const submitEditPrice = async (product: InventoryProduct) => {
+    const trimmed = editingPriceValue.trim();
+    if (trimmed === '') {
+      toast.error('请输入价格');
+      return;
+    }
+    const newPrice = Number(trimmed);
+    if (!Number.isFinite(newPrice) || newPrice < 0) {
+      toast.error('价格必须是大于等于 0 的数字');
+      return;
+    }
+    if (newPrice > 9999999) {
+      toast.error('价格超出合理范围');
+      return;
+    }
+    // 小数点后最多 2 位
+    const rounded = Math.round(newPrice * 100) / 100;
+    if (rounded === Number(product.original_price)) {
+      // 未变更，直接退出
+      cancelEditPrice();
+      return;
+    }
+    try {
+      setSavingPriceId(product.id);
+      const { error } = await supabase
+        .from('inventory_products')
+        .update({ original_price: rounded, updated_at: new Date().toISOString() })
+        .eq('id', product.id);
+      if (error) {throw error;}
+      // 局部更新，避免整页 refetch 闪烁
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, original_price: rounded } : p));
+      toast.success(`价格已更新为 ${product.currency || 'TJS'} ${rounded}`);
+      cancelEditPrice();
+    } catch (err: any) {
+      console.error('Failed to quick update price:', err);
+      toast.error('价格更新失败：' + (err?.message || '未知错误'));
+    } finally {
+      setSavingPriceId(null);
     }
   };
 
@@ -1387,7 +1444,63 @@ export default function InventoryProductManagementPage() {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {product.currency} {product.original_price}
+                    {editingPriceId === product.id ? (
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <span className="text-xs text-gray-500">{product.currency || 'TJS'}</span>
+                        <input
+                          type="number"
+                          autoFocus
+                          step="0.01"
+                          min="0"
+                          value={editingPriceValue}
+                          onChange={(e) => setEditingPriceValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              submitEditPrice(product);
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              cancelEditPrice();
+                            }
+                          }}
+                          onFocus={(e) => e.target.select()}
+                          disabled={savingPriceId === product.id}
+                          className="w-24 border border-blue-400 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => submitEditPrice(product)}
+                          disabled={savingPriceId === product.id}
+                          title="保存（Enter）"
+                          className="p-1 rounded text-green-600 hover:bg-green-50 disabled:opacity-50"
+                        >
+                          {savingPriceId === product.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Check className="w-4 h-4" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEditPrice}
+                          disabled={savingPriceId === product.id}
+                          title="取消（Esc）"
+                          className="p-1 rounded text-gray-500 hover:bg-gray-100 disabled:opacity-50"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => startEditPrice(product)}
+                        title="点击快速修改价格"
+                        className="group inline-flex items-center gap-1 px-2 py-1 -mx-2 -my-1 rounded hover:bg-blue-50 transition-colors cursor-pointer"
+                      >
+                        <span>{product.currency || 'TJS'} {product.original_price}</span>
+                        <Pencil className="w-3.5 h-3.5 text-gray-300 group-hover:text-blue-500" />
+                      </button>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`text-sm font-bold ${product.stock <= 0 ? 'text-red-600' : product.stock <= 5 ? 'text-orange-600' : 'text-green-600'}`}>
