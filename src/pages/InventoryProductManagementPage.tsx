@@ -53,6 +53,11 @@ interface InventoryProduct {
   details: string;
   details_i18n: { zh: string; ru: string; tg: string };
   original_price: number;
+  cost_price: number;
+  wholesale_price: number;
+  retail_price: number;
+  min_order_quantity: number;
+  unit_measure: string;
   currency: string;
   stock: number;
   reserved_stock: number;
@@ -220,6 +225,11 @@ export default function InventoryProductManagementPage() {
     image_url: '',
     image_urls: [] as string[],
     original_price: 0,
+    cost_price: 0,
+    wholesale_price: 0,
+    retail_price: 0,
+    min_order_quantity: 1,
+    unit_measure: '件',
     currency: 'TJS',
     stock: 0,
     sku: '',
@@ -404,6 +414,11 @@ export default function InventoryProductManagementPage() {
       image_url: formData.image_urls[0] || formData.image_url,
       image_urls: formData.image_urls,
       original_price: formData.original_price,
+      cost_price: formData.cost_price,
+      wholesale_price: formData.wholesale_price,
+      retail_price: formData.retail_price,
+      min_order_quantity: formData.min_order_quantity,
+      unit_measure: formData.unit_measure,
       currency: formData.currency,
       stock: formData.stock,
       sku: formData.sku || null,
@@ -487,6 +502,11 @@ export default function InventoryProductManagementPage() {
       image_url: product.image_url || '',
       image_urls: product.image_urls || [],
       original_price: product.original_price || 0,
+      cost_price: product.cost_price || 0,
+      wholesale_price: product.wholesale_price || 0,
+      retail_price: product.retail_price || 0,
+      min_order_quantity: product.min_order_quantity || 1,
+      unit_measure: product.unit_measure || '件',
       currency: product.currency || 'TJS',
       stock: product.stock || 0,
       sku: product.sku || '',
@@ -1405,6 +1425,7 @@ export default function InventoryProductManagementPage() {
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">商品</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">原价</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">批发价</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">库存</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">到货状态</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">商品状态</th>
@@ -1500,6 +1521,14 @@ export default function InventoryProductManagementPage() {
                         <span>{product.currency || 'TJS'} {product.original_price}</span>
                         <Pencil className="w-3.5 h-3.5 text-gray-300 group-hover:text-blue-500" />
                       </button>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="text-sm text-blue-700 font-semibold">
+                      {product.wholesale_price ? `${product.currency || 'TJS'} ${product.wholesale_price}` : '-'}
+                    </span>
+                    {product.min_order_quantity > 1 && (
+                      <span className="block text-xs text-gray-400">起批{product.min_order_quantity}{product.unit_measure || '件'}</span>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -1965,6 +1994,74 @@ export default function InventoryProductManagementPage() {
                   </div>
                 </div>
 
+                {/* ==================== B2B 批发定价 ==================== */}
+                <div className="border-t pt-4 mt-2">
+                  <h4 className="text-sm font-semibold text-blue-700 mb-3">B2B 批发定价</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">成本价（TJS）</label>
+                      <input
+                        type="number"
+                        value={formData.cost_price}
+                        onChange={(e) => setFormData({ ...formData, cost_price: Number(e.target.value) })}
+                        className="w-full border rounded px-3 py-2"
+                        min="0"
+                        step="0.01"
+                        placeholder="内部结算"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">批发价（TJS）*</label>
+                      <input
+                        type="number"
+                        value={formData.wholesale_price}
+                        onChange={(e) => setFormData({ ...formData, wholesale_price: Number(e.target.value) })}
+                        className="w-full border rounded px-3 py-2 border-blue-300"
+                        min="0"
+                        step="0.01"
+                        placeholder="批发商可见"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">建议零售价（TJS）</label>
+                      <input
+                        type="number"
+                        value={formData.retail_price}
+                        onChange={(e) => setFormData({ ...formData, retail_price: Number(e.target.value) })}
+                        className="w-full border rounded px-3 py-2"
+                        min="0"
+                        step="0.01"
+                        placeholder="展示参考价"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">起批量</label>
+                      <input
+                        type="number"
+                        value={formData.min_order_quantity}
+                        onChange={(e) => setFormData({ ...formData, min_order_quantity: Number(e.target.value) })}
+                        className="w-full border rounded px-3 py-2"
+                        min="1"
+                        step="1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">计量单位</label>
+                      <select
+                        value={formData.unit_measure}
+                        onChange={(e) => setFormData({ ...formData, unit_measure: e.target.value })}
+                        className="w-full border rounded px-3 py-2"
+                      >
+                        <option value="件">件</option>
+                        <option value="箱">箱</option>
+                        <option value="kg">kg</option>
+                        <option value="个">个</option>
+                        <option value="套">套</option>
+                        <option value="包">包</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
                 {/* 规格和材质 */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>

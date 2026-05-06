@@ -95,6 +95,10 @@ const LocalizationLexiconPage = React.lazy(() => import('./pages/LocalizationLex
 const AITopicGenerationPage = React.lazy(() => import('./pages/AITopicGenerationPage'));
 const BehaviorDashboardPage = React.lazy(() => import('./pages/BehaviorDashboardPage'));
 
+// B2B 批发管理
+const WholesalerManagementPage = React.lazy(() => import('./pages/WholesalerManagementPage'));
+const B2BOrderManagementPage = React.lazy(() => import('./pages/B2BOrderManagementPage'));
+
 // 系统配置
 const PaymentConfigPage = React.lazy(() => import('./pages/PaymentConfigPage').then(m => ({ default: m.PaymentConfigPage })));
 const AlgorithmConfigPage = React.lazy(() => import('./pages/AlgorithmConfigPage'));
@@ -182,31 +186,29 @@ function AdminLayout({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; se
           <NavLink to="/users" label="用户列表" icon="👥" />
           <NavLink to="/user-management" label="用户管理" icon="👤" />
           <NavLink to="/referral-management" label="推荐管理" icon="🌳" />
-          <NavLink to="/inventory-products" label="库存商品" icon="📦" />
+          {/* ==================== B2B 批发管理 ==================== */}
+          <NavSection label="B2B 批发管理" />
+          <NavLink to="/inventory-products" label="商品管理" icon="📦" />
           <NavLink to="/ai-listing" label="AI上架助手" icon="✨" />
           <NavLink to="/batch-upload" label="批量上架" icon="📤" />
-          <NavLink to="/lotteries" label="商城活动" icon="🎰" />
-          <NavLink to="/orders" label="订单管理" icon="📦" />
-          <NavLink to="/deposit-review" label="充值审核" icon="💰" />
-          <NavLink to="/withdrawal-review" label="提现审核" icon="💸" />
-
+          <NavLink to="/b2b-orders" label="B2B订单" icon="📝" />
+          <NavLink to="/wholesaler-management" label="批发商管理" icon="🏢" />
+          {/* ==================== 物流管理（内部） ==================== */}
+          <NavSection label="物流管理" />
           <NavLink to="/shipping-management" label="物流管理" icon="🚚" />
           <NavLink to="/shipment-batches" label="批次管理" icon="📦" />
           <NavLink to="/order-shipment" label="订单发货" icon="🚀" />
           <NavLink to="/batch-statistics" label="批次统计" icon="📊" />
-          <NavLink to="/pickup-verification" label="自提核销" icon="✅" />
-          <NavLink to="/pickup-points" label="自提点管理" icon="📍" />
-          <NavLink to="/pickup-stats" label="核销统计" icon="📈" />
-          <NavLink to="/pending-pickups" label="待核销列表" icon="📋" />
-          <NavLink to="/pickup-staff" label="核销员管理" icon="🛡️" />
+          {/* ==================== 晒单管理 ==================== */}
+          <NavSection label="晒单管理" />
           <NavLink to="/showoff-review" label="晒单审核" icon="📸" />
           <NavLink to="/showoff-create" label="创建运营晒单" icon="✨" />
           <NavLink to="/showoff-management" label="运营晒单管理" icon="📋" />
-          <NavLink to="/resale-management" label="转售管理" icon="🔄" />
 
           {/* ==================== 地推管理模块 ==================== */}
           <NavSection label="地推管理" />
-          <NavLink to="/promoter-dashboard" label="地推指挥室" icon="🎯" />
+          {/* @deprecated B2B重构隐藏 */}
+          {/* <NavLink to="/promoter-dashboard" label="地推指挥室" icon="🎯" />
           <NavLink to="/promoter-management" label="人员管理" icon="🧑‍💼" />
           <NavLink to="/promotion-points" label="点位管理" icon="📍" />
           <NavLink to="/channel-analytics" label="渠道分析" icon="📡" />
@@ -290,6 +292,9 @@ function AdminLayout({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; se
               <Route path="/showoff-create" element={<ProtectedRoute element={<OperationalShowoffCreatePage />} />} />
               <Route path="/showoff-management" element={<ProtectedRoute element={<OperationalShowoffManagementPage />} />} />
               <Route path="/resale-management" element={<ProtectedRoute element={<ResaleManagementPage />} />} />
+              {/* ==================== B2B 批发管理路由 ==================== */}
+              <Route path="/b2b-orders" element={<ProtectedRoute element={<B2BOrderManagementPage />} />} />
+              <Route path="/wholesaler-management" element={<ProtectedRoute element={<WholesalerManagementPage />} />} />
               <Route path="/admin-management" element={<ProtectedRoute element={<AdminManagementPage />} />} />
               <Route path="/permission-management" element={<ProtectedRoute element={<PermissionManagementPage />} />} />
               <Route path="/payment-config" element={<ProtectedRoute element={<PaymentConfigPage />} />} />
