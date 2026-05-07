@@ -49,10 +49,11 @@ interface B2BOrderItem {
 }
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
-  pending: { label: '待确认', color: 'bg-yellow-100 text-yellow-800' },
-  confirmed: { label: '已确认', color: 'bg-blue-100 text-blue-800' },
+  pending: { label: '待处理', color: 'bg-yellow-100 text-yellow-800' },
+  processing: { label: '处理中', color: 'bg-blue-100 text-blue-800' },
   delivering: { label: '配送中', color: 'bg-purple-100 text-purple-800' },
-  completed: { label: '已完成', color: 'bg-green-100 text-green-800' },
+  delivered: { label: '已送达', color: 'bg-indigo-100 text-indigo-800' },
+  paid: { label: '已完成', color: 'bg-green-100 text-green-800' },
   cancelled: { label: '已取消', color: 'bg-gray-100 text-gray-800' },
 };
 
@@ -131,11 +132,11 @@ export default function B2BOrderManagementPage() {
     fetchOrderItems(order.id);
   };
 
-  // 确认订单
+  // 确认订单（pending -> processing）
   const handleConfirm = async (order: B2BOrder) => {
     try {
       await adminUpdate(supabase, 'b2b_orders', {
-        status: 'confirmed',
+        status: 'processing',
         confirmed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }, [{ col: 'id', op: 'eq', val: order.id }]);
@@ -176,12 +177,27 @@ export default function B2BOrderManagementPage() {
     }
   };
 
-  // 确认收款（完成订单）
+  // 确认送达（delivering -> delivered）
+  const handleMarkDelivered = async (order: B2BOrder) => {
+    if (!confirm(`确认订单 ${order.order_number} 已送达？`)) return;
+    try {
+      await adminUpdate(supabase, 'b2b_orders', {
+        status: 'delivered',
+        updated_at: new Date().toISOString(),
+      }, [{ col: 'id', op: 'eq', val: order.id }]);
+      toast.success('已标记送达');
+      fetchOrders();
+    } catch (err: any) {
+      toast.error(`操作失败: ${err.message}`);
+    }
+  };
+
+  // 确认收款（delivered -> paid，订单完成）
   const handleCompletePayment = async (order: B2BOrder) => {
     if (!confirm(`确认已收到订单 ${order.order_number} 的货款？`)) return;
     try {
       await adminUpdate(supabase, 'b2b_orders', {
-        status: 'completed',
+        status: 'paid',
         payment_status: 'paid',
         updated_at: new Date().toISOString(),
       }, [{ col: 'id', op: 'eq', val: order.id }]);
@@ -225,10 +241,11 @@ export default function B2BOrderManagementPage() {
             className="border rounded px-3 py-1.5 text-sm"
           >
             <option value="all">全部</option>
-            <option value="pending">待确认</option>
-            <option value="confirmed">已确认</option>
+            <option value="pending">待处理</option>
+            <option value="processing">处理中</option>
             <option value="delivering">配送中</option>
-            <option value="completed">已完成</option>
+            <option value="delivered">已送达</option>
+            <option value="paid">已完成</option>
             <option value="cancelled">已取消</option>
           </select>
         </div>
@@ -313,7 +330,7 @@ export default function B2BOrderManagementPage() {
                           </button>
                         </>
                       )}
-                      {order.status === 'confirmed' && (
+                      {order.status === 'processing' && (
                         <button
                           onClick={() => openDeliveryModal(order)}
                           className="px-2 py-1 text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 rounded"
@@ -321,7 +338,15 @@ export default function B2BOrderManagementPage() {
                           发货
                         </button>
                       )}
-                      {order.status === 'delivering' && order.payment_status !== 'paid' && (
+                      {order.status === 'delivering' && (
+                        <button
+                          onClick={() => handleMarkDelivered(order)}
+                          className="px-2 py-1 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded"
+                        >
+                          确认送达
+                        </button>
+                      )}
+                      {order.status === 'delivered' && order.payment_status !== 'paid' && (
                         <button
                           onClick={() => handleCompletePayment(order)}
                           className="px-2 py-1 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded"
@@ -406,7 +431,7 @@ export default function B2BOrderManagementPage() {
                             <img src={item.snapshot_data.image_url} alt="" className="w-8 h-8 rounded object-cover" />
                           )}
                           <div>
-                            <div className="font-medium">{item.snapshot_data?.name_i18n?.zh || item.snapshot_data?.name_i18n?.ru || '商品'}</div>
+                            <div className="font-medium">{item.snapshot_data?.name_i18n?.ru || item.snapshot_data?.name_i18n?.zh || item.snapshot_data?.name_i18n?.tg || '商品'}</div>
                             {item.snapshot_data?.sku && <div className="text-xs text-gray-400">SKU: {item.snapshot_data.sku}</div>}
                           </div>
                         </div>
