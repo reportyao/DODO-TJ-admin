@@ -62,6 +62,15 @@ const PAYMENT_STATUS_MAP: Record<string, { label: string; color: string }> = {
   paid: { label: '已付款', color: 'text-green-600' },
 };
 
+function getSnapshotProductName(item: B2BOrderItem): string {
+  return item.snapshot_data?.name_i18n?.ru
+    || item.snapshot_data?.name_i18n?.zh
+    || item.snapshot_data?.name_i18n?.tg
+    || (item.snapshot_data as any)?.name
+    || item.product_id
+    || '商品';
+}
+
 export default function B2BOrderManagementPage() {
   const { supabase } = useSupabase();
   const [orders, setOrders] = useState<B2BOrder[]>([]);
@@ -132,12 +141,36 @@ export default function B2BOrderManagementPage() {
     fetchOrderItems(order.id);
   };
 
+  /**
+   * 订单创建时已扣减库存；取消待处理订单时必须回补库存，
+   * 否则会造成商品库存长期少计。
+   */
+  const restoreInventoryForOrder = async (orderId: string) => {
+    const items = await adminQuery<B2BOrderItem>(supabase, 'b2b_order_items', {
+      filters: [{ col: 'order_id', op: 'eq', val: orderId }],
+    });
+
+    for (const item of items) {
+      const [product] = await adminQuery<{ id: string; stock: number | null }>(supabase, 'inventory_products', {
+        select: 'id,stock',
+        filters: [{ col: 'id', op: 'eq', val: item.product_id }],
+        limit: 1,
+      });
+
+      if (!product) continue;
+
+      await adminUpdate(supabase, 'inventory_products', {
+        stock: Number(product.stock || 0) + Number(item.quantity || 0),
+        updated_at: new Date().toISOString(),
+      }, [{ col: 'id', op: 'eq', val: item.product_id }]);
+    }
+  };
+
   // 确认订单（pending -> processing）
   const handleConfirm = async (order: B2BOrder) => {
     try {
       await adminUpdate(supabase, 'b2b_orders', {
         status: 'processing',
-        confirmed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }, [{ col: 'id', op: 'eq', val: order.id }]);
       toast.success('订单已确认');
@@ -199,6 +232,7 @@ export default function B2BOrderManagementPage() {
       await adminUpdate(supabase, 'b2b_orders', {
         status: 'paid',
         payment_status: 'paid',
+        confirmed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }, [{ col: 'id', op: 'eq', val: order.id }]);
       toast.success('已确认收款，订单完成');
@@ -208,15 +242,20 @@ export default function B2BOrderManagementPage() {
     }
   };
 
-  // 取消订单
+  // 取消订单（订单创建时已扣库存，因此取消必须回补库存）
   const handleCancel = async (order: B2BOrder) => {
-    if (!confirm(`确认取消订单 ${order.order_number}？`)) return;
+    if (order.status === 'cancelled' || order.payment_status === 'paid') {
+      toast.error('已取消或已付款订单不能重复取消');
+      return;
+    }
+    if (!confirm(`确认取消订单 ${order.order_number}？库存将自动回补。`)) return;
     try {
+      await restoreInventoryForOrder(order.id);
       await adminUpdate(supabase, 'b2b_orders', {
         status: 'cancelled',
         updated_at: new Date().toISOString(),
       }, [{ col: 'id', op: 'eq', val: order.id }]);
-      toast.success('订单已取消');
+      toast.success('订单已取消，库存已回补');
       fetchOrders();
     } catch (err: any) {
       toast.error(`操作失败: ${err.message}`);
@@ -431,7 +470,7 @@ export default function B2BOrderManagementPage() {
                             <img src={item.snapshot_data.image_url} alt="" className="w-8 h-8 rounded object-cover" />
                           )}
                           <div>
-                            <div className="font-medium">{item.snapshot_data?.name_i18n?.ru || item.snapshot_data?.name_i18n?.zh || item.snapshot_data?.name_i18n?.tg || '商品'}</div>
+                            <div className="font-medium">{getSnapshotProductName(item)}</div>
                             {item.snapshot_data?.sku && <div className="text-xs text-gray-400">SKU: {item.snapshot_data.sku}</div>}
                           </div>
                         </div>

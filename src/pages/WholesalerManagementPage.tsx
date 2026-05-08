@@ -105,6 +105,7 @@ export default function WholesalerManagementPage() {
       await adminUpdate(supabase, 'wholesaler_profiles', {
         status: 'approved',
         approved_at: new Date().toISOString(),
+        reject_reason: null,
         updated_at: new Date().toISOString(),
       }, [{ col: 'id', op: 'eq', val: profile.id }]);
       toast.success('已通过审核');
@@ -119,6 +120,7 @@ export default function WholesalerManagementPage() {
     try {
       await adminUpdate(supabase, 'wholesaler_profiles', {
         status: 'rejected',
+        approved_at: null,
         reject_reason: rejectReason || '未通过审核',
         updated_at: new Date().toISOString(),
       }, [{ col: 'id', op: 'eq', val: rejectTarget.id }]);
