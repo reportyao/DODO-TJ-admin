@@ -1,5 +1,5 @@
 /**
- * DODO-TJ 批量商品上架 — 图片上传与任务创建工具 (v3)
+ * DODO-TJ 批量商品上架 — 图片上传与任务创建工具 (v4)
  *
  * 使用方式：
  *   node upload-images.mjs <图片目录> [选项]
@@ -24,12 +24,32 @@
  *   [C1] 审计日志字段名修正（target_table/target_type/target_id/source/status）
  *   [+]  增加图片上传重试（单张最多重试 2 次）
  *   [+]  增加分批插入子项（每批 50 个，避免单次 INSERT 过大）
+ *
+ * v4 极限压缩优化：
+ *   [+]  使用 sharp 对图片进行极限压缩（WebP 格式，质量 72%，最大 1200px）
+ *   [+]  上传前自动压缩，大幅降低存储成本
+ *   [+]  添加 sharp 依赖到 package.json
  */
 
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { join, extname, basename } from 'path';
+
+// 动态导入 sharp（可能未安装时降级为不压缩）
+let sharp = null;
+try {
+  sharp = (await import('sharp')).default;
+  console.log('[压缩] sharp 已加载，将对图片进行极限压缩');
+} catch (e) {
+  console.warn('[压缩] sharp 未安装，将直接上传原图。请运行: npm install sharp');
+}
+
+// ============================================================
+// 压缩配置
+// ============================================================
+const COMPRESS_MAX_DIM = 1200;    // 最大宽度/高度 1200px
+const COMPRESS_QUALITY = 72;      // WebP 质量 72%（极限压缩）
 
 // ============================================================
 // 配置
@@ -132,15 +152,63 @@ function scanImages(dir) {
 }
 
 // ============================================================
-// 上传单张图片到 Supabase Storage（带重试）
+// 极限压缩图片
 // ============================================================
-async function uploadImage(filePath) {
+async function compressImage(fileBuffer, filePath) {
+  if (!sharp) {
+    // sharp 未安装，返回原始 buffer
+    return { buffer: fileBuffer, ext: extname(filePath).toLowerCase().replace('.', ''), contentType: getMimeType(filePath) };
+  }
+
+  const ext = extname(filePath).toLowerCase();
+  
+  // GIF 不压缩（保留动画）
+  if (ext === '.gif') {
+    return { buffer: fileBuffer, ext: 'gif', contentType: 'image/gif' };
+  }
+
+  try {
+    const originalSize = fileBuffer.length;
+    
+    // 使用 sharp 进行极限压缩：缩放 + WebP 格式 + 低质量
+    const compressedBuffer = await sharp(fileBuffer)
+      .resize(COMPRESS_MAX_DIM, COMPRESS_MAX_DIM, {
+        fit: 'inside',           // 等比缩放，不裁剪
+        withoutEnlargement: true // 不放大小图
+      })
+      .webp({
+        quality: COMPRESS_QUALITY,  // 72% 质量
+        effort: 6,                  // 最大压缩努力（0-6）
+        smartSubsample: true,       // 智能子采样
+      })
+      .toBuffer();
+
+    const ratio = ((1 - compressedBuffer.length / originalSize) * 100).toFixed(1);
+    process.stdout.write(`C(${ratio}%) `);
+    
+    return { buffer: compressedBuffer, ext: 'webp', contentType: 'image/webp' };
+  } catch (e) {
+    console.warn(`\n  [压缩警告] ${basename(filePath)}: ${e.message}，使用原图`);
+    return { buffer: fileBuffer, ext: ext.replace('.', ''), contentType: getMimeType(filePath) };
+  }
+}
+
+function getMimeType(filePath) {
   const ext = extname(filePath).toLowerCase();
   const mimeMap = { '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' };
-  const mimeType = mimeMap[ext] || 'image/jpeg';
+  return mimeMap[ext] || 'image/jpeg';
+}
 
-  const fileName = `${UPLOAD_FOLDER}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+// ============================================================
+// 上传单张图片到 Supabase Storage（带压缩和重试）
+// ============================================================
+async function uploadImage(filePath) {
   const fileBuffer = readFileSync(filePath);
+  
+  // 极限压缩
+  const { buffer: uploadBuffer, ext, contentType } = await compressImage(fileBuffer, filePath);
+
+  const fileName = `${UPLOAD_FOLDER}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
   let lastError;
   for (let attempt = 0; attempt <= MAX_UPLOAD_RETRIES; attempt++) {
@@ -151,10 +219,10 @@ async function uploadImage(filePath) {
 
     const { error: uploadError } = await supabase.storage
       .from(UPLOAD_BUCKET)
-      .upload(fileName, fileBuffer, {
+      .upload(fileName, uploadBuffer, {
         cacheControl: '31536000',
         upsert: false,
-        contentType: mimeType,
+        contentType: contentType,
       });
 
     if (!uploadError) {
@@ -235,7 +303,8 @@ async function main() {
   }
 
   const totalImages = groups.reduce((sum, g) => sum + g.files.length, 0);
-  console.log(`\n准备上传 ${groups.length} 个商品 (共 ${totalImages} 张图片)...\n`);
+  console.log(`\n准备上传 ${groups.length} 个商品 (共 ${totalImages} 张图片)...`);
+  console.log(`[压缩配置] 格式: WebP, 质量: ${COMPRESS_QUALITY}%, 最大尺寸: ${COMPRESS_MAX_DIM}px\n`);
 
   // 创建批次任务
   const { data: batch, error: batchError } = await supabase
@@ -271,7 +340,7 @@ async function main() {
     try {
       process.stdout.write(`${progress} "${group.name}" (${group.files.length} 张) `);
 
-      // 上传所有图片
+      // 上传所有图片（含压缩）
       const imageUrls = [];
       for (const filePath of group.files) {
         const url = await uploadImage(filePath);
@@ -340,10 +409,12 @@ async function main() {
         error_items: errorCount,
         category_id: args.categoryId,
         price: args.price,
+        compression: `WebP q${COMPRESS_QUALITY} max${COMPRESS_MAX_DIM}px`,
       },
       details: {
         source: 'upload-images-cli',
         total_images: totalImages,
+        sharp_available: !!sharp,
       },
       source: 'edge_function',
       status: 'success',
@@ -358,6 +429,7 @@ async function main() {
   console.log(`上传完成！(耗时 ${duration}s)`);
   console.log(`  批次 ID:   ${batch.id}`);
   console.log(`  批次名称:  ${args.batchName}`);
+  console.log(`  压缩配置:  WebP q${COMPRESS_QUALITY} max${COMPRESS_MAX_DIM}px`);
   console.log(`  成功:      ${successCount} 个商品`);
   if (errorCount > 0) {
     console.log(`  失败:      ${errorCount} 个商品`);

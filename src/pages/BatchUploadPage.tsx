@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useSupabase } from '@/contexts/SupabaseContext';
 import { adminQuery, adminUpdate, adminInsert } from '@/lib/adminApi';
-import { uploadImage } from '@/lib/uploadImage';
+import { uploadImage, downloadAndUploadImage } from '@/lib/uploadImage';
 import toast from 'react-hot-toast';
 import { nanoid } from 'nanoid';
 
@@ -438,9 +438,9 @@ function CreateBatchForm({
     }
 
     setSubmitting(true);
-    // 仅 File 类型需要计入上传进度；URL 类型直接使用，不上传
+    // File + URL 类型都需要上传（URL 模式现在也会下载压缩后上传）
     const totalImages = groups.reduce(
-      (sum, g) => sum + (g.source === 'file' ? g.files.length : 0),
+      (sum, g) => sum + (g.source === 'file' ? g.files.length : g.imageUrls.length),
       0,
     );
     setUploadProgress({ current: 0, total: totalImages, currentName: '' });
@@ -468,7 +468,7 @@ function CreateBatchForm({
         throw new Error('创建批次失败：无法获取批次ID');
       }
 
-      toast.loading(`批次已创建，正在上传 ${totalImages} 张图片...`, { id: 'batch-create' });
+      toast.loading(`批次已创建，正在压缩并上传 ${totalImages} 张图片...`, { id: 'batch-create' });
 
       // Step 2: 逐组上传图片并创建子项
       let uploadedCount = 0;
@@ -483,12 +483,18 @@ function CreateBatchForm({
           // 收集该商品的最终图片 URL 列表
           let imageUrls: string[] = [];
           if (group.source === 'url') {
-            // URL 模式：直接使用外部公网 URL
-            imageUrls = group.imageUrls.slice();
+            // URL 模式：通过 Edge Function 下载、极限压缩后上传到 Storage
+            // 确保外部图片也经过压缩，降低存储成本
+            for (const externalUrl of group.imageUrls) {
+              const url = await downloadAndUploadImage(externalUrl, 'inventory-products', 'batch-upload');
+              imageUrls.push(url);
+              uploadedCount++;
+              setUploadProgress({ current: uploadedCount, total: totalImages, currentName: group.name });
+            }
           } else {
-            // File 模式：逐张上传到 Supabase Storage
+            // File 模式：前端极限压缩为 WebP 后上传到 Supabase Storage
             for (const file of group.files) {
-              const url = await uploadImage(file, 'inventory-products', 'batch-upload', 'image/jpeg');
+              const url = await uploadImage(file, 'inventory-products', 'batch-upload', 'image/webp');
               imageUrls.push(url);
               uploadedCount++;
               setUploadProgress({ current: uploadedCount, total: totalImages, currentName: group.name });
