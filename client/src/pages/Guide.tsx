@@ -232,7 +232,7 @@ export default function Guide() {
           <Card className="overflow-hidden">
             <CardContent className="p-0">
               <img 
-                src="/images/04-QuickStart-Infographic-TJ.png" 
+                src="/images/04-QuickStart-Infographic-TJ.webp" 
                 alt="Quick Start Guide" 
                 className="w-full"
                 loading="lazy"

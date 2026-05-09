@@ -42,19 +42,19 @@ export default function Materials() {
   // Official posters from TezBarakat
   const posters = [
     // Official TezBarakat infographics
-    { id: 1, src: '/images/01-GroupBuy-Infographic-TJ.png', name: t('materials.poster1'), filename: '01-GroupBuy-Infographic-TJ.png', isOfficial: true, category: 'official' },
-    { id: 2, src: '/images/02-Referral-Infographic-TJ.png', name: t('materials.poster2'), filename: '02-Referral-Infographic-TJ.png', isOfficial: true, category: 'official' },
-    { id: 3, src: '/images/03-PointsMall-Infographic-TJ.png', name: t('materials.poster3'), filename: '03-PointsMall-Infographic-TJ.png', isOfficial: true, category: 'official' },
-    { id: 4, src: '/images/04-QuickStart-Infographic-TJ.png', name: t('materials.poster4'), filename: '04-QuickStart-Infographic-TJ.png', isOfficial: true, category: 'official' },
-    { id: 5, src: '/images/05-FundSafety-Infographic-TJ.png', name: t('materials.poster5'), filename: '05-FundSafety-Infographic-TJ.png', isOfficial: true, category: 'official' },
-    { id: 6, src: '/images/06-SpinWheel-Poster-TJ.png', name: t('materials.poster6'), filename: '06-SpinWheel-Poster-TJ.png', isOfficial: true, category: 'official' },
+    { id: 1, src: '/images/01-GroupBuy-Infographic-TJ.webp', name: t('materials.poster1'), filename: '01-GroupBuy-Infographic-TJ.webp', isOfficial: true, category: 'official' },
+    { id: 2, src: '/images/02-Referral-Infographic-TJ.webp', name: t('materials.poster2'), filename: '02-Referral-Infographic-TJ.webp', isOfficial: true, category: 'official' },
+    { id: 3, src: '/images/03-PointsMall-Infographic-TJ.webp', name: t('materials.poster3'), filename: '03-PointsMall-Infographic-TJ.webp', isOfficial: true, category: 'official' },
+    { id: 4, src: '/images/04-QuickStart-Infographic-TJ.webp', name: t('materials.poster4'), filename: '04-QuickStart-Infographic-TJ.webp', isOfficial: true, category: 'official' },
+    { id: 5, src: '/images/05-FundSafety-Infographic-TJ.webp', name: t('materials.poster5'), filename: '05-FundSafety-Infographic-TJ.webp', isOfficial: true, category: 'official' },
+    { id: 6, src: '/images/06-SpinWheel-Poster-TJ.webp', name: t('materials.poster6'), filename: '06-SpinWheel-Poster-TJ.webp', isOfficial: true, category: 'official' },
     // New promotional posters
-    { id: 7, src: '/images/poster-student.png', name: t('materials.posterStudent'), filename: 'poster-student.png', isOfficial: false, category: 'promo' },
-    { id: 8, src: '/images/poster-family.png', name: t('materials.posterFamily'), filename: 'poster-family.png', isOfficial: false, category: 'promo' },
-    { id: 9, src: '/images/poster-telegram.png', name: t('materials.posterTelegram'), filename: 'poster-telegram.png', isOfficial: false, category: 'promo' },
-    { id: 10, src: '/images/poster-winner.png', name: t('materials.posterWinner'), filename: 'poster-winner.png', isOfficial: false, category: 'promo' },
-    { id: 11, src: '/images/poster-commission.png', name: t('materials.posterCommission'), filename: 'poster-commission.png', isOfficial: false, category: 'promo' },
-    { id: 12, src: '/images/poster-earn-money.png', name: t('materials.poster7'), filename: 'poster-earn-money.png', isOfficial: false, category: 'promo' },
+    { id: 7, src: '/images/poster-student.webp', name: t('materials.posterStudent'), filename: 'poster-student.webp', isOfficial: false, category: 'promo' },
+    { id: 8, src: '/images/poster-family.webp', name: t('materials.posterFamily'), filename: 'poster-family.webp', isOfficial: false, category: 'promo' },
+    { id: 9, src: '/images/poster-telegram.webp', name: t('materials.posterTelegram'), filename: 'poster-telegram.webp', isOfficial: false, category: 'promo' },
+    { id: 10, src: '/images/poster-winner.webp', name: t('materials.posterWinner'), filename: 'poster-winner.webp', isOfficial: false, category: 'promo' },
+    { id: 11, src: '/images/poster-commission.webp', name: t('materials.posterCommission'), filename: 'poster-commission.webp', isOfficial: false, category: 'promo' },
+    { id: 12, src: '/images/poster-earn-money.webp', name: t('materials.poster7'), filename: 'poster-earn-money.webp', isOfficial: false, category: 'promo' },
   ];
 
   const copyTexts = [

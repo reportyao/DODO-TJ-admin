@@ -385,7 +385,7 @@ export default function Platform() {
             {/* Infographic */}
             <div className="mt-4">
               <img 
-                src="/images/01-GroupBuy-Infographic-TJ.png" 
+                src="/images/01-GroupBuy-Infographic-TJ.webp" 
                 alt="Group Buy Infographic" 
                 className="w-full rounded-xl shadow-lg"
                 loading="lazy"
@@ -440,7 +440,7 @@ export default function Platform() {
             {/* Infographic */}
             <div className="mt-4">
               <img 
-                src="/images/02-Referral-Infographic-TJ.png" 
+                src="/images/02-Referral-Infographic-TJ.webp" 
                 alt="Referral Infographic" 
                 className="w-full rounded-xl shadow-lg"
                 loading="lazy"
@@ -490,7 +490,7 @@ export default function Platform() {
             {/* Infographic */}
             <div className="mt-4">
               <img 
-                src="/images/03-PointsMall-Infographic-TJ.png" 
+                src="/images/03-PointsMall-Infographic-TJ.webp" 
                 alt="Points Mall Infographic" 
                 className="w-full rounded-xl shadow-lg"
                 loading="lazy"
@@ -533,7 +533,7 @@ export default function Platform() {
             {/* Infographic */}
             <div className="mt-4">
               <img 
-                src="/images/05-FundSafety-Infographic-TJ.png" 
+                src="/images/05-FundSafety-Infographic-TJ.webp" 
                 alt="Fund Safety Infographic" 
                 className="w-full rounded-xl shadow-lg"
                 loading="lazy"
@@ -561,7 +561,7 @@ export default function Platform() {
             {/* Infographic */}
             <div className="mt-4">
               <img 
-                src="/images/06-SpinWheel-Poster-TJ.png" 
+                src="/images/06-SpinWheel-Poster-TJ.webp" 
                 alt="Spin Wheel Poster" 
                 className="w-full rounded-xl shadow-lg"
                 loading="lazy"
