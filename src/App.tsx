@@ -98,6 +98,8 @@ const BehaviorDashboardPage = React.lazy(() => import('./pages/BehaviorDashboard
 // B2B 批发管理
 const WholesalerManagementPage = React.lazy(() => import('./pages/WholesalerManagementPage'));
 const B2BOrderManagementPage = React.lazy(() => import('./pages/B2BOrderManagementPage'));
+const B2BReconciliationPage = React.lazy(() => import('./pages/B2BReconciliationPage'));
+const B2BProfitPage = React.lazy(() => import('./pages/B2BProfitPage'));
 
 // 系统配置
 const PaymentConfigPage = React.lazy(() => import('./pages/PaymentConfigPage').then(m => ({ default: m.PaymentConfigPage })));
@@ -192,6 +194,8 @@ function AdminLayout({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; se
           <NavLink to="/ai-listing" label="AI上架助手" icon="✨" />
           <NavLink to="/batch-upload" label="批量上架" icon="📤" />
           <NavLink to="/b2b-orders" label="B2B订单" icon="📝" />
+          <NavLink to="/b2b-reconciliation" label="对账中心" icon="🧾" />
+          <NavLink to="/b2b-profit" label="利润看板" icon="💹" />
           <NavLink to="/wholesaler-management" label="批发商管理" icon="🏢" />
           {/* ==================== 物流管理（内部） ==================== */}
           <NavSection label="物流管理" />
@@ -293,6 +297,8 @@ function AdminLayout({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; se
               <Route path="/resale-management" element={<ProtectedRoute element={<ResaleManagementPage />} />} />
               {/* ==================== B2B 批发管理路由 ==================== */}
               <Route path="/b2b-orders" element={<ProtectedRoute element={<B2BOrderManagementPage />} />} />
+              <Route path="/b2b-reconciliation" element={<ProtectedRoute element={<B2BReconciliationPage />} />} />
+              <Route path="/b2b-profit" element={<ProtectedRoute element={<B2BProfitPage />} />} />
               <Route path="/wholesaler-management" element={<ProtectedRoute element={<WholesalerManagementPage />} />} />
               <Route path="/admin-management" element={<ProtectedRoute element={<AdminManagementPage />} />} />
               <Route path="/permission-management" element={<ProtectedRoute element={<PermissionManagementPage />} />} />
