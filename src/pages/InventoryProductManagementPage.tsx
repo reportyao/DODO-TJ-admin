@@ -197,10 +197,13 @@ export default function InventoryProductManagementPage() {
   // 一键创建商城活动（lotteries）状态
   const [batchCreateLotteryRunning, setBatchCreateLotteryRunning] = useState(false);
 
-  // 行内快速编辑原价状态
-  const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
-  const [editingPriceValue, setEditingPriceValue] = useState<string>('');
-  const [savingPriceId, setSavingPriceId] = useState<string | null>(null);
+  // 行内快速编辑B2B价格状态（成本价 & 批发价）
+  const [editingCostId, setEditingCostId] = useState<string | null>(null);
+  const [editingCostValue, setEditingCostValue] = useState<string>('');
+  const [savingCostId, setSavingCostId] = useState<string | null>(null);
+  const [editingWholesaleId, setEditingWholesaleId] = useState<string | null>(null);
+  const [editingWholesaleValue, setEditingWholesaleValue] = useState<string>('');
+  const [savingWholesaleId, setSavingWholesaleId] = useState<string | null>(null);
 
   // 商品分类
   const [categories, setCategories] = useState<{ id: string; code: string; name_i18n: I18nText }[]>([]);
@@ -682,55 +685,73 @@ export default function InventoryProductManagementPage() {
     }
   };
 
-  // ====== 行内快速编辑原价 ======
-  const startEditPrice = (product: InventoryProduct) => {
-    setEditingPriceId(product.id);
-    setEditingPriceValue(String(product.original_price ?? 0));
+  // ====== 行内快速编辑成本价 ======
+  const startEditCost = (product: InventoryProduct) => {
+    setEditingCostId(product.id);
+    setEditingCostValue(String(product.cost_price ?? 0));
   };
-
-  const cancelEditPrice = () => {
-    setEditingPriceId(null);
-    setEditingPriceValue('');
+  const cancelEditCost = () => {
+    setEditingCostId(null);
+    setEditingCostValue('');
   };
-
-  const submitEditPrice = async (product: InventoryProduct) => {
-    const trimmed = editingPriceValue.trim();
-    if (trimmed === '') {
-      toast.error('请输入价格');
-      return;
-    }
+  const submitEditCost = async (product: InventoryProduct) => {
+    const trimmed = editingCostValue.trim();
+    if (trimmed === '') { toast.error('请输入成本价'); return; }
     const newPrice = Number(trimmed);
-    if (!Number.isFinite(newPrice) || newPrice < 0) {
-      toast.error('价格必须是大于等于 0 的数字');
-      return;
-    }
-    if (newPrice > 9999999) {
-      toast.error('价格超出合理范围');
-      return;
-    }
-    // 小数点后最多 2 位
+    if (!Number.isFinite(newPrice) || newPrice < 0) { toast.error('成本价必须是大于等于 0 的数字'); return; }
+    if (newPrice > 9999999) { toast.error('价格超出合理范围'); return; }
     const rounded = Math.round(newPrice * 100) / 100;
-    if (rounded === Number(product.original_price)) {
-      // 未变更，直接退出
-      cancelEditPrice();
-      return;
-    }
+    if (rounded === Number(product.cost_price)) { cancelEditCost(); return; }
     try {
-      setSavingPriceId(product.id);
+      setSavingCostId(product.id);
       const { error } = await supabase
         .from('inventory_products')
-        .update({ original_price: rounded, updated_at: new Date().toISOString() })
+        .update({ cost_price: rounded, updated_at: new Date().toISOString() })
         .eq('id', product.id);
-      if (error) {throw error;}
-      // 局部更新，避免整页 refetch 闪烁
-      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, original_price: rounded } : p));
-      toast.success(`价格已更新为 ${product.currency || 'TJS'} ${rounded}`);
-      cancelEditPrice();
+      if (error) { throw error; }
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, cost_price: rounded } : p));
+      toast.success(`成本价已更新为 ${product.currency || 'TJS'} ${rounded}`);
+      cancelEditCost();
     } catch (err: any) {
-      console.error('Failed to quick update price:', err);
-      toast.error('价格更新失败：' + (err?.message || '未知错误'));
+      console.error('Failed to quick update cost_price:', err);
+      toast.error('成本价更新失败：' + (err?.message || '未知错误'));
     } finally {
-      setSavingPriceId(null);
+      setSavingCostId(null);
+    }
+  };
+
+  // ====== 行内快速编辑批发价 ======
+  const startEditWholesale = (product: InventoryProduct) => {
+    setEditingWholesaleId(product.id);
+    setEditingWholesaleValue(String(product.wholesale_price ?? 0));
+  };
+  const cancelEditWholesale = () => {
+    setEditingWholesaleId(null);
+    setEditingWholesaleValue('');
+  };
+  const submitEditWholesale = async (product: InventoryProduct) => {
+    const trimmed = editingWholesaleValue.trim();
+    if (trimmed === '') { toast.error('请输入批发价'); return; }
+    const newPrice = Number(trimmed);
+    if (!Number.isFinite(newPrice) || newPrice < 0) { toast.error('批发价必须是大于等于 0 的数字'); return; }
+    if (newPrice > 9999999) { toast.error('价格超出合理范围'); return; }
+    const rounded = Math.round(newPrice * 100) / 100;
+    if (rounded === Number(product.wholesale_price)) { cancelEditWholesale(); return; }
+    try {
+      setSavingWholesaleId(product.id);
+      const { error } = await supabase
+        .from('inventory_products')
+        .update({ wholesale_price: rounded, updated_at: new Date().toISOString() })
+        .eq('id', product.id);
+      if (error) { throw error; }
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, wholesale_price: rounded } : p));
+      toast.success(`批发价已更新为 ${product.currency || 'TJS'} ${rounded}`);
+      cancelEditWholesale();
+    } catch (err: any) {
+      console.error('Failed to quick update wholesale_price:', err);
+      toast.error('批发价更新失败：' + (err?.message || '未知错误'));
+    } finally {
+      setSavingWholesaleId(null);
     }
   };
 
@@ -1424,7 +1445,7 @@ export default function InventoryProductManagementPage() {
                   </button>
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">商品</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">原价</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">成本价</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">批发价</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">库存</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">到货状态</th>
@@ -1465,7 +1486,7 @@ export default function InventoryProductManagementPage() {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {editingPriceId === product.id ? (
+                    {editingCostId === product.id ? (
                       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                         <span className="text-xs text-gray-500">{product.currency || 'TJS'}</span>
                         <input
@@ -1473,60 +1494,74 @@ export default function InventoryProductManagementPage() {
                           autoFocus
                           step="0.01"
                           min="0"
-                          value={editingPriceValue}
-                          onChange={(e) => setEditingPriceValue(e.target.value)}
+                          value={editingCostValue}
+                          onChange={(e) => setEditingCostValue(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              submitEditPrice(product);
-                            } else if (e.key === 'Escape') {
-                              e.preventDefault();
-                              cancelEditPrice();
-                            }
+                            if (e.key === 'Enter') { e.preventDefault(); submitEditCost(product); }
+                            else if (e.key === 'Escape') { e.preventDefault(); cancelEditCost(); }
                           }}
                           onFocus={(e) => e.target.select()}
-                          disabled={savingPriceId === product.id}
+                          disabled={savingCostId === product.id}
                           className="w-24 border border-blue-400 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
                         />
-                        <button
-                          type="button"
-                          onClick={() => submitEditPrice(product)}
-                          disabled={savingPriceId === product.id}
-                          title="保存（Enter）"
-                          className="p-1 rounded text-green-600 hover:bg-green-50 disabled:opacity-50"
-                        >
-                          {savingPriceId === product.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Check className="w-4 h-4" />
-                          )}
+                        <button type="button" onClick={() => submitEditCost(product)} disabled={savingCostId === product.id} title="保存（Enter）" className="p-1 rounded text-green-600 hover:bg-green-50 disabled:opacity-50">
+                          {savingCostId === product.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                         </button>
-                        <button
-                          type="button"
-                          onClick={cancelEditPrice}
-                          disabled={savingPriceId === product.id}
-                          title="取消（Esc）"
-                          className="p-1 rounded text-gray-500 hover:bg-gray-100 disabled:opacity-50"
-                        >
+                        <button type="button" onClick={cancelEditCost} disabled={savingCostId === product.id} title="取消（Esc）" className="p-1 rounded text-gray-500 hover:bg-gray-100 disabled:opacity-50">
                           <X className="w-4 h-4" />
                         </button>
                       </div>
                     ) : (
                       <button
                         type="button"
-                        onClick={() => startEditPrice(product)}
-                        title="点击快速修改价格"
+                        onClick={() => startEditCost(product)}
+                        title="点击快速修改成本价"
                         className="group inline-flex items-center gap-1 px-2 py-1 -mx-2 -my-1 rounded hover:bg-blue-50 transition-colors cursor-pointer"
                       >
-                        <span>{product.currency || 'TJS'} {product.original_price}</span>
+                        <span>{product.cost_price ? `${product.currency || 'TJS'} ${product.cost_price}` : '-'}</span>
                         <Pencil className="w-3.5 h-3.5 text-gray-300 group-hover:text-blue-500" />
                       </button>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm text-blue-700 font-semibold">
-                      {product.wholesale_price ? `${product.currency || 'TJS'} ${product.wholesale_price}` : '-'}
-                    </span>
+                    {editingWholesaleId === product.id ? (
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <span className="text-xs text-gray-500">{product.currency || 'TJS'}</span>
+                        <input
+                          type="number"
+                          autoFocus
+                          step="0.01"
+                          min="0"
+                          value={editingWholesaleValue}
+                          onChange={(e) => setEditingWholesaleValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') { e.preventDefault(); submitEditWholesale(product); }
+                            else if (e.key === 'Escape') { e.preventDefault(); cancelEditWholesale(); }
+                          }}
+                          onFocus={(e) => e.target.select()}
+                          disabled={savingWholesaleId === product.id}
+                          className="w-24 border border-blue-400 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                        />
+                        <button type="button" onClick={() => submitEditWholesale(product)} disabled={savingWholesaleId === product.id} title="保存（Enter）" className="p-1 rounded text-green-600 hover:bg-green-50 disabled:opacity-50">
+                          {savingWholesaleId === product.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                        </button>
+                        <button type="button" onClick={cancelEditWholesale} disabled={savingWholesaleId === product.id} title="取消（Esc）" className="p-1 rounded text-gray-500 hover:bg-gray-100 disabled:opacity-50">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => startEditWholesale(product)}
+                        title="点击快速修改批发价"
+                        className="group inline-flex items-center gap-1 px-2 py-1 -mx-2 -my-1 rounded hover:bg-blue-50 transition-colors cursor-pointer"
+                      >
+                        <span className="text-sm text-blue-700 font-semibold">
+                          {product.wholesale_price ? `${product.currency || 'TJS'} ${product.wholesale_price}` : '-'}
+                        </span>
+                        <Pencil className="w-3.5 h-3.5 text-gray-300 group-hover:text-blue-500" />
+                      </button>
+                    )}
                     {product.min_order_quantity > 1 && (
                       <span className="block text-xs text-gray-400">起批{product.min_order_quantity}{product.unit_measure || '件'}</span>
                     )}

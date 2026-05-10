@@ -53,6 +53,21 @@ const CONFIG = {
 const VISION_MODELS = ['qwen3-vl-plus', 'qwen-vl-max'];
 const TEXT_MODELS   = ['qwen-plus', 'qwen3.5-plus', 'qwen-max'];
 
+// ============================================================
+// 商品分类列表（与 homepage_categories 表同步）
+// 用于 AI 自动分类识别
+// ============================================================
+const PRODUCT_CATEGORIES = [
+  { id: '3b7c7e38-93a3-455f-b26b-e85f29369cab', code: 'daily_goods',    zh: '日用百货',   ru: 'Товары для дома',    keywords: ['日用', '百货', '清洁', '家居', '厨具', '收纳', '卫浴', '洗涤', '拖把', '扫帚', '垃圾桶', '毛巾', '床品', '被子', '枕头', '窗帘', '地毯'] },
+  { id: '4ea4c06e-a30a-4b2f-a147-b1a163026a13', code: 'home_appliance',  zh: '家用电器',   ru: 'Бытовая техника',   keywords: ['电器', '家电', '冰箱', '洗衣机', '空调', '电视', '风扇', '电热', '烤箱', '微波炉', '吸尘器', '电饭锅', '热水器', '加湿器', '空气净化', '电动'] },
+  { id: 'd176a10f-d316-4ea7-972b-ca331442acdc', code: 'food_kitchen',    zh: '食品厨房',   ru: 'Продукты и кухня',  keywords: ['食品', '厨房', '零食', '饮料', '调料', '茶', '咖啡', '锅', '碗', '盘', '筷子', '刀', '砧板', '烹饪', '烘焙', '食材', '干货', '坚果'] },
+  { id: 'c5c14ea4-5db1-41d5-8390-768c43ac4e9e', code: 'personal_care',   zh: '个护美妆',   ru: 'Личная гигиена',    keywords: ['护肤', '美妆', '化妆', '洗发', '护发', '沐浴', '香水', '面膜', '口红', '眼影', '粉底', '防晒', '牙刷', '牙膏', '剃须', '美容', '个护', '卫生'] },
+  { id: 'd2381d98-4bef-4e77-977f-3acfb1b5d3ff', code: 'clothing_bags',   zh: '服饰箱包',   ru: 'Одежда и сумки',    keywords: ['服装', '衣服', '裤子', '裙子', '外套', '夹克', '羽绒', '毛衣', 'T恤', '衬衫', '鞋', '靴子', '包', '背包', '钱包', '手提包', '帽子', '围巾', '手套', '袜子', '内衣', '泳衣'] },
+  { id: 'c199ef35-3727-420f-aaab-d05289e4fcdc', code: 'digital_tech',    zh: '数码科技',   ru: 'Цифровая техника',  keywords: ['数码', '手机', '电脑', '平板', '耳机', '音响', '相机', '充电', '数据线', '键盘', '鼠标', '显示器', '路由器', 'USB', '蓝牙', '智能', '摄像头', '打印机'] },
+  { id: '924736ce-ec09-427a-bd9f-5b91f4fe2910', code: 'mother_baby',     zh: '母婴亲子',   ru: 'Мать и ребёнок',    keywords: ['母婴', '婴儿', '宝宝', '儿童', '玩具', '奶粉', '尿布', '纸尿裤', '童装', '童鞋', '学步', '奶瓶', '孕妇', '推车', '安全座椅', '积木', '早教'] },
+  { id: '6badf771-bd90-476a-9e07-9dc8c6313e27', code: 'sports_outdoor',  zh: '运动户外',   ru: 'Спорт и отдых',     keywords: ['运动', '户外', '健身', '跑步', '瑜伽', '球', '骑行', '登山', '露营', '帐篷', '钓鱼', '泳镜', '运动鞋', '运动服', '哑铃', '跳绳', '滑板'] },
+];
+
 // 规范的 AI 理解字段列表
 const AI_UNDERSTANDING_FIELDS = [
   'target_people',
@@ -323,7 +338,6 @@ function buildSemanticFactsPrompt({ name, desc, specs, material, price }) {
 - 描述：${desc || '未提供'}
 - 规格：${specs || '未提供'}
 - 材质：${material || '未提供'}
-- 价格：${price} сомони
 
 请只输出以下 JSON：
 {
@@ -347,7 +361,8 @@ function buildSemanticFactsPrompt({ name, desc, specs, material, price }) {
 2. 这是事实层，不要写营销文案，不要写多语言。
 3. usage_steps、usage_tips、parameter_highlights 必须尽量具体。
 4. local_context_signals 必须贴近塔吉克斯坦真实生活。
-5. 信息不足时基于图片做谨慎推断，避免明显夸大。`;
+5. 信息不足时基于图片做谨慎推断，避免明显夸大。
+6. 【严格禁止】任何字段中不得出现具体价格数字（如"199 сомони"、"TJS 50"等），也不得出现任何货币单位（сомони、TJS、元、$等）。允许使用"价格实惠"、"性价比高"等模糊表述，但禁止任何具体金额数字。`;
 }
 
 async function generateSemanticFacts({ imageUrls, name, desc, specs, material, price }) {
@@ -406,7 +421,6 @@ async function generateUnifiedLocalizedUnderstanding({ semanticFacts, name, desc
 - 描述：${desc || '未提供'}
 - 规格：${specs || '未提供'}
 - 材质：${material || '未提供'}
-- 价格：${price} сомони
 
 【结构化商品事实】
 ${JSON.stringify(semanticFacts, null, 2)}
@@ -427,7 +441,8 @@ ${JSON.stringify(semanticFacts, null, 2)}
 6. best_scene 必须是具体画面，不要抽象概括。
 7. recommended_badge 短而顺口，适合做角标。
 8. 只输出 JSON，不要附加说明。
-9. 控制每个字段长度，单字段不超过 120 字（product_name 不超过 30 字）。`;
+9. 控制每个字段长度，单字段不超过 120 字（product_name 不超过 30 字）。
+10. 【严格禁止】所有字段的文案内容中，绝对不得出现具体价格数字（如"199 сомони"、"TJS 50"等），也不得出现任何货币单位（сомони、TJS、元、$等）。允许使用"价格实惠"、"性价比高"、"经济实用"等模糊价值表述，但禁止任何具体金额数字。`;
 
   const { payload, modelUsed } = await callDashScopeWithFallback({
     models: TEXT_MODELS,
@@ -469,6 +484,84 @@ function extractI18nProductInfo(semanticFacts, localized) {
     details_ru: localized.ru.how_to_use || '',
     details_tg: localized.tg.how_to_use || '',
   };
+}
+
+
+// ============================================================
+// AI 自动识别商品分类
+// 基于 semantic_facts 和商品名称，从现有分类中选择最合适的分类
+// ============================================================
+async function autoDetectCategory(semanticFacts, productName) {
+  const productType = semanticFacts?.product_type || '';
+  const coreFunction = semanticFacts?.core_function || '';
+  const usageScenarios = (semanticFacts?.usage_scenarios || []).join(' ');
+  const targetUserTraits = (semanticFacts?.target_user_traits || []).join(' ');
+  const localContextSignals = (semanticFacts?.local_context_signals || []).join(' ');
+  const combinedText = `${productName} ${productType} ${coreFunction} ${usageScenarios} ${targetUserTraits} ${localContextSignals}`.toLowerCase();
+
+  // Step 1: 关键词匹配（快速路径）
+  let bestMatch = null;
+  let bestScore = 0;
+  for (const cat of PRODUCT_CATEGORIES) {
+    let score = 0;
+    for (const kw of cat.keywords) {
+      if (combinedText.includes(kw.toLowerCase())) {
+        score++;
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = cat;
+    }
+  }
+  if (bestScore >= 2) {
+    log('info', `[autoDetectCategory] 关键词匹配成功: ${bestMatch.zh} (score=${bestScore})`);
+    return bestMatch.id;
+  }
+
+  // Step 2: 关键词匹配分数不够时，使用 AI 判断
+  const categoryList = PRODUCT_CATEGORIES.map(c => `- ${c.code}: ${c.zh}（${c.ru}）`).join('
+');
+  const prompt = `你是一名电商商品分类专家。请根据以下商品信息，从给定的分类列表中选择最合适的一个分类。
+
+商品名称：${productName}
+商品类型：${productType}
+核心功能：${coreFunction}
+使用场景：${usageScenarios}
+
+可选分类（code: 中文名）：
+${categoryList}
+
+请只输出最合适的分类 code（如 daily_goods、clothing_bags 等），不要输出任何其他内容。`;
+
+  try {
+    const { payload } = await callDashScopeWithFallback({
+      models: TEXT_MODELS,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+      enableThinking: false,
+      maxTokens: 50,
+      stepName: 'AutoCategory',
+    });
+    const rawCode = (typeof payload === 'string' ? payload : JSON.stringify(payload)).trim().toLowerCase().replace(/[^a-z_]/g, '');
+    const matched = PRODUCT_CATEGORIES.find(c => c.code === rawCode);
+    if (matched) {
+      log('info', `[autoDetectCategory] AI 识别分类: ${matched.zh} (code=${rawCode})`);
+      return matched.id;
+    }
+    // AI 返回了无效 code，降级到关键词最高分
+    if (bestMatch) {
+      log('warn', `[autoDetectCategory] AI 返回无效 code "${rawCode}"，降级到关键词匹配: ${bestMatch.zh}`);
+      return bestMatch.id;
+    }
+  } catch (e) {
+    log('warn', `[autoDetectCategory] AI 分类识别失败（非致命）: ${e.message}`);
+    if (bestMatch) return bestMatch.id;
+  }
+
+  // Step 3: 兜底 - 日用百货
+  log('warn', `[autoDetectCategory] 无法识别分类，使用默认分类: 日用百货`);
+  return PRODUCT_CATEGORIES[0].id;
 }
 
 // ============================================================
@@ -536,17 +629,28 @@ async function saveToInventory(item, semanticFacts, localized, aiUnderstanding) 
 
   const productId = inserted.id;
 
-  // 创建分类关联（与 AIListingPage 一致：失败不影响主流程）
-  if (item.category_id) {
+  // 创建分类关联：优先使用手动指定的 category_id，否则 AI 自动识别
+  let finalCategoryId = item.category_id;
+  if (!finalCategoryId) {
+    log('info', `[${item.id}] 未指定分类，启动 AI 自动识别...`);
+    try {
+      finalCategoryId = await autoDetectCategory(semanticFacts, productName);
+    } catch (e) {
+      log('warn', `[${item.id}] AI 自动分类失败（非致命）: ${e.message}`);
+    }
+  }
+  if (finalCategoryId) {
     try {
       const { error: catError } = await supabase
         .from('product_categories')
         .insert({
           product_id: productId,
-          category_id: item.category_id,
+          category_id: finalCategoryId,
         });
       if (catError) {
         log('warn', `[${item.id}] 分类关联创建失败: ${catError.message}`);
+      } else {
+        log('info', `[${item.id}] 分类关联成功: category_id=${finalCategoryId}`);
       }
     } catch (e) {
       log('warn', `[${item.id}] 分类关联异常: ${e.message}`);
