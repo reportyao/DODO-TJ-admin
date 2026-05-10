@@ -203,7 +203,9 @@ export async function adminInsert<T = any>(
       localStorage.removeItem('admin_user')
       window.location.href = '/admin/login'
     }
-    throw new Error(error.message)
+    // 清理 RPC 错误消息前缀（如 ERR_NOT_FOUND: / ERR_INVALID_STATE_TRANSITION:）
+    const cleanMsg = (error.message || '未知错误').replace(/^ERR_[A-Z_]+:\s*/, '')
+    throw new Error(cleanMsg)
   }
   const result = typeof data === 'string' ? JSON.parse(data) : data
   return result
@@ -229,7 +231,9 @@ export async function adminUpdate<T = any>(
       localStorage.removeItem('admin_user')
       window.location.href = '/admin/login'
     }
-    throw new Error(error.message)
+    // 清理 RPC 错误消息前缀（如 ERR_NOT_FOUND: / ERR_INVALID_STATE_TRANSITION:）
+    const cleanMsg = (error.message || '未知错误').replace(/^ERR_[A-Z_]+:\s*/, '')
+    throw new Error(cleanMsg)
   }
   const result = typeof data === 'string' ? JSON.parse(data) : data
   return result
@@ -253,7 +257,9 @@ export async function adminDelete(
       localStorage.removeItem('admin_user')
       window.location.href = '/admin/login'
     }
-    throw new Error(error.message)
+    // 清理 RPC 错误消息前缀（如 ERR_NOT_FOUND: / ERR_INVALID_STATE_TRANSITION:）
+    const cleanMsg = (error.message || '未知错误').replace(/^ERR_[A-Z_]+:\s*/, '')
+    throw new Error(cleanMsg)
   }
   return data
 }
@@ -278,7 +284,9 @@ export async function adminRpc<T = any>(
       localStorage.removeItem('admin_user')
       window.location.href = '/admin/login'
     }
-    throw new Error(error.message)
+    // 清理 RPC 错误消息前缀（如 ERR_NOT_FOUND: / ERR_INVALID_STATE_TRANSITION:）
+    const cleanMsg = (error.message || '未知错误').replace(/^ERR_[A-Z_]+:\s*/, '')
+    throw new Error(cleanMsg)
   }
   const result = typeof data === 'string' ? JSON.parse(data) : data
   return result
