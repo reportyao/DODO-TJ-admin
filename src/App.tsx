@@ -207,8 +207,7 @@ function AdminLayout({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; se
 
           {/* ==================== 地推管理模块 ==================== */}
           <NavSection label="地推管理" />
-          {/* @deprecated B2B重构隐藏 */}
-          {/* <NavLink to="/promoter-dashboard" label="地推指挥室" icon="🎯" />
+          <NavLink to="/promoter-dashboard" label="地推指挥室" icon="🎯" />
           <NavLink to="/promoter-management" label="人员管理" icon="🧑‍💼" />
           <NavLink to="/promotion-points" label="点位管理" icon="📍" />
           <NavLink to="/channel-analytics" label="渠道分析" icon="📡" />
