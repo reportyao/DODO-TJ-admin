@@ -352,6 +352,7 @@ export default function AIListingPage() {
         selling_points: raw?.analysis?.selling_points,
         ai_understanding: raw?.analysis?.ai_understanding || undefined,
       },
+      suggested_category: raw?.suggested_category || null,
     };
   }, []);
 
@@ -1123,13 +1124,15 @@ export default function AIListingPage() {
       const insertedId = insertResult?.id || (Array.isArray(insertResult) ? insertResult[0]?.id : null) || 'unknown';
 
       // [v2.1] 创建 product_categories 关联（如果有分类 ID）
-      if (task.categoryId && insertedId !== 'unknown') {
+      // [v3.2] 如果用户未手动选择分类，使用 AI 推荐的分类
+      const effectiveCategoryId = task.categoryId || editedResult.suggested_category?.category_id;
+      if (effectiveCategoryId && insertedId !== 'unknown') {
         try {
           await adminInsert(supabase, 'product_categories', {
             product_id: insertedId,
-            category_id: task.categoryId,
+            category_id: effectiveCategoryId,
           });
-          console.log(`[AIListing] 已创建 product_categories 关联: product=${insertedId}, category=${task.categoryId}`);
+          console.log(`[AIListing] 已创建 product_categories 关联: product=${insertedId}, category=${effectiveCategoryId}${!task.categoryId ? ' (来自 AI 自动推荐)' : ''}`);
         } catch (catErr: any) {
           // 分类关联失败不影响主流程，仅记录警告
           console.warn('[AIListing] 创建 product_categories 关联失败:', catErr.message);

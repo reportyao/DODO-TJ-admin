@@ -93,6 +93,13 @@ export interface AIListingResult {
     // selling_points 从 Step A 透传
     selling_points?: Array<{ zh: string; detail: string }>;
   };
+  // [v3.2] AI 自动推荐分类
+  suggested_category?: {
+    category_code: string;
+    category_id: string | null;
+    category_name: string;
+    confidence: string;  // 'high' | 'medium' | 'low'
+  } | null;
 }
 
 // 单个 AI 任务

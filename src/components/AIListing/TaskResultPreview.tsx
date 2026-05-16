@@ -159,6 +159,7 @@ export const TaskResultPreview: React.FC<TaskResultPreviewProps> = ({
       segmented_image: result.segmented_image,
       original_images: result.original_images,
       analysis: result.analysis,
+      suggested_category: result.suggested_category,
     };
 
     onSave(editedResult, selectedAll);
@@ -453,6 +454,22 @@ export const TaskResultPreview: React.FC<TaskResultPreviewProps> = ({
             </div>
           )}
 
+
+          {/* ─── [v3.2] AI 自动分类推荐 ───────────────────── */}
+          {result.suggested_category && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-blue-600 font-medium">🧠 AI 推荐分类：</span>
+                <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs font-medium">
+                  {result.suggested_category.category_name}
+                </span>
+                <span className={`text-xs px-1.5 py-0.5 rounded ${result.suggested_category.confidence === 'high' ? 'bg-green-100 text-green-700' : result.suggested_category.confidence === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>
+                  {result.suggested_category.confidence === 'high' ? '高置信度' : result.suggested_category.confidence === 'medium' ? '中置信度' : '低置信度'}
+                </span>
+              </div>
+              <p className="text-xs text-blue-600 mt-1">入库时将自动应用此分类（如您已手动选择分类，则优先使用手动选择）</p>
+            </div>
+          )}
           {/* ─── 操作按钮 ─────────────────────────────────── */}
           <div className="flex gap-3 pt-2">
             <Button
