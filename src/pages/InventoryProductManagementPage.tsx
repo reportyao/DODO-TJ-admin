@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown, Sparkles, Brain, RefreshCw, Zap, Loader2, Truck, CheckSquare, Square, ShoppingBag, Check, X, Pencil } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, EyeOff, Package, History, ArrowUpDown, Sparkles, Brain, RefreshCw, Zap, Loader2, Truck, CheckSquare, Square, ShoppingBag, Check, X, Pencil, FolderOpen } from 'lucide-react';
 import { useAdminAuth } from '@/contexts/AdminAuthContext';
 import { getSessionToken, adminQuery, adminInsert } from '@/lib/adminApi';
 import { batchCreateLotteriesFromInventory } from '@/lib/lotteryHelpers';
@@ -1268,6 +1268,63 @@ export default function InventoryProductManagementPage() {
     }
   };
 
+  // ─── 批量设置分类 ──────────────────────────────────
+  const [showBatchCategoryModal, setShowBatchCategoryModal] = useState(false);
+  const [batchCategoryId, setBatchCategoryId] = useState<string>('');
+  const [batchCategoryRunning, setBatchCategoryRunning] = useState(false);
+
+  const handleBatchSetCategory = async () => {
+    if (!batchCategoryId) {
+      toast.error('请选择一个分类');
+      return;
+    }
+    const selected = products.filter(p => selectedProductIds.has(p.id));
+    if (selected.length === 0) {
+      toast.error('请先选择需要设置分类的商品');
+      return;
+    }
+
+    try {
+      setBatchCategoryRunning(true);
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const product of selected) {
+        try {
+          // 先删除该商品的所有分类关联
+          await supabase
+            .from('product_categories')
+            .delete()
+            .eq('product_id', product.id);
+          // 创建新的分类关联
+          const { error } = await supabase
+            .from('product_categories')
+            .insert({ product_id: product.id, category_id: batchCategoryId });
+          if (error) throw error;
+          successCount++;
+        } catch (err: any) {
+          console.error(`设置分类失败 [${product.name}]:`, err);
+          failCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`批量设置分类完成！成功 ${successCount} 个${failCount > 0 ? `，失败 ${failCount} 个` : ''}`);
+      } else {
+        toast.error('批量设置分类全部失败');
+      }
+
+      setShowBatchCategoryModal(false);
+      setBatchCategoryId('');
+      setSelectedProductIds(new Set());
+    } catch (error: any) {
+      console.error('批量设置分类失败:', error);
+      toast.error(error.message || '批量设置分类失败');
+    } finally {
+      setBatchCategoryRunning(false);
+    }
+  };
+
   const handleViewAI = (product: InventoryProduct) => {
     setAiViewProduct(product);
     setShowAiModal(true);
@@ -1384,6 +1441,23 @@ export default function InventoryProductManagementPage() {
               : selectedProductIds.size > 0
                 ? `一键生成本地批次 (${selectedUnbatchedProducts.length})`
                 : '一键生成本地批次'}
+          </button>
+          <button
+            onClick={() => setShowBatchCategoryModal(true)}
+            disabled={batchCategoryRunning || selectedProductIds.size === 0}
+            title="为选中的库存商品批量设置分类"
+            className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-4 py-2 rounded-lg hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {batchCategoryRunning ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <FolderOpen className="w-5 h-5" />
+            )}
+            {batchCategoryRunning
+              ? '设置中...'
+              : selectedProductIds.size > 0
+                ? `批量设置分类 (${selectedProductIds.size})`
+                : '批量设置分类'}
           </button>
           <button
             onClick={() => {
@@ -2512,6 +2586,55 @@ export default function InventoryProductManagementPage() {
                 className="px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50"
               >
                 {batchRunning ? '处理中...' : '关闭'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 批量设置分类模态框 */}
+      {showBatchCategoryModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4">
+            <div className="p-6 border-b">
+              <h3 className="text-lg font-semibold">批量设置分类</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                将为选中的 {selectedProductIds.size} 个商品设置分类（会覆盖原有分类）
+              </p>
+            </div>
+            <div className="p-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">选择分类</label>
+              <select
+                value={batchCategoryId}
+                onChange={(e) => setBatchCategoryId(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+              >
+                <option value="">请选择分类...</option>
+                {categories.map(cat => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name_i18n?.zh || cat.name_i18n?.tg || cat.code}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="p-4 border-t flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowBatchCategoryModal(false);
+                  setBatchCategoryId('');
+                }}
+                disabled={batchCategoryRunning}
+                className="px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleBatchSetCategory}
+                disabled={batchCategoryRunning || !batchCategoryId}
+                className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {batchCategoryRunning && <Loader2 className="w-4 h-4 animate-spin" />}
+                {batchCategoryRunning ? '设置中...' : '确认设置'}
               </button>
             </div>
           </div>
