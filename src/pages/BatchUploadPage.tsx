@@ -5,7 +5,7 @@ import {
   Upload, Plus, Trash2, X, ImageIcon, FolderUp, Link as LinkIcon, Sparkles
 } from 'lucide-react';
 import { useSupabase } from '@/contexts/SupabaseContext';
-import { adminQuery, adminUpdate, adminInsert } from '@/lib/adminApi';
+import { adminQuery, adminUpdate, adminInsert, getSessionToken } from '@/lib/adminApi';
 import { uploadImage, downloadAndUploadImage } from '@/lib/uploadImage';
 import toast from 'react-hot-toast';
 import { nanoid } from 'nanoid';
@@ -438,19 +438,55 @@ function CreateBatchForm({
     }
 
     setSubmitting(true);
-    // File + URL 类型都需要上传（URL 模式现在也会下载压缩后上传）
-    const totalImages = groups.reduce(
-      (sum, g) => sum + (g.source === 'file' ? g.files.length : g.imageUrls.length),
-      0,
-    );
-    setUploadProgress({ current: 0, total: totalImages, currentName: '' });
 
     try {
+      // Step 0: 去重检查 — 在上传图片前先校验商品名称和URL是否已存在
+      toast.loading('正在检查商品重复...', { id: 'batch-create' });
+      let filteredGroups = [...groups];
+      try {
+        const checkPayload = groups.map(g => ({
+          id: g.id,
+          name: g.name || '',
+          urls: g.source === 'url' ? g.imageUrls : [],
+        }));
+        const sessionToken = getSessionToken();
+        if (sessionToken) {
+          const { data: dupResult, error: dupError } = await supabase.rpc('check_batch_duplicates', {
+            p_session_token: sessionToken,
+            p_items: checkPayload,
+          });
+          if (!dupError && dupResult && Array.isArray(dupResult) && dupResult.length > 0) {
+            const dupIds = new Set(dupResult.map((d: any) => d.id));
+            const dupNames = dupResult.map((d: any) => `「${d.name || '未命名'}」(${d.reason})`).join('、');
+            filteredGroups = groups.filter(g => !dupIds.has(g.id));
+            toast.error(
+              `检测到 ${dupResult.length} 个重复商品已自动忽略：${dupNames}`,
+              { id: 'batch-dedup', duration: 6000 }
+            );
+            if (filteredGroups.length === 0) {
+              toast.dismiss('batch-create');
+              toast.error('所有商品均已存在，无需重复上传', { id: 'batch-create' });
+              return;
+            }
+          }
+        }
+      } catch (dedupErr: any) {
+        // 去重检查失败不阻塞上传流程，仅打印警告
+        console.warn('[去重检查] 失败，继续上传:', dedupErr);
+      }
+
+      // File + URL 类型都需要上传（URL 模式现在也会下载压缩后上传）
+      const totalImages = filteredGroups.reduce(
+        (sum, g) => sum + (g.source === 'file' ? g.files.length : g.imageUrls.length),
+        0,
+      );
+      setUploadProgress({ current: 0, total: totalImages, currentName: '' });
+
       // Step 1: 创建批次任务
       toast.loading('正在创建批次任务...', { id: 'batch-create' });
       const batchResult = await adminInsert(supabase, 'batch_upload_tasks', {
         batch_name: batchName.trim(),
-        total_items: groups.length,
+        total_items: filteredGroups.length,
         status: 'pending',
         default_category_id: categoryId || null,
         default_price: defaultPrice,
@@ -470,13 +506,13 @@ function CreateBatchForm({
 
       toast.loading(`批次已创建，正在压缩并上传 ${totalImages} 张图片...`, { id: 'batch-create' });
 
-      // Step 2: 逐组上传图片并创建子项
+      // Step 2: 逐组上传图片并创建子项（使用去重过滤后的列表）
       let uploadedCount = 0;
       let successGroups = 0;
       let failedGroups = 0;
 
-      for (let gi = 0; gi < groups.length; gi++) {
-        const group = groups[gi];
+      for (let gi = 0; gi < filteredGroups.length; gi++) {
+        const group = filteredGroups[gi];
         setUploadProgress({ current: uploadedCount, total: totalImages, currentName: group.name });
 
         try {
@@ -522,12 +558,14 @@ function CreateBatchForm({
       }
 
       // 清理预览URL（仅 File 模式产生的 ObjectURL 需要 revoke；URL 模式是原始外链，无需 revoke）
-      groups.forEach(g => {
+      filteredGroups.forEach(g => {
         if (g.source === 'file') g.previews.forEach(url => URL.revokeObjectURL(url));
       });
 
+      const skippedCount = groups.length - filteredGroups.length;
       if (successGroups > 0) {
-        toast.success(`批量上架任务已创建！成功 ${successGroups} 个商品${failedGroups > 0 ? `，失败 ${failedGroups} 个` : ''}`, { id: 'batch-create' });
+        const skippedMsg = skippedCount > 0 ? `，去重跳过 ${skippedCount} 个` : '';
+        toast.success(`批量上架任务已创建！成功 ${successGroups} 个商品${failedGroups > 0 ? `，失败 ${failedGroups} 个` : ''}${skippedMsg}`, { id: 'batch-create' });
         onCreated();
       } else {
         toast.error('所有商品上传均失败，请检查网络后重试', { id: 'batch-create' });

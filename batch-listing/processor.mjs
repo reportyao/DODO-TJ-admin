@@ -576,6 +576,57 @@ async function saveToInventory(item, semanticFacts, localized, aiUnderstanding) 
   // 商品名：优先使用用户手动指定的名称，其次使用 AI 识别的 product_type
   const productName = item.product_name || info.name_zh || '未命名商品';
 
+  // ============================================================
+  // [去重兜底] 入库前检查商品名称或图片URL是否已存在
+  // ============================================================
+  try {
+    // 检查名称重复
+    const { data: existByName } = await supabase
+      .from('inventory_products')
+      .select('id')
+      .ilike('name', productName)
+      .neq('status', 'INACTIVE')
+      .limit(1);
+    if (existByName && existByName.length > 0) {
+      log('warn', `[${item.id}] 去重兜底: 商品名称「${productName}」已存在 (id=${existByName[0].id})，跳过入库`);
+      // 更新状态为 skipped
+      await supabase
+        .from('batch_upload_items')
+        .update({
+          status: 'skipped',
+          error_message: `去重跳过: 商品名称「${productName}」已存在`,
+          inventory_product_id: existByName[0].id,
+          processing_completed_at: new Date().toISOString(),
+        })
+        .eq('id', item.id);
+      return existByName[0].id;
+    }
+    // 检查图片URL重复
+    if (item.image_urls && item.image_urls.length > 0) {
+      const { data: existByUrl } = await supabase
+        .from('inventory_products')
+        .select('id')
+        .overlaps('image_urls', item.image_urls)
+        .limit(1);
+      if (existByUrl && existByUrl.length > 0) {
+        log('warn', `[${item.id}] 去重兜底: 图片URL已存在 (id=${existByUrl[0].id})，跳过入库`);
+        await supabase
+          .from('batch_upload_items')
+          .update({
+            status: 'skipped',
+            error_message: `去重跳过: 图片URL已存在于商品 ${existByUrl[0].id}`,
+            inventory_product_id: existByUrl[0].id,
+            processing_completed_at: new Date().toISOString(),
+          })
+          .eq('id', item.id);
+        return existByUrl[0].id;
+      }
+    }
+  } catch (dedupErr) {
+    // 去重检查失败不影响主流程，继续入库
+    log('warn', `[${item.id}] 去重检查异常（非致命）: ${dedupErr.message}`);
+  }
+
   // 与 AIListingPage.saveTaskToInventory 的 productData 结构完全一致
   const productData = {
     name: productName,
@@ -774,6 +825,19 @@ async function processItem(item) {
     const productId = await saveToInventory(item, semanticFacts, localized, aiUnderstanding);
 
     const duration = Date.now() - startTime;
+
+    // 检查是否被去重兜底跳过（saveToInventory 内部已将状态设为 skipped）
+    const { data: currentItem } = await supabase
+      .from('batch_upload_items')
+      .select('status')
+      .eq('id', itemId)
+      .single();
+    if (currentItem && currentItem.status === 'skipped') {
+      log('info', `[${itemId}] 去重跳过，不覆盖状态 (${duration}ms)`);
+      totalSuccess++;
+      return { success: true, productId, skipped: true };
+    }
+
     log('info', `[${itemId}] 入库成功: product_id=${productId} (${duration}ms)`);
 
     // 更新为成功
