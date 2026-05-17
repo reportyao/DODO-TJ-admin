@@ -77,6 +77,8 @@ export default function ProductPickerPanel({
   const [totalCount, setTotalCount] = useState(0);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  // 请求序列号：用于防止旧请求覆盖新请求的结果
+  const requestSeqRef = useRef(0);
   const existingSet = new Set(existingProductIds);
 
   // 打开面板时自动聚焦搜索框并加载数据
@@ -86,18 +88,19 @@ export default function ProductPickerPanel({
       setSearchKeyword('');
       setSelectedCategoryId('all');
       fetchCategories();
-      fetchProducts('all', '');
+      // 注意：不在这里调用 fetchProducts，让下面的防抖 useEffect 统一处理
       setTimeout(() => searchInputRef.current?.focus(), 200);
     }
   }, [open]);
 
-  // 搜索防抖
+  // 搜索防抖 - 唯一的 fetchProducts 触发点
   useEffect(() => {
+    if (!open) return;
     const timer = setTimeout(() => {
       fetchProducts(selectedCategoryId, searchKeyword);
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchKeyword, selectedCategoryId]);
+  }, [searchKeyword, selectedCategoryId, open]);
 
   // 获取分类列表
   const fetchCategories = async () => {
@@ -116,6 +119,9 @@ export default function ProductPickerPanel({
 
   // 获取商品列表
   const fetchProducts = useCallback(async (categoryId: string, keyword: string) => {
+    // 递增请求序列号，用于丢弃过期响应
+    const currentSeq = ++requestSeqRef.current;
+
     setLoading(true);
     try {
       // 基础筛选：只查ACTIVE商品
@@ -133,12 +139,17 @@ export default function ProductPickerPanel({
         }
       }
 
-      // 查询商品 - 分批加载全部商品
+      // 查询商品 - 分批加载
       const batchSize = 500;
       let allData: ProductPickerItem[] = [];
       let offset = 0;
       let hasMore = true;
       while (hasMore) {
+        // 在每批请求前检查是否已被更新的请求取代
+        if (requestSeqRef.current !== currentSeq) {
+          return; // 丢弃过期请求
+        }
+
         const batch = await adminQuery<ProductPickerItem>(supabase, 'inventory_products', {
           select: 'id, name_i18n, description_i18n, image_url, image_urls, original_price, stock, status, sku, ai_understanding',
           filters: filters as any,
@@ -148,6 +159,12 @@ export default function ProductPickerPanel({
           limit: batchSize,
           offset,
         });
+
+        // 请求返回后再次检查序列号
+        if (requestSeqRef.current !== currentSeq) {
+          return; // 丢弃过期请求
+        }
+
         allData = [...allData, ...(batch || [])];
         if (!batch || batch.length < batchSize) {
           hasMore = false;
@@ -156,6 +173,11 @@ export default function ProductPickerPanel({
         }
       }
       const data = allData;
+
+      // 最终检查序列号
+      if (requestSeqRef.current !== currentSeq) {
+        return;
+      }
 
       let result = data || [];
 
@@ -166,6 +188,7 @@ export default function ProductPickerPanel({
           const allRelations = await adminQuery<{ product_id: string }>(supabase, 'product_categories', {
             select: 'product_id',
           });
+          if (requestSeqRef.current !== currentSeq) return;
           const assignedIds = new Set((allRelations || []).map(r => r.product_id));
           result = result.filter(p => !assignedIds.has(p.id));
         } else {
@@ -173,6 +196,7 @@ export default function ProductPickerPanel({
             select: 'product_id',
             filters: [{ col: 'category_id', op: 'eq', val: categoryId }] as any,
           });
+          if (requestSeqRef.current !== currentSeq) return;
           const productIdSet = new Set((catRelations || []).map(r => r.product_id));
           result = result.filter(p => productIdSet.has(p.id));
         }
@@ -181,9 +205,15 @@ export default function ProductPickerPanel({
       setProducts(result);
       setTotalCount(result.length);
     } catch (error) {
-      console.error('Failed to fetch products:', error);
+      // 只在当前请求仍有效时报错
+      if (requestSeqRef.current === currentSeq) {
+        console.error('Failed to fetch products:', error);
+      }
     } finally {
-      setLoading(false);
+      // 只在当前请求仍有效时关闭 loading
+      if (requestSeqRef.current === currentSeq) {
+        setLoading(false);
+      }
     }
   }, [supabase]);
 
