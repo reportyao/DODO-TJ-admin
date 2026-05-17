@@ -133,15 +133,29 @@ export default function ProductPickerPanel({
         }
       }
 
-      // 查询商品
-      const data = await adminQuery<ProductPickerItem>(supabase, 'inventory_products', {
-        select: 'id, name_i18n, description_i18n, image_url, image_urls, original_price, stock, status, sku, ai_understanding',
-        filters: filters as any,
-        orFilters,
-        orderBy: 'created_at',
-        orderAsc: false,
-        limit: 200,
-      });
+      // 查询商品 - 分批加载全部商品
+      const batchSize = 500;
+      let allData: ProductPickerItem[] = [];
+      let offset = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const batch = await adminQuery<ProductPickerItem>(supabase, 'inventory_products', {
+          select: 'id, name_i18n, description_i18n, image_url, image_urls, original_price, stock, status, sku, ai_understanding',
+          filters: filters as any,
+          orFilters,
+          orderBy: 'created_at',
+          orderAsc: false,
+          limit: batchSize,
+          offset,
+        });
+        allData = [...allData, ...(batch || [])];
+        if (!batch || batch.length < batchSize) {
+          hasMore = false;
+        } else {
+          offset += batchSize;
+        }
+      }
+      const data = allData;
 
       let result = data || [];
 
