@@ -2,11 +2,16 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { adminDelete, adminInsert, adminQuery, adminUpdate } from '../lib/adminApi';
 import ProductPickerPanel, { ProductPickerItem } from '../components/ProductPickerPanel';
+import { MultiLanguageInput } from '../components/MultiLanguageInput';
+
+type I18nField = Record<string, string>;
 
 type GiftRule = {
   id: string;
   name: string;
   description?: string | null;
+  name_i18n?: I18nField | null;
+  description_i18n?: I18nField | null;
   threshold_amount: number;
   max_gift_items: number;
   is_active: boolean;
@@ -43,6 +48,8 @@ type InventoryProduct = {
 const emptyForm = {
   name: '',
   description: '',
+  name_i18n: {} as I18nField,
+  description_i18n: {} as I18nField,
   threshold_amount: 1000,
   max_gift_items: 1,
   is_active: true,
@@ -61,6 +68,10 @@ function toLocalInputValue(value?: string | null): string {
 function getProductName(product?: Partial<InventoryProduct> | GiftRuleProduct): string {
   const anyProduct = product as any;
   return anyProduct?.name_i18n?.zh || anyProduct?.name_i18n?.ru || anyProduct?.name || anyProduct?.product_name || '未命名商品';
+}
+
+function getRuleDisplayName(rule: GiftRule): string {
+  return rule.name_i18n?.zh || rule.name_i18n?.ru || rule.name || '未命名规则';
 }
 
 export default function B2BGiftWithPurchasePage() {
@@ -125,7 +136,7 @@ export default function B2BGiftWithPurchasePage() {
 
   const openCreate = () => {
     setEditingRule(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, name_i18n: {}, description_i18n: {} });
     setGiftProducts([]);
     setPickerOpen(false);
   };
@@ -135,6 +146,8 @@ export default function B2BGiftWithPurchasePage() {
     setForm({
       name: rule.name || '',
       description: rule.description || '',
+      name_i18n: rule.name_i18n ? { ...rule.name_i18n } : {},
+      description_i18n: rule.description_i18n ? { ...rule.description_i18n } : {},
       threshold_amount: Number(rule.threshold_amount || 0),
       max_gift_items: Number(rule.max_gift_items || 1),
       is_active: Boolean(rule.is_active),
@@ -166,8 +179,10 @@ export default function B2BGiftWithPurchasePage() {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) {
-      alert('请输入规则名称');
+    // 至少需要一种语言的名称
+    const hasName = form.name.trim() || form.name_i18n?.zh?.trim() || form.name_i18n?.ru?.trim() || form.name_i18n?.tg?.trim();
+    if (!hasName) {
+      alert('请至少输入一种语言的规则名称');
       return;
     }
     if (!Number.isFinite(Number(form.threshold_amount)) || Number(form.threshold_amount) <= 0) {
@@ -181,9 +196,18 @@ export default function B2BGiftWithPurchasePage() {
 
     setSaving(true);
     try {
+      // 自动回填 name 字段（兼容旧逻辑）：优先用中文，其次俄语，最后塔吉克语
+      const effectiveName = form.name_i18n?.zh?.trim() || form.name_i18n?.ru?.trim() || form.name_i18n?.tg?.trim() || form.name.trim();
+
+      // MultiLanguageInput 已自动清除空键，直接使用
+      const nameI18n = Object.keys(form.name_i18n || {}).length > 0 ? form.name_i18n : null;
+      const descI18n = Object.keys(form.description_i18n || {}).length > 0 ? form.description_i18n : null;
+
       const payload = {
-        name: form.name.trim(),
-        description: form.description.trim() || null,
+        name: effectiveName,
+        description: form.description_i18n?.zh?.trim() || form.description_i18n?.ru?.trim() || form.description.trim() || null,
+        name_i18n: nameI18n,
+        description_i18n: descI18n,
         threshold_amount: Number(form.threshold_amount),
         max_gift_items: Math.max(1, Number(form.max_gift_items || 1)),
         is_active: form.is_active,
@@ -216,7 +240,7 @@ export default function B2BGiftWithPurchasePage() {
 
       await loadData();
       setEditingRule(null);
-      setForm(emptyForm);
+      setForm({ ...emptyForm, name_i18n: {}, description_i18n: {} });
       setGiftProducts([]);
       alert('满额赠送规则已保存');
     } catch (error: any) {
@@ -227,7 +251,7 @@ export default function B2BGiftWithPurchasePage() {
   };
 
   const handleDelete = async (rule: GiftRule) => {
-    if (!confirm(`确定删除规则「${rule.name}」？赠品池会一并删除。`)) return;
+    if (!confirm(`确定删除规则「${getRuleDisplayName(rule)}」？赠品池会一并删除。`)) return;
     await adminDelete(supabase, 'b2b_gift_rules', [{ col: 'id', op: 'eq', val: rule.id }]);
     await loadData();
     if (editingRule?.id === rule.id) openCreate();
@@ -243,7 +267,7 @@ export default function B2BGiftWithPurchasePage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">满额赠送配置</h1>
-          <p className="text-sm text-gray-500 mt-1">配置批发购物车达到指定金额后可选择的0元赠品池，实际资格会在下单时由服务端再次校验。</p>
+          <p className="text-sm text-gray-500 mt-1">配置批发购物车达到指定金额后可选择的0元赠品池，实际资格会在下单时由服务端再次校验。规则名称和说明支持中文/俄语/塔吉克语三种语言。</p>
         </div>
         <button onClick={openCreate} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">新建规则</button>
       </div>
@@ -255,6 +279,7 @@ export default function B2BGiftWithPurchasePage() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* 规则列表 */}
         <div className="bg-white rounded-xl border overflow-hidden">
           <div className="px-4 py-3 border-b font-semibold">规则列表</div>
           {loading ? <div className="p-6 text-gray-500">加载中...</div> : (
@@ -264,10 +289,18 @@ export default function B2BGiftWithPurchasePage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-gray-900">{rule.name}</span>
+                        <span className="font-semibold text-gray-900">{getRuleDisplayName(rule)}</span>
                         <span className={`text-xs px-2 py-0.5 rounded-full ${rule.is_active ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{rule.is_active ? '启用' : '停用'}</span>
                       </div>
                       <div className="text-sm text-gray-500 mt-1">满 TJS {Number(rule.threshold_amount).toFixed(2)} 可选 {rule.max_gift_items} 件赠品 · {ruleProducts[rule.id]?.length || 0} 个赠品SKU</div>
+                      {/* 显示多语言名称预览 */}
+                      {rule.name_i18n && Object.keys(rule.name_i18n).length > 0 && (
+                        <div className="text-xs text-gray-400 mt-1 space-x-2">
+                          {rule.name_i18n.ru && <span>🇷🇺 {rule.name_i18n.ru}</span>}
+                          {rule.name_i18n.tg && <span>🇹🇯 {rule.name_i18n.tg}</span>}
+                          {rule.name_i18n.zh && <span>🇨🇳 {rule.name_i18n.zh}</span>}
+                        </div>
+                      )}
                       {rule.description && <div className="text-xs text-gray-400 mt-1">{rule.description}</div>}
                     </div>
                     <div className="flex gap-2 text-sm">
@@ -283,19 +316,38 @@ export default function B2BGiftWithPurchasePage() {
           )}
         </div>
 
+        {/* 编辑/新建表单 */}
         <div className="bg-white rounded-xl border p-4 space-y-4">
           <div className="font-semibold">{editingRule ? '编辑规则' : '新建规则'}</div>
+
+          {/* 多语言规则名称 */}
+          <MultiLanguageInput
+            label="规则名称（多语言）"
+            value={form.name_i18n}
+            onChange={(val) => setForm({ ...form, name_i18n: val })}
+            placeholder="例如：满1000送试用装"
+          />
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <label className="space-y-1 md:col-span-2"><span className="text-sm text-gray-600">规则名称</span><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full border rounded-lg px-3 py-2" placeholder="例如：满1000送试用装" /></label>
             <label className="space-y-1"><span className="text-sm text-gray-600">门槛金额（TJS）</span><input type="number" min="0" value={form.threshold_amount} onChange={(e) => setForm({ ...form, threshold_amount: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2" /></label>
             <label className="space-y-1"><span className="text-sm text-gray-600">最多可选</span><input type="number" min="1" value={form.max_gift_items} onChange={(e) => setForm({ ...form, max_gift_items: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2" /></label>
             <label className="space-y-1"><span className="text-sm text-gray-600">开始时间</span><input type="datetime-local" value={form.starts_at} onChange={(e) => setForm({ ...form, starts_at: e.target.value })} className="w-full border rounded-lg px-3 py-2" /></label>
             <label className="space-y-1"><span className="text-sm text-gray-600">结束时间</span><input type="datetime-local" value={form.ends_at} onChange={(e) => setForm({ ...form, ends_at: e.target.value })} className="w-full border rounded-lg px-3 py-2" /></label>
             <label className="space-y-1"><span className="text-sm text-gray-600">排序</span><input type="number" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2" /></label>
             <label className="flex items-center gap-2 pt-6"><input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />启用规则</label>
-            <label className="space-y-1 md:col-span-2"><span className="text-sm text-gray-600">说明</span><textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="w-full border rounded-lg px-3 py-2" rows={3} /></label>
           </div>
 
+          {/* 多语言说明 */}
+          <MultiLanguageInput
+            label="规则说明（多语言，选填）"
+            value={form.description_i18n}
+            onChange={(val) => setForm({ ...form, description_i18n: val })}
+            placeholder="活动说明"
+            multiline
+            rows={2}
+          />
+
+          {/* 赠品池 */}
           <div className="border-t pt-4 space-y-3">
             <div className="flex items-center justify-between"><div className="font-medium">赠品池</div><button onClick={() => setPickerOpen(true)} className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-sm">添加赠品</button></div>
             <div className="space-y-2">
